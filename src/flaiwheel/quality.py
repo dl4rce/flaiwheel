@@ -123,8 +123,8 @@ class KnowledgeQualityChecker:
                 rel = str(md_file.relative_to(docs))
 
                 for section in BUGFIX_REQUIRED_SECTIONS:
-                    pattern = rf"^##\s+{re.escape(section)}"
-                    if not re.search(pattern, content, re.MULTILINE):
+                    pattern = rf"^##\s+[\*_\s]*(?:\S+\s+)?{re.escape(section)}"
+                    if not re.search(pattern, content, re.MULTILINE | re.IGNORECASE):
                         issues.append(_issue(
                             "critical", rel,
                             f"Bugfix entry missing required section: '## {section}'. "
@@ -133,7 +133,8 @@ class KnowledgeQualityChecker:
 
                 sections = re.findall(r"^##\s+(.+)", content, re.MULTILINE)
                 for section_name in sections:
-                    section_pattern = rf"^##\s+{re.escape(section_name.strip())}\s*\n(.*?)(?=^##|\Z)"
+                    clean_name = _strip_heading_decorators(section_name)
+                    section_pattern = rf"^##\s+.*{re.escape(clean_name)}.*\s*\n(.*?)(?=^##|\Z)"
                     match = re.search(section_pattern, content, re.MULTILINE | re.DOTALL)
                     if match and len(match.group(1).strip()) < 20:
                         issues.append(_issue(
@@ -152,7 +153,7 @@ class KnowledgeQualityChecker:
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 rel = str(md_file.relative_to(docs))
-                headings = re.findall(r"^(#{1,6})\s", content, re.MULTILINE)
+                headings = re.findall(r"^(#{1,6})\s+", content, re.MULTILINE)
 
                 if not headings:
                     issues.append(_issue(
@@ -204,6 +205,17 @@ class KnowledgeQualityChecker:
                     f"Expected: {', '.join(EXPECTED_DIRS)}.",
                 ))
         return issues
+
+
+def _strip_heading_decorators(text: str) -> str:
+    """Remove emojis, bold/italic markers, and extra whitespace from heading text."""
+    text = re.sub(r"[\*_`~]+", "", text)
+    text = re.sub(
+        r"[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001FA00-\U0001FA6F"
+        r"\U0001FA70-\U0001FAFF\U00002702-\U000027B0]+",
+        "", text,
+    )
+    return text.strip()
 
 
 def _issue(severity: str, file: str, message: str) -> dict:

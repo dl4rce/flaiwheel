@@ -90,6 +90,7 @@ Add to `.cursor/mcp.json` (or `claude_desktop_config.json`):
 {
   "mcpServers": {
     "flaiwheel": {
+      "type": "sse",
       "url": "http://localhost:8081/sse"
     }
   }

@@ -243,13 +243,14 @@ if [ -f "$MCP_JSON" ]; then
     else
         warn ".cursor/mcp.json exists but doesn't have flaiwheel"
         warn "Add this manually to your mcpServers:"
-        echo '    "flaiwheel": { "url": "http://localhost:8081/sse" }'
+        echo '    "flaiwheel": { "type": "sse", "url": "http://localhost:8081/sse" }'
     fi
 else
     cat > "$MCP_JSON" << 'EOF'
 {
   "mcpServers": {
     "flaiwheel": {
+      "type": "sse",
       "url": "http://localhost:8081/sse"
     }
   }

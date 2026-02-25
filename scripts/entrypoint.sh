@@ -29,7 +29,6 @@ if [ -n "${MCP_GIT_REPO_URL}" ] && [ ! "$(ls -A ${MCP_DOCS_PATH:-/docs} 2>/dev/n
     git clone \
         --branch "${MCP_GIT_BRANCH:-main}" \
         --single-branch \
-        --depth 1 \
         "${CLONE_URL}" "${MCP_DOCS_PATH:-/docs}"
 
     echo "Clone complete"

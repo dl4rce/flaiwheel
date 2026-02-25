@@ -178,9 +178,22 @@ class GitWatcher:
         if not git_dir:
             return False
 
+        # Unshallow if needed (legacy shallow clones can't fast-forward)
+        shallow_file = git_dir / ".git" / "shallow"
+        if shallow_file.exists():
+            try:
+                subprocess.run(
+                    ["git", "-C", str(git_dir), "fetch", "--unshallow"],
+                    capture_output=True, timeout=60,
+                )
+                print("Unshallowed git repo for proper pull support")
+            except Exception:
+                pass
+
         old_commit = self._get_current_commit()
 
         try:
+            pull_url = self._auth_url(self.config.git_repo_url)
             subprocess.run(
                 ["git", "-C", str(git_dir), "pull", "--ff-only"],
                 capture_output=True, timeout=30, check=True,
