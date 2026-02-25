@@ -99,11 +99,10 @@ class KnowledgeQualityChecker:
         for md_file in docs.rglob("*.md"):
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
-                text = re.sub(r"^#.*$", "", content, flags=re.MULTILINE).strip()
+                text = _strip_markdown_overhead(content)
                 rel = str(md_file.relative_to(docs))
 
                 if len(text) < 30:
-                    # Placeholder files (just a heading) are info, not warning
                     is_placeholder = (
                         md_file.name == "README.md"
                         and md_file.parent != docs
@@ -146,20 +145,15 @@ class KnowledgeQualityChecker:
                             f"This reduces the learning value of the entry.",
                         ))
 
-                sections = re.findall(r"^##\s+(.+)", content, re.MULTILINE)
-                for section_name in sections:
-                    clean_name = _strip_heading_decorators(section_name)
-                    section_pattern = rf"^##\s+.*{re.escape(clean_name)}.*\s*\n(.*?)(?=^##\s|\Z)"
-                    match = re.search(section_pattern, content, re.MULTILINE | re.DOTALL)
-                    if match:
-                        body = match.group(1)
-                        stripped = re.sub(r"^#{1,6}\s+.*$", "", body, flags=re.MULTILINE).strip()
-                        if len(stripped) < 20:
-                            issues.append(_issue(
-                                "warning", rel,
-                                f"Section '## {section_name.strip()}' has very little content. "
-                                f"Add meaningful detail for future reference.",
-                            ))
+                h2_sections = _split_h2_sections(content)
+                for heading, body in h2_sections:
+                    measured = _strip_markdown_overhead(body)
+                    if len(measured) < 20:
+                        issues.append(_issue(
+                            "warning", rel,
+                            f"Section '## {heading}' has very little content. "
+                            f"Add meaningful detail for future reference.",
+                        ))
             except Exception:
                 pass
         return issues
@@ -171,7 +165,8 @@ class KnowledgeQualityChecker:
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 rel = str(md_file.relative_to(docs))
-                headings = re.findall(r"^(#{1,6})\s+", content, re.MULTILINE)
+                cleaned = _strip_code_blocks(content)
+                headings = re.findall(r"^(#{1,6})\s+", cleaned, re.MULTILINE)
 
                 if not headings:
                     issues.append(_issue(
@@ -187,16 +182,21 @@ class KnowledgeQualityChecker:
                         f"Start with a # (h1) title.",
                     ))
 
+                seen_levels = {len(headings[0])}
                 for i in range(1, len(headings)):
-                    prev_level = len(headings[i - 1])
                     curr_level = len(headings[i])
-                    if curr_level > prev_level + 1:
+                    if curr_level not in seen_levels and all(
+                        lvl < curr_level - 1 or lvl >= curr_level
+                        for lvl in seen_levels
+                    ):
+                        prev_max = max(l for l in seen_levels if l < curr_level)
                         issues.append(_issue(
                             "info", rel,
-                            f"Heading level jumps from h{prev_level} to h{curr_level}. "
+                            f"Heading level jumps from h{prev_max} to h{curr_level}. "
                             f"Don't skip heading levels.",
                         ))
                         break
+                    seen_levels.add(curr_level)
             except Exception:
                 pass
         return issues
@@ -223,6 +223,38 @@ class KnowledgeQualityChecker:
                     f"Expected: {', '.join(EXPECTED_DIRS)}.",
                 ))
         return issues
+
+
+def _strip_code_blocks(text: str) -> str:
+    """Remove fenced code blocks so headings/content inside them aren't counted."""
+    return re.sub(r"^```.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
+
+
+def _strip_markdown_overhead(text: str) -> str:
+    """Measure meaningful content: remove headings but keep code, tables, lists."""
+    cleaned = _strip_code_blocks(text)
+    lines = []
+    for line in cleaned.splitlines():
+        if re.match(r"^#{1,6}\s+", line):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _split_h2_sections(text: str) -> list[tuple[str, str]]:
+    """Split markdown into (heading, body) tuples per ## section.
+
+    Captures everything between one ## and the next ##, including
+    subsections (###, ####), code blocks, tables, and lists.
+    """
+    cleaned = _strip_code_blocks(text)
+    parts = re.split(r"^(##\s+.+)$", cleaned, flags=re.MULTILINE)
+    sections = []
+    for i in range(1, len(parts), 2):
+        heading = parts[i].lstrip("#").strip()
+        body = parts[i + 1] if i + 1 < len(parts) else ""
+        sections.append((heading, body))
+    return sections
 
 
 def _strip_heading_decorators(text: str) -> str:
