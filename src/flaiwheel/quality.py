@@ -25,7 +25,8 @@ EXPECTED_DIRS = [
 
 BUGFIX_REQUIRED_SECTIONS = ["Root Cause", "Solution", "Lesson Learned"]
 
-SEVERITY_PENALTY = {"critical": 10, "warning": 3, "info": 1}
+SEVERITY_PENALTY = {"critical": 10, "warning": 2, "info": 0}
+MAX_DEDUCTION = {"critical": 60, "warning": 30, "info": 0}
 
 
 class KnowledgeQualityChecker:
@@ -48,9 +49,16 @@ class KnowledgeQualityChecker:
         issues.extend(self._check_heading_structure(docs))
         issues.extend(self._check_orphans(docs))
 
-        score = 100
+        deductions: dict[str, int] = {}
         for issue in issues:
-            score -= SEVERITY_PENALTY.get(issue["severity"], 0)
+            sev = issue["severity"]
+            penalty = SEVERITY_PENALTY.get(sev, 0)
+            deductions[sev] = deductions.get(sev, 0) + penalty
+
+        score = 100
+        for sev, total in deductions.items():
+            cap = MAX_DEDUCTION.get(sev, 100)
+            score -= min(total, cap)
         score = max(0, score)
 
         return {
@@ -95,8 +103,15 @@ class KnowledgeQualityChecker:
                 rel = str(md_file.relative_to(docs))
 
                 if len(text) < 30:
+                    # Placeholder files (just a heading) are info, not warning
+                    is_placeholder = (
+                        md_file.name == "README.md"
+                        and md_file.parent != docs
+                        and len(text) == 0
+                    )
+                    severity = "info" if is_placeholder else "warning"
                     issues.append(_issue(
-                        "warning", rel,
+                        severity, rel,
                         "File is nearly empty (< 30 chars of content). "
                         "Add content or remove it.",
                     ))
