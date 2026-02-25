@@ -480,14 +480,7 @@ ok "Created .cursor/rules/flaiwheel.mdc"
 
 AGENTS_FILE="${PROJECT_DIR}/AGENTS.md"
 
-if [ -f "$AGENTS_FILE" ]; then
-    if grep -q "flaiwheel\|Flaiwheel" "$AGENTS_FILE" 2>/dev/null; then
-        ok "AGENTS.md already has Flaiwheel section"
-    else
-        cat >> "$AGENTS_FILE" << 'AGENTSEOF'
-
----
-
+FLAIWHEEL_AGENTS_BLOCK=$(cat << 'BLOCKEOF'
 ## Flaiwheel — Project Knowledge Base (MCP) — YOUR FIRST STOP
 
 This project has a **semantic knowledge base** powered by Flaiwheel.
@@ -532,58 +525,33 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 | `get_index_stats()` | Index statistics |
 | `reindex()` | Re-index all documentation |
 | `check_knowledge_quality()` | Validate knowledge base |
-AGENTSEOF
+BLOCKEOF
+)
+
+if [ -f "$AGENTS_FILE" ]; then
+    if grep -q "flaiwheel\|Flaiwheel" "$AGENTS_FILE" 2>/dev/null; then
+        # Remove old Flaiwheel section and replace with current version
+        sed '/^---$/,/^---$/{ /^## Flaiwheel/,$ { /^## [^F]/!d; }; }' "$AGENTS_FILE" > /dev/null 2>&1 || true
+        # Simpler approach: remove everything from "## Flaiwheel" to next non-Flaiwheel h2 or EOF
+        python3 -c "
+import re, sys
+content = open('$AGENTS_FILE', encoding='utf-8').read()
+# Remove old Flaiwheel section (from ## Flaiwheel to next ## that isn't Flaiwheel, or EOF)
+content = re.sub(
+    r'(?:^---\n+)?^## Flaiwheel.*?(?=^## (?!Flaiwheel)|\Z)',
+    '', content, flags=re.MULTILINE | re.DOTALL
+).rstrip()
+open('$AGENTS_FILE', 'w', encoding='utf-8').write(content + '\n')
+"
+        # Append fresh Flaiwheel section
+        printf '\n---\n\n%s\n' "$FLAIWHEEL_AGENTS_BLOCK" >> "$AGENTS_FILE"
+        ok "Updated Flaiwheel section in AGENTS.md"
+    else
+        printf '\n---\n\n%s\n' "$FLAIWHEEL_AGENTS_BLOCK" >> "$AGENTS_FILE"
         ok "Appended Flaiwheel section to existing AGENTS.md"
     fi
 else
-    cat > "$AGENTS_FILE" << 'AGENTSEOF'
-# AI Agent Instructions
-
-## Flaiwheel — Project Knowledge Base (MCP) — YOUR FIRST STOP
-
-This project has a **semantic knowledge base** powered by Flaiwheel.
-MCP endpoint: `http://localhost:8081/sse`
-
-### Step 1: Flaiwheel — Step 2: Native tools
-
-For every task, follow this order:
-1. **FIRST → Search Flaiwheel** for context: architecture decisions, past bugs, best practices, API docs, setup guides, application questions
-2. **THEN → Use your native tools** (file search, code reading, grep, etc.) for source code details
-
-Flaiwheel knows things the source code cannot tell you: the _why_ behind decisions, past mistakes to avoid, patterns to follow. Your native tools are best for reading and editing actual source files. **Use both — but always start with Flaiwheel.**
-
-### Mandatory workflow
-
-1. **FIRST: Search Flaiwheel** — `search_docs("what you're working on")`, `search_bugfixes("the problem")`, `search_by_type("query", "architecture")` BEFORE touching code
-2. **THEN: Use native tools** to read/edit source code with the knowledge you found
-3. **AFTER fixing a bug:** `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` — auto-pushed + reindexed
-4. **AFTER decisions or doc changes:** `reindex()` so changes are searchable immediately
-5. **Periodically:** `check_knowledge_quality()` and fix issues
-
-### What the knowledge base contains
-
-| Category | Search with | What you'll find |
-|----------|-------------|-----------------|
-| `architecture` | `search_by_type("q", "architecture")` | System design, trade-offs, decisions |
-| `api` | `search_by_type("q", "api")` | Endpoints, contracts, schemas |
-| `bugfix` | `search_bugfixes("q")` | Root causes, solutions, lessons learned |
-| `best-practice` | `search_by_type("q", "best-practice")` | Coding standards, patterns |
-| `setup` | `search_by_type("q", "setup")` | Deployment, infrastructure, CI/CD |
-| `changelog` | `search_by_type("q", "changelog")` | Release notes, breaking changes |
-| _everything_ | `search_docs("q")` | Semantic search across all docs |
-
-### All tools
-
-| Tool | Purpose |
-|------|---------|
-| `search_docs(query, top_k)` | Semantic search across all documentation |
-| `search_bugfixes(query, top_k)` | Search bugfix summaries only |
-| `search_by_type(query, doc_type, top_k)` | Filter by type |
-| `write_bugfix_summary(...)` | Document a bugfix (auto-pushed + reindexed) |
-| `get_index_stats()` | Index statistics |
-| `reindex()` | Re-index all documentation |
-| `check_knowledge_quality()` | Validate knowledge base |
-AGENTSEOF
+    printf '# AI Agent Instructions\n\n%s\n' "$FLAIWHEEL_AGENTS_BLOCK" > "$AGENTS_FILE"
     ok "Created AGENTS.md with Flaiwheel instructions"
 fi
 
