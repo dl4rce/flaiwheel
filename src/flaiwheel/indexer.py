@@ -234,17 +234,25 @@ class DocsIndexer:
             except Exception as e:
                 print(f"Warning: Error processing {md_file}: {e}")
 
+        # Deduplicate: ChromaDB upsert rejects duplicate IDs within a batch
+        deduped: dict[str, dict] = {}
+        for chunk in all_chunks:
+            deduped[chunk["id"]] = chunk
+        unique_chunks = list(deduped.values())
+
         new_ids: set[str] = set()
-        if all_chunks:
+        if unique_chunks:
             batch_size = 5000
-            for i in range(0, len(all_chunks), batch_size):
-                batch = all_chunks[i : i + batch_size]
+            for i in range(0, len(unique_chunks), batch_size):
+                batch = unique_chunks[i : i + batch_size]
                 self.collection.upsert(
                     ids=[c["id"] for c in batch],
                     documents=[c["text"] for c in batch],
                     metadatas=[c["metadata"] for c in batch],
                 )
-            new_ids = {c["id"] for c in all_chunks}
+            new_ids = set(deduped.keys())
+        if len(all_chunks) != len(unique_chunks):
+            print(f"Deduplicated {len(all_chunks) - len(unique_chunks)} chunks with identical IDs")
 
         stale_ids = existing_ids - new_ids
         if stale_ids:
@@ -256,12 +264,12 @@ class DocsIndexer:
         result = {
             "status": "success",
             "files_indexed": file_count,
-            "chunks_created": len(all_chunks),
+            "chunks_created": len(unique_chunks),
             "chunks_removed": len(stale_ids),
             "docs_path": str(docs_path),
         }
         print(
-            f"Index: {file_count} files -> {len(all_chunks)} chunks"
+            f"Index: {file_count} files -> {len(unique_chunks)} chunks"
             f" ({len(stale_ids)} stale removed)"
         )
         return result
