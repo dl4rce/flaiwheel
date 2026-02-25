@@ -532,7 +532,7 @@
         var result = await api('POST', '/config', body);
         if (!result) return;
         if (result.model_changed) {
-            toast('success', 'Model changed! ' + (result.reindex_result?.chunks_created || 0) + ' chunks reindexed');
+            toast('success', 'Model changed! ' + (result.reindex_result?.chunks_upserted ?? result.reindex_result?.chunks_created ?? 0) + ' chunks reindexed');
         } else {
             toast('success', 'Saved');
         }
@@ -561,7 +561,10 @@
         toast('info', 'Re-indexing...');
         var result = await api('POST', '/reindex');
         if (!result) return;
-        toast('success', result.chunks_created + ' chunks indexed from ' + result.files_indexed + ' files');
+        var chunks = result.chunks_upserted ?? result.chunks_created ?? result.chunks_total ?? 0;
+        var changed = result.files_changed ?? result.files_indexed ?? 0;
+        var skipped = result.files_skipped ?? 0;
+        toast('success', chunks + ' chunks indexed from ' + result.files_indexed + ' files (' + changed + ' changed, ' + skipped + ' skipped)');
         loadStats();
     }
 
@@ -570,7 +573,7 @@
         var result = await api('POST', '/git/pull');
         if (!result) return;
         if (result.changes_detected) {
-            toast('success', 'New commits! ' + (result.reindex_result?.chunks_created || 0) + ' chunks reindexed');
+            toast('success', 'New commits! ' + (result.reindex_result?.chunks_upserted ?? result.reindex_result?.chunks_created ?? 0) + ' chunks reindexed');
         } else {
             toast('info', 'No changes in git repo');
         }
