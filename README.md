@@ -127,14 +127,24 @@ Your AI agent now has access to these MCP tools:
 
 ---
 
-## For AI Agents — READ THIS SECTION
+## For AI Agents — YOUR FIRST STOP
 
-**If you are an AI agent (Cursor, Claude Code, Copilot) connected to this MCP server, follow these rules:**
+**If you are an AI agent (Cursor, Claude Code, Copilot) connected to this MCP server:**
+
+Flaiwheel is your **primary knowledge source** for this project. It contains architecture decisions, API documentation, past bugfixes with root causes, best practices, setup guides, and changelogs — things the source code alone cannot tell you.
+
+### Step 1: Flaiwheel — Step 2: Native tools
+
+For every task, follow this order:
+1. **FIRST → Search Flaiwheel** for context, code understanding, architecture, past bugs, best practices
+2. **THEN → Use your native tools** (file search, code reading, grep) for source code details
 
 ### Before writing or changing code:
-1. **ALWAYS** call `search_docs("what you're about to change")` first
-2. Call `search_bugfixes("the problem you're solving")` to check for similar past issues
-3. Prefer 2-3 targeted searches over one vague query
+1. **ALWAYS** call `search_docs("what you're about to change")` first — check for architecture decisions, patterns, constraints
+2. Call `search_bugfixes("the problem you're solving")` — past issues, known pitfalls
+3. Use `search_by_type("query", "architecture")` for targeted searches
+4. Prefer 2-3 targeted searches over one vague query
+5. THEN use your native file search/code reading for source code details
 
 ### After fixing a bug:
 1. **ALWAYS** call `write_bugfix_summary()` with:
@@ -142,20 +152,34 @@ Your AI agent now has access to these MCP tools:
    - Technical root cause
    - What was changed to fix it
    - What should be done differently next time
-2. This is **mandatory** — it builds the knowledge base for future agents
+2. This is **mandatory** — skipping this breaks the flywheel
+
+### After architecture decisions or learning something important:
+1. Document it in the knowledge repo (appropriate category)
+2. Call `reindex()` so it's immediately searchable
 
 ### Periodically:
 1. Call `check_knowledge_quality()` to find issues in the knowledge base
-2. Fix critical issues immediately (missing sections in bugfix entries, empty files)
-3. Suggest improvements for warnings and info-level issues
+2. Fix critical issues immediately
 
-### What you have access to:
+### What the knowledge base contains:
+| Category | Search with | What you'll find |
+|----------|-------------|-----------------|
+| `architecture` | `search_by_type("q", "architecture")` | System design, trade-offs, decisions |
+| `api` | `search_by_type("q", "api")` | Endpoints, contracts, schemas |
+| `bugfix` | `search_bugfixes("q")` | Root causes, solutions, lessons learned |
+| `best-practice` | `search_by_type("q", "best-practice")` | Coding standards, patterns |
+| `setup` | `search_by_type("q", "setup")` | Deployment, infrastructure, CI/CD |
+| `changelog` | `search_by_type("q", "changelog")` | Release notes, breaking changes |
+| _everything_ | `search_docs("q")` | Semantic search across all docs |
+
+### All MCP tools:
 | Tool | Purpose |
 |------|---------|
 | `search_docs(query, top_k)` | Semantic search across all documentation |
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
-| `search_by_type(query, doc_type, top_k)` | Filter by: docs, bugfix, best-practice, api, architecture, changelog, setup, readme |
-| `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` | Document a bugfix and index immediately |
+| `search_by_type(query, doc_type, top_k)` | Filter by type |
+| `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` | Document a bugfix (auto-pushed + reindexed) |
 | `get_index_stats()` | Show index statistics |
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
