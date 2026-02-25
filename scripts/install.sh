@@ -205,23 +205,24 @@ else
         "$IMAGE_NAME"
 
     ok "Flaiwheel container started"
+fi
 
-    # Wait for container to fully initialize and extract credentials
-    info "Waiting for Flaiwheel to initialize (this may take a minute on first run)..."
-    ADMIN_PASS=""
-    for i in $(seq 1 60); do
-        # Check if the health endpoint is responding
-        if curl -sf http://localhost:8080/health &>/dev/null; then
-            ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep "Password:" | head -1 | awk '{print $NF}' || true)
-            break
-        fi
-        sleep 2
-    done
-
-    if [ -z "$ADMIN_PASS" ]; then
-        warn "Container is still starting. To get your credentials later, run:"
-        echo "  docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
+# Wait for container to be healthy and extract credentials
+info "Waiting for Flaiwheel to be ready..."
+ADMIN_PASS=""
+for i in $(seq 1 60); do
+    if curl -sf http://localhost:8080/health &>/dev/null; then
+        ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep "Password:" | tail -1 | awk '{print $NF}' || true)
+        break
     fi
+    sleep 2
+done
+
+if [ -z "$ADMIN_PASS" ]; then
+    warn "Could not extract credentials automatically."
+    warn "Run this to get them:  docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
+else
+    ok "Flaiwheel is ready"
 fi
 
 echo ""
