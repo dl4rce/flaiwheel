@@ -205,6 +205,29 @@
             </div>
         </header>
 
+        <!-- System Health -->
+        <div class="card" style="margin-bottom: 24px;">
+            <h2><span class="icon">&#128994;</span> System Health</h2>
+            <div class="stat-grid" id="health-grid">
+                <div class="stat-item">
+                    <div class="value" id="health-index"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Last Index</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="health-pull"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Last Git Pull</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="health-git"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Git Commit</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="health-version"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Version</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Stats -->
         <div class="card" style="margin-bottom: 24px;">
             <h2><span class="icon">&#128202;</span> Index Status</h2>
@@ -434,7 +457,9 @@
     document.addEventListener('DOMContentLoaded', () => {
         loadConfig();
         loadStats();
+        loadHealth();
         setInterval(loadStats, 30000);
+        setInterval(loadHealth, 15000);
     });
 
     async function api(method, path, body = null) {
@@ -486,6 +511,40 @@
         dist.innerHTML = Object.entries(stats.type_distribution || {})
             .map(([type, count]) => '<span class="badge ' + type + '">' + type + ': ' + count + '</span>')
             .join('');
+    }
+
+    async function loadHealth() {
+        try {
+            const res = await fetch('/health');
+            const h = await res.json();
+
+            function statusDot(ok) {
+                if (ok === null || ok === undefined) return '<span style="color:var(--text-dim)">–</span>';
+                return ok ? '<span style="color:var(--success)">●</span>' : '<span style="color:var(--danger)">●</span>';
+            }
+
+            function timeAgo(iso) {
+                if (!iso) return '–';
+                var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+                if (diff < 60) return diff + 's ago';
+                if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+                if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+                return Math.floor(diff / 86400) + 'd ago';
+            }
+
+            document.getElementById('health-index').innerHTML =
+                statusDot(h.last_index_ok) + ' ' + timeAgo(h.last_index_at);
+            document.getElementById('health-pull').innerHTML =
+                statusDot(h.last_pull_ok) + ' ' + timeAgo(h.last_pull_at);
+            document.getElementById('health-git').innerHTML =
+                (h.git_commit || '–') + (h.git_branch ? ' <span style="color:var(--text-dim)">(' + h.git_branch + ')</span>' : '');
+            document.getElementById('health-version').textContent = h.version || '–';
+
+            document.querySelector('.container header .logo').innerHTML =
+                h.status === 'ok' ? '&#128994;' : '&#128308;';
+        } catch (e) {
+            document.querySelector('.container header .logo').innerHTML = '&#128308;';
+        }
     }
 
     function renderModelList(models) {

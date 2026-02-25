@@ -16,6 +16,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from .config import Config
+from .health import HealthTracker
 from .indexer import DocsIndexer
 
 
@@ -25,10 +26,12 @@ class GitWatcher:
         config: Config,
         indexer: DocsIndexer,
         index_lock: threading.Lock,
+        health: HealthTracker | None = None,
     ):
         self.config = config
         self.indexer = indexer
         self.index_lock = index_lock
+        self.health = health
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -118,8 +121,12 @@ class GitWatcher:
             capture_output=True, text=True, timeout=30,
         )
         if push_result.returncode != 0:
+            if self.health:
+                self.health.record_push(ok=False, error=push_result.stderr)
             print(f"Warning: git push failed: {push_result.stderr}")
         else:
+            if self.health:
+                self.health.record_push(ok=True)
             print(f"Pushed {len(files)} file(s) to remote")
 
     def _build_commit_message(self, files: list[str]) -> str:
@@ -193,17 +200,22 @@ class GitWatcher:
         old_commit = self._get_current_commit()
 
         try:
-            pull_url = self._auth_url(self.config.git_repo_url)
             subprocess.run(
                 ["git", "-C", str(git_dir), "pull", "--ff-only"],
                 capture_output=True, timeout=30, check=True,
             )
         except subprocess.CalledProcessError as e:
+            if self.health:
+                self.health.record_pull(ok=False, error=str(e))
             print(f"Warning: Git pull failed: {e}")
             return False
 
         new_commit = self._get_current_commit()
         changed = old_commit != new_commit
+
+        if self.health:
+            self.health.record_pull(ok=True, changed=changed)
+            self.health.record_git_info(git_dir, self.config.git_repo_url, self.config.git_branch)
 
         if changed:
             print(f"New commit: {old_commit[:8]} -> {new_commit[:8]}")
@@ -231,6 +243,10 @@ class GitWatcher:
         self.clone_if_needed()
         self._configure_git_identity()
 
+        git_dir = self._find_git_dir()
+        if git_dir and self.health:
+            self.health.record_git_info(git_dir, self.config.git_repo_url, self.config.git_branch)
+
         self._running = True
         self._thread = threading.Thread(target=self._sync_loop, daemon=True)
         self._thread.start()
@@ -250,6 +266,14 @@ class GitWatcher:
                     print("Changes detected, reindexing...")
                     with self.index_lock:
                         result = self.indexer.index_all()
+                    if self.health:
+                        self.health.record_index(
+                            ok=result.get("status") == "success",
+                            chunks=result.get("chunks_upserted", 0),
+                            files=result.get("files_indexed", 0),
+                        )
                     print(f"Reindex complete: {result}")
             except Exception as e:
+                if self.health:
+                    self.health.record_pull(ok=False, error=str(e))
                 print(f"Warning: Git sync error: {e}")

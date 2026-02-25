@@ -14,6 +14,7 @@ import uvicorn
 
 from .auth import AuthManager
 from .config import Config
+from .health import HealthTracker
 from .indexer import DocsIndexer
 from .quality import KnowledgeQualityChecker
 from .server import create_mcp_server
@@ -41,20 +42,27 @@ def main():
 
     index_lock = threading.Lock()
     config_lock = threading.Lock()
+    health = HealthTracker()
 
     indexer = DocsIndexer(config)
     auth = AuthManager(config)
-    watcher = GitWatcher(config, indexer, index_lock)
+    watcher = GitWatcher(config, indexer, index_lock, health)
     quality_checker = KnowledgeQualityChecker(config)
 
     print(f"Initial indexing {config.docs_path} ...")
     result = indexer.index_all()
+    health.record_index(
+        ok=result.get("status") == "success",
+        chunks=result.get("chunks_upserted", 0),
+        files=result.get("files_indexed", 0),
+        error=result.get("message") if result.get("status") != "success" else None,
+    )
     print(f"Done: {result}")
 
     watcher.start()
 
     web_app = create_web_app(
-        config, indexer, watcher, index_lock, config_lock, auth, quality_checker,
+        config, indexer, watcher, index_lock, config_lock, auth, quality_checker, health,
     )
     mcp_server = create_mcp_server(
         config, indexer, index_lock, watcher, quality_checker,

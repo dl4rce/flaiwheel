@@ -306,16 +306,6 @@ if [ "$UPDATE_MODE" = true ]; then
 
 else
     # ── Fresh install path ──
-
-    # Check for port conflicts before starting
-    PORT_BLOCKER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
-        | grep -E '(0\.0\.0\.0:8080|0\.0\.0\.0:8081)' \
-        | awk '{print $1}' \
-        | head -1 || true)
-    if [ -n "$PORT_BLOCKER" ]; then
-        fail "Port 8080 or 8081 is already in use by container '${PORT_BLOCKER}'. Stop it first: docker stop ${PORT_BLOCKER}"
-    fi
-
     if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
         build_image
     else

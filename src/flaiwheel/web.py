@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from .auth import AuthManager
 from .config import LOCAL_MODELS, Config
+from .health import HealthTracker
 from .indexer import DocsIndexer
 from .quality import KnowledgeQualityChecker
 from .watcher import GitWatcher
@@ -66,6 +67,7 @@ def create_web_app(
     config_lock: threading.Lock,
     auth: AuthManager,
     quality_checker: KnowledgeQualityChecker,
+    health: HealthTracker | None = None,
 ) -> FastAPI:
     """Factory: returns a FastAPI app that shares state with the MCP server."""
 
@@ -87,8 +89,24 @@ def create_web_app(
     # ── Health (no auth — used by Docker healthcheck) ──
 
     @app.get("/health")
-    async def health():
-        return {"status": "ok", "chunks": indexer.collection.count()}
+    async def health_check():
+        from . import __version__
+        status = health.status if health else {}
+        return {
+            "status": "ok" if (not health or health.is_healthy) else "degraded",
+            "version": __version__,
+            "chunks": indexer.collection.count(),
+            "last_index_at": status.get("last_index_at"),
+            "last_index_ok": status.get("last_index_ok"),
+            "last_pull_at": status.get("last_pull_at"),
+            "last_pull_ok": status.get("last_pull_ok"),
+            "git_commit": status.get("git_commit"),
+            "git_branch": status.get("git_branch"),
+        }
+
+    @app.get("/api/health")
+    async def health_detail(_user: str = Depends(require_auth)):
+        return health.status if health else {}
 
     # ── Web Frontend ─────────────────────────────────
 
@@ -146,6 +164,12 @@ def create_web_app(
     async def trigger_reindex(_user: str = Depends(require_auth)):
         with index_lock:
             result = indexer.index_all()
+        if health:
+            health.record_index(
+                ok=result.get("status") == "success",
+                chunks=result.get("chunks_upserted", 0),
+                files=result.get("files_indexed", 0),
+            )
         return result
 
     @app.post("/api/clear")
