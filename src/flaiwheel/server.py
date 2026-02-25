@@ -17,8 +17,6 @@ Tools:
 """
 import re
 import threading
-import urllib.request
-import json
 from datetime import date
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
@@ -300,34 +298,45 @@ def create_mcp_server(
     def check_update() -> str:
         """Check if a newer version of Flaiwheel is available on GitHub.
 
-        Compares the running version with the latest GitHub release.
+        Compares the running version with the latest Git tag.
         If an update is available, returns the update command for the user.
 
         Returns:
             Version status and update instructions if needed
         """
-        current = __version__
-        try:
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-            req = urllib.request.Request(url, headers={"Accept": "application/vnd.github.v3+json"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-            latest = data.get("tag_name", "").lstrip("v")
-        except Exception as e:
-            return f"Could not check for updates: {e}\nCurrent version: {current}"
-
-        if not latest:
-            return f"Could not determine latest version.\nCurrent version: {current}"
-
-        if latest == current:
-            return f"Flaiwheel is up to date! (v{current})"
-
+        import subprocess
         from packaging.version import Version
+
+        current = __version__
+        repo_url = f"https://github.com/{GITHUB_REPO}.git"
+
         try:
-            if Version(current) >= Version(latest):
-                return f"Flaiwheel is up to date! (v{current}, latest release: v{latest})"
-        except Exception:
-            pass
+            result = subprocess.run(
+                ["git", "ls-remote", "--tags", "--sort=-v:refname", repo_url],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode != 0:
+                return f"Could not check for updates: git ls-remote failed\nCurrent version: v{current}"
+
+            versions = []
+            for line in result.stdout.strip().splitlines():
+                ref = line.split("refs/tags/")[-1] if "refs/tags/" in line else ""
+                if ref and not ref.endswith("^{}"):
+                    ver_str = ref.lstrip("v")
+                    try:
+                        versions.append(Version(ver_str))
+                    except Exception:
+                        continue
+
+            if not versions:
+                return f"No version tags found on remote.\nCurrent version: v{current}"
+
+            latest = max(versions)
+        except Exception as e:
+            return f"Could not check for updates: {e}\nCurrent version: v{current}"
+
+        if Version(current) >= latest:
+            return f"Flaiwheel is up to date! (v{current})"
 
         return (
             f"**Update available!** v{current} → v{latest}\n\n"
