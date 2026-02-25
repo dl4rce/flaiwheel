@@ -313,7 +313,16 @@ class DocsIndexer:
             for i in range(0, len(stale_list), 5000):
                 self.collection.delete(ids=stale_list[i : i + 5000])
 
-        self._save_file_hashes(new_hashes)
+        # Verify ChromaDB actually persisted before saving hashes.
+        # If count is 0 but we expected chunks, don't save hashes —
+        # next startup will re-embed everything.
+        actual_count = self.collection.count()
+        expected_count = len(deduped_all) - len(stale_ids)
+        if actual_count > 0 or expected_count == 0:
+            self._save_file_hashes(new_hashes)
+        else:
+            print(f"Warning: ChromaDB count={actual_count} but expected ~{expected_count}, "
+                  f"not saving hash cache (will re-embed on next run)")
 
         result = {
             "status": "success",
