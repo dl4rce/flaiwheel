@@ -531,9 +531,10 @@
                 if (diff < 3600) return mins + 'm ago';
                 var hrs = Math.floor(diff / 3600);
                 var remainMins = Math.floor((diff % 3600) / 60);
-                if (diff < 86400) return hrs + 'h ' + remainMins + 'm ago';
+                if (diff < 86400) return remainMins > 0 ? hrs + 'h ' + remainMins + 'm ago' : hrs + 'h ago';
                 var days = Math.floor(diff / 86400);
-                return days + 'd ' + Math.floor((diff % 86400) / 3600) + 'h ago';
+                var remainHrs = Math.floor((diff % 86400) / 3600);
+                return remainHrs > 0 ? days + 'd ' + remainHrs + 'h ago' : days + 'd ago';
             }
 
             document.getElementById('health-index').innerHTML =
