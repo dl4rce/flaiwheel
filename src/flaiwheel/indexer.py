@@ -14,6 +14,7 @@ Chunk IDs are content-based (sha256 of source + text) so they are
 stable across reindexing regardless of section ordering.
 """
 import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -86,14 +87,15 @@ class DocsIndexer:
         current_lines: list[str] = []
         current_heading = "intro"
         current_heading_path = ""
+        chunk_start_line = 1
 
-        for line in text.split("\n"):
+        for line_num, line in enumerate(text.split("\n"), start=1):
             match = re.match(r"^(#{1,3})\s+(.*)", line)
             if match:
                 if current_lines:
                     self._flush_chunk(
                         chunks, current_lines, current_heading,
-                        current_heading_path, source,
+                        current_heading_path, source, chunk_start_line,
                     )
 
                 level = len(match.group(1))
@@ -105,26 +107,31 @@ class DocsIndexer:
                 current_heading = title
                 current_heading_path = " > ".join(t for _, t in heading_stack)
                 current_lines = [line]
+                chunk_start_line = line_num
             else:
                 current_lines.append(line)
 
         if current_lines:
             self._flush_chunk(
                 chunks, current_lines, current_heading,
-                current_heading_path, source,
+                current_heading_path, source, chunk_start_line,
             )
 
         return chunks
 
     def _flush_chunk(
         self, chunks: list, lines: list[str], heading: str,
-        heading_path: str, source: str,
+        heading_path: str, source: str, line_start: int = 1,
     ):
         raw = "\n".join(lines).strip()
         if len(raw) <= 50:
             return
+        line_end = line_start + len(lines) - 1
         display_text = f"[{heading_path}]\n\n{raw}" if heading_path else raw
-        chunks.append(self._make_chunk(display_text, heading, heading_path, source))
+        chunk = self._make_chunk(display_text, heading, heading_path, source)
+        chunk["metadata"]["line_start"] = line_start
+        chunk["metadata"]["line_end"] = line_end
+        chunks.append(chunk)
 
     def _chunk_fixed_size(self, text: str, source: str) -> list[dict]:
         max_chars = self.config.chunk_max_chars
@@ -142,11 +149,17 @@ class DocsIndexer:
                     chunk_text = chunk_text[: last_period + 1]
                     end = start + last_period + 1
 
+            line_start = text[:start].count("\n") + 1
+            line_end = line_start + chunk_text.count("\n")
+
             chunk_text = chunk_text.strip()
             if len(chunk_text) > 50:
-                chunks.append(
-                    self._make_chunk(chunk_text, f"chunk-{len(chunks)}", "", source)
+                chunk = self._make_chunk(
+                    chunk_text, f"chunk-{len(chunks)}", "", source,
                 )
+                chunk["metadata"]["line_start"] = line_start
+                chunk["metadata"]["line_end"] = line_end
+                chunks.append(chunk)
             start = end - overlap
 
         return chunks
@@ -205,14 +218,38 @@ class DocsIndexer:
             return "readme"
         return "docs"
 
+    # ── File hash tracking (for diff-aware reindex) ─────
+
+    @property
+    def _hashes_path(self) -> Path:
+        return Path(self.config.vectorstore_path) / "file_hashes.json"
+
+    def _load_file_hashes(self) -> dict[str, str]:
+        try:
+            return json.loads(self._hashes_path.read_text())
+        except Exception:
+            return {}
+
+    def _save_file_hashes(self, hashes: dict[str, str]):
+        self._hashes_path.parent.mkdir(parents=True, exist_ok=True)
+        self._hashes_path.write_text(json.dumps(hashes))
+
+    @staticmethod
+    def _content_hash(content: str) -> str:
+        return hashlib.md5(content.encode()).hexdigest()
+
     # ── Indexing ─────────────────────────────────────────
 
-    def index_all(self) -> dict:
-        """Full (re-)index of all .md files with stale chunk cleanup."""
+    def index_all(self, force: bool = False) -> dict:
+        """Diff-aware (re-)index: only re-embeds changed/new files.
+        Set force=True to skip hash check (full rebuild)."""
         docs_path = Path(self.config.docs_path)
 
         if not docs_path.exists():
             return {"status": "error", "message": f"Path does not exist: {docs_path}"}
+
+        old_hashes = {} if force else self._load_file_hashes()
+        new_hashes: dict[str, str] = {}
 
         existing_ids: set[str] = set()
         try:
@@ -222,54 +259,71 @@ class DocsIndexer:
             pass
 
         all_chunks: list[dict] = []
+        changed_chunks: list[dict] = []
         file_count = 0
+        skipped = 0
 
         for md_file in sorted(docs_path.rglob("*.md")):
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 rel_path = str(md_file.relative_to(docs_path))
+                content_hash = self._content_hash(content)
+                new_hashes[rel_path] = content_hash
+
                 chunks = self.chunk_markdown(content, rel_path)
                 all_chunks.extend(chunks)
                 file_count += 1
+
+                if old_hashes.get(rel_path) != content_hash:
+                    changed_chunks.extend(chunks)
+                else:
+                    skipped += 1
             except Exception as e:
                 print(f"Warning: Error processing {md_file}: {e}")
 
-        # Deduplicate: ChromaDB upsert rejects duplicate IDs within a batch
-        deduped: dict[str, dict] = {}
+        # Deduplicate
+        deduped_all: dict[str, dict] = {}
         for chunk in all_chunks:
-            deduped[chunk["id"]] = chunk
-        unique_chunks = list(deduped.values())
+            deduped_all[chunk["id"]] = chunk
+        new_ids = set(deduped_all.keys())
 
-        new_ids: set[str] = set()
-        if unique_chunks:
+        deduped_changed: dict[str, dict] = {}
+        for chunk in changed_chunks:
+            deduped_changed[chunk["id"]] = chunk
+        upsert_chunks = list(deduped_changed.values())
+
+        if upsert_chunks:
             batch_size = 5000
-            for i in range(0, len(unique_chunks), batch_size):
-                batch = unique_chunks[i : i + batch_size]
+            for i in range(0, len(upsert_chunks), batch_size):
+                batch = upsert_chunks[i : i + batch_size]
                 self.collection.upsert(
                     ids=[c["id"] for c in batch],
                     documents=[c["text"] for c in batch],
                     metadatas=[c["metadata"] for c in batch],
                 )
-            new_ids = set(deduped.keys())
-        if len(all_chunks) != len(unique_chunks):
-            print(f"Deduplicated {len(all_chunks) - len(unique_chunks)} chunks with identical IDs")
 
+        # Remove chunks from deleted/renamed files
         stale_ids = existing_ids - new_ids
         if stale_ids:
             stale_list = list(stale_ids)
             for i in range(0, len(stale_list), 5000):
                 self.collection.delete(ids=stale_list[i : i + 5000])
-            print(f"Cleaned up {len(stale_ids)} stale chunks")
+
+        self._save_file_hashes(new_hashes)
 
         result = {
             "status": "success",
             "files_indexed": file_count,
-            "chunks_created": len(unique_chunks),
+            "files_changed": file_count - skipped,
+            "files_skipped": skipped,
+            "chunks_upserted": len(upsert_chunks),
+            "chunks_total": len(deduped_all),
             "chunks_removed": len(stale_ids),
             "docs_path": str(docs_path),
         }
         print(
-            f"Index: {file_count} files -> {len(unique_chunks)} chunks"
+            f"Index: {file_count} files ({file_count - skipped} changed, "
+            f"{skipped} skipped) -> {len(upsert_chunks)} chunks upserted"
             f" ({len(stale_ids)} stale removed)"
         )
         return result
@@ -327,6 +381,8 @@ class DocsIndexer:
                 "heading_path": meta.get("heading_path", ""),
                 "type": meta["type"],
                 "char_count": meta.get("char_count", 0),
+                "line_start": meta.get("line_start", 0),
+                "line_end": meta.get("line_end", 0),
                 "distance": dist,
                 "relevance": round((1 - dist) * 100, 1),
             }

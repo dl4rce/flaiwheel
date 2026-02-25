@@ -43,6 +43,7 @@ class Config(BaseSettings):
     git_token: str = ""
     git_auto_push: bool = True
     git_commit_prefix: str = "knowledge"
+    webhook_secret: str = ""
 
     # ── Server / Transport ───────────────────────
     transport: Literal["stdio", "sse"] = "sse"

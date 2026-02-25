@@ -73,8 +73,9 @@ def create_mcp_server(
 
         output = []
         for r in results:
+            loc = f"{r['source']}:{r['line_start']}-{r['line_end']}" if r.get("line_start") else r["source"]
             output.append(
-                f"**{r['source']}** > _{r['heading']}_ "
+                f"**{loc}** > _{r['heading']}_ "
                 f"(Relevance: {r['relevance']}%, Type: {r['type']})\n\n"
                 f"{r['text']}\n\n---"
             )
@@ -102,8 +103,9 @@ def create_mcp_server(
 
         output = [f"Found {len(results)} similar bugfixes\n"]
         for r in results:
+            loc = f"{r['source']}:{r['line_start']}-{r['line_end']}" if r.get("line_start") else r["source"]
             output.append(
-                f"### {r['source']} (Relevance: {r['relevance']}%)\n\n"
+                f"### {loc} (Relevance: {r['relevance']}%)\n\n"
                 f"{r['text']}\n\n---"
             )
         return "\n".join(output)
@@ -125,8 +127,9 @@ def create_mcp_server(
 
         output = []
         for r in results:
+            loc = f"{r['source']}:{r['line_start']}-{r['line_end']}" if r.get("line_start") else r["source"]
             output.append(
-                f"**{r['source']}** > _{r['heading']}_ ({r['relevance']}%)\n\n"
+                f"**{loc}** > _{r['heading']}_ ({r['relevance']}%)\n\n"
                 f"{r['text']}\n\n---"
             )
         return "\n".join(output)
@@ -205,14 +208,20 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    def reindex() -> str:
-        """Re-index all documentation. Use when many files changed."""
+    def reindex(force: bool = False) -> str:
+        """Re-index documentation. Diff-aware by default (only changed files).
+        Set force=True to rebuild all embeddings from scratch.
+
+        Args:
+            force: If True, re-embed all files regardless of changes (default: False)
+        """
         with index_lock:
-            result = indexer.index_all()
+            result = indexer.index_all(force=force)
         return (
             f"Re-index complete!\n"
-            f"  Files: {result['files_indexed']}\n"
-            f"  Chunks: {result['chunks_created']}\n"
+            f"  Files: {result['files_indexed']} ({result.get('files_changed', '?')} changed, "
+            f"{result.get('files_skipped', '?')} skipped)\n"
+            f"  Chunks upserted: {result.get('chunks_upserted', result.get('chunks_created', '?'))}\n"
             f"  Stale removed: {result['chunks_removed']}"
         )
 

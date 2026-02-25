@@ -140,7 +140,7 @@ Your AI agent now has access to these MCP tools:
 | `search_by_type(query, doc_type, top_k)` | Filter by: docs, bugfix, best-practice, api, architecture, changelog, setup, readme |
 | `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` | Document a bugfix and index immediately |
 | `get_index_stats()` | Show index statistics |
-| `reindex()` | Re-index all documentation |
+| `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 
 ---
@@ -176,6 +176,7 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_GIT_TOKEN` | | GitHub token for private repos |
 | `MCP_GIT_SYNC_INTERVAL` | `300` | Pull interval in seconds (0 = disabled) |
 | `MCP_GIT_AUTO_PUSH` | `true` | Auto-commit + push bugfix summaries |
+| `MCP_WEBHOOK_SECRET` | | GitHub webhook secret (enables `/webhook/github` HMAC verification) |
 | `MCP_TRANSPORT` | `sse` | MCP transport: `sse` or `stdio` |
 | `MCP_SSE_PORT` | `8081` | MCP SSE endpoint port |
 | `MCP_WEB_PORT` | `8080` | Web UI port |
@@ -189,6 +190,24 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `BAAI/bge-m3` | 2.2GB | 86% | Multilingual (DE/EN) |
 
 Select via Web UI or `MCP_EMBEDDING_MODEL` env var. Full list in the Web UI.
+
+### GitHub Webhook (instant reindex)
+
+Instead of waiting for the 300s polling interval, configure a GitHub webhook for instant reindex on push:
+
+1. In your knowledge repo on GitHub: **Settings → Webhooks → Add webhook**
+2. **Payload URL:** `http://your-server:8080/webhook/github`
+3. **Content type:** `application/json`
+4. **Secret:** set the same value as `MCP_WEBHOOK_SECRET`
+5. **Events:** select "Just the push event"
+
+The webhook endpoint verifies the HMAC signature if `MCP_WEBHOOK_SECRET` is set. Without a secret, any POST triggers a pull + reindex.
+
+### Diff-aware Reindexing
+
+Reindexing is incremental by default — only files whose content changed since the last run are re-embedded. On a 500-file repo, this means a typical reindex after a single-file push takes <1s instead of re-embedding everything.
+
+Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full rebuild (e.g. after changing the embedding model).
 
 ---
 

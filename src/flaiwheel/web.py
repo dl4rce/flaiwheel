@@ -8,6 +8,8 @@ Runs in a background thread alongside the MCP server.
 
 All state (config, indexer, watcher, auth) is injected via create_web_app().
 """
+import hashlib
+import hmac
 import secrets
 import threading
 from pathlib import Path
@@ -205,5 +207,38 @@ def create_web_app(
     @app.get("/api/quality")
     async def get_quality(_user: str = Depends(require_auth)):
         return quality_checker.check_all()
+
+    # ── GitHub Webhook (no auth — uses HMAC signature) ──
+
+    @app.post("/webhook/github")
+    async def github_webhook(request: Request):
+        body = await request.body()
+
+        if config.webhook_secret:
+            sig_header = request.headers.get("x-hub-signature-256", "")
+            expected = "sha256=" + hmac.new(
+                config.webhook_secret.encode(), body, hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(sig_header, expected):
+                raise HTTPException(status_code=403, detail="Invalid signature")
+
+        event = request.headers.get("x-github-event", "")
+        if event == "ping":
+            return {"status": "pong"}
+
+        if event != "push":
+            return {"status": "ignored", "event": event}
+
+        changed = watcher.pull_and_check()
+        result = None
+        if changed:
+            with index_lock:
+                result = indexer.index_all()
+
+        return {
+            "status": "ok",
+            "changes_detected": changed,
+            "reindex_result": result,
+        }
 
     return app
