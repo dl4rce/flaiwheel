@@ -48,6 +48,23 @@ Once connected, the AI has access to all Flaiwheel tools. If you have existing d
 
 ---
 
+## Updating
+
+Run the same install command again from your project directory:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+```
+
+The installer detects the existing container, asks for confirmation, then:
+- Rebuilds the Docker image with the latest code
+- Recreates the container (preserves your data volume + config)
+- Refreshes Cursor rules and agent guides
+
+Your knowledge base, index, and credentials are preserved — only the code is updated.
+
+---
+
 ## Quick Start — Manual Setup
 
 <details>

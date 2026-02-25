@@ -23,7 +23,7 @@ fail()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 # ── Banner ──────────────────────────────────────────
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║         Flaiwheel Installer                  ║${NC}"
+echo -e "${BOLD}║         Flaiwheel Install / Update            ║${NC}"
 echo -e "${BOLD}║   Flywheel with AI, for AI                   ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
@@ -76,10 +76,57 @@ PROJECT=$(echo "$REMOTE_URL" | sed -E 's|.*[:/][^/]+/([^/]+)\.git$|\1|; s|.*[:/]
 KNOWLEDGE_REPO="${PROJECT}-knowledge"
 PROJECT_DIR=$(git rev-parse --show-toplevel)
 
+CONTAINER_NAME="flaiwheel-${PROJECT}"
+VOLUME_NAME="flaiwheel-${PROJECT}-data"
+IMAGE_NAME="flaiwheel:latest"
+FLAIWHEEL_REPO="https://github.com/dl4rce/flaiwheel.git"
+
 info "Project:        ${BOLD}${OWNER}/${PROJECT}${NC}"
 info "Knowledge repo: ${BOLD}${OWNER}/${KNOWLEDGE_REPO}${NC}"
 info "Project dir:    ${PROJECT_DIR}"
 echo ""
+
+# ══════════════════════════════════════════════════════
+#  PHASE 2b: Detect existing installation → update mode
+# ══════════════════════════════════════════════════════
+
+UPDATE_MODE=false
+
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║  Existing installation detected!              ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Show current version info
+    CURRENT_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")
+    CONTAINER_STATUS=$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")
+    CREATED_AT=$(docker inspect --format '{{.Created}}' "$CONTAINER_NAME" 2>/dev/null | cut -d'T' -f1 || echo "unknown")
+    echo -e "  Container:  ${GREEN}${CONTAINER_NAME}${NC} (${CONTAINER_STATUS})"
+    echo -e "  Image:      ${CURRENT_IMAGE}"
+    echo -e "  Created:    ${CREATED_AT}"
+    echo ""
+
+    read -p "  Update to latest version? [Y/n] " -n 1 -r REPLY
+    echo ""
+
+    if [[ "$REPLY" =~ ^[Nn]$ ]]; then
+        info "Update cancelled. Existing installation unchanged."
+        exit 0
+    fi
+
+    UPDATE_MODE=true
+    ok "Update mode — will rebuild image and recreate container"
+
+    # Extract env vars from existing container for re-use
+    OLD_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)
+    OLD_REPO_URL=$(echo "$OLD_ENV" | grep "^MCP_GIT_REPO_URL=" | cut -d= -f2- || true)
+    OLD_AUTO_PUSH=$(echo "$OLD_ENV" | grep "^MCP_GIT_AUTO_PUSH=" | cut -d= -f2- || true)
+    OLD_WEBHOOK_SECRET=$(echo "$OLD_ENV" | grep "^MCP_WEBHOOK_SECRET=" | cut -d= -f2- || true)
+
+    echo ""
+fi
 
 # ══════════════════════════════════════════════════════
 #  PHASE 3: Create knowledge repo (if it doesn't exist)
@@ -155,14 +202,10 @@ fi
 #  PHASE 5: Build and start Flaiwheel Docker container
 # ══════════════════════════════════════════════════════
 
-CONTAINER_NAME="flaiwheel-${PROJECT}"
-VOLUME_NAME="flaiwheel-${PROJECT}-data"
-IMAGE_NAME="flaiwheel:latest"
-FLAIWHEEL_REPO="https://github.com/dl4rce/flaiwheel.git"
+KNOWLEDGE_REPO_URL="${KNOWLEDGE_REPO_URL:-https://github.com/${OWNER}/${KNOWLEDGE_REPO}.git}"
 
-# Build image if it doesn't exist locally
-if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
-    info "Building Flaiwheel Docker image (first time only)..."
+build_image() {
+    info "Building Flaiwheel Docker image..."
 
     BUILD_DIR=$(mktemp -d)
     GH_TOKEN_FOR_CLONE=$(gh auth token 2>/dev/null || true)
@@ -176,34 +219,61 @@ if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
 
     rm -rf "$BUILD_DIR"
     ok "Docker image built: ${IMAGE_NAME}"
-else
-    ok "Docker image ${IMAGE_NAME} already exists"
-fi
+}
 
-# Check if container already exists
-if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    warn "Container ${CONTAINER_NAME} already exists"
-    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        ok "Container is already running"
-    else
-        info "Starting existing container..."
-        docker start "$CONTAINER_NAME"
-        ok "Container started"
+start_container() {
+    local repo_url="${1:-$KNOWLEDGE_REPO_URL}"
+    local auto_push="${2:-true}"
+    local webhook_secret="${3:-}"
+
+    local extra_env=""
+    if [ -n "$webhook_secret" ]; then
+        extra_env="-e MCP_WEBHOOK_SECRET=${webhook_secret}"
     fi
-else
-    info "Starting Flaiwheel container: ${CONTAINER_NAME}..."
 
     docker run -d \
         --name "$CONTAINER_NAME" \
         -p 8080:8080 \
         -p 8081:8081 \
-        -e MCP_GIT_REPO_URL="$KNOWLEDGE_REPO_URL" \
+        -e MCP_GIT_REPO_URL="$repo_url" \
         -e MCP_GIT_TOKEN="$GH_TOKEN" \
-        -e MCP_GIT_AUTO_PUSH=true \
+        -e MCP_GIT_AUTO_PUSH="$auto_push" \
+        $extra_env \
         -v "${VOLUME_NAME}:/data" \
         --restart unless-stopped \
         "$IMAGE_NAME"
+}
 
+if [ "$UPDATE_MODE" = true ]; then
+    # ── Update path: stop → rebuild → recreate ──
+    info "Stopping container ${CONTAINER_NAME}..."
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
+
+    # Remove old image to force rebuild
+    docker rmi "$IMAGE_NAME" 2>/dev/null || true
+
+    build_image
+
+    info "Recreating container with preserved config..."
+    start_container \
+        "${OLD_REPO_URL:-$KNOWLEDGE_REPO_URL}" \
+        "${OLD_AUTO_PUSH:-true}" \
+        "${OLD_WEBHOOK_SECRET:-}"
+
+    ok "Container recreated with latest version"
+
+else
+    # ── Fresh install path ──
+    if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+        build_image
+    else
+        ok "Docker image ${IMAGE_NAME} already exists"
+    fi
+
+    info "Starting Flaiwheel container: ${CONTAINER_NAME}..."
+    start_container
     ok "Flaiwheel container started"
 fi
 
@@ -494,22 +564,37 @@ fi
 # ══════════════════════════════════════════════════════
 
 echo ""
-echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║         Setup Complete                       ║${NC}"
-echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  ${BOLD}What was created:${NC}"
-echo -e "    Knowledge repo:  ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
-echo -e "    Container:       ${GREEN}${CONTAINER_NAME}${NC}"
-echo -e "    Cursor config:   ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC}"
-echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
-echo ""
-echo -e "  ${BOLD}What to do next:${NC}"
-echo -e "    1. Restart Cursor"
-echo -e "    2. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
-echo -e "    3. Wait for the green ${GREEN}connected${NC} indicator"
-echo -e "    4. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
-echo -e "    5. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
+if [ "$UPDATE_MODE" = true ]; then
+    echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║         Update Complete                       ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}What was updated:${NC}"
+    echo -e "    Container:       ${GREEN}${CONTAINER_NAME}${NC} (rebuilt with latest code)"
+    echo -e "    Data volume:     ${GREEN}${VOLUME_NAME}${NC} (preserved)"
+    echo -e "    Config files:    ${GREEN}refreshed${NC}"
+    echo ""
+    echo -e "  ${BOLD}What to do next:${NC}"
+    echo -e "    1. Restart Cursor to reconnect MCP"
+    echo -e "    2. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+else
+    echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║         Setup Complete                       ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}What was created:${NC}"
+    echo -e "    Knowledge repo:  ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
+    echo -e "    Container:       ${GREEN}${CONTAINER_NAME}${NC}"
+    echo -e "    Cursor config:   ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC}"
+    echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
+    echo ""
+    echo -e "  ${BOLD}What to do next:${NC}"
+    echo -e "    1. Restart Cursor"
+    echo -e "    2. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
+    echo -e "    3. Wait for the green ${GREEN}connected${NC} indicator"
+    echo -e "    4. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    5. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
+fi
 echo ""
 if [ "$MD_COUNT" -gt 2 ]; then
     echo -e "  ${YELLOW}Tip:${NC} Tell Cursor AI: \"migrate docs\" to organize existing"
@@ -520,7 +605,10 @@ echo -e "  ${BOLD}Endpoints:${NC}"
 echo -e "    Web UI:     ${GREEN}http://localhost:8080${NC}"
 echo -e "    MCP (SSE):  ${GREEN}http://localhost:8081/sse${NC}"
 echo ""
-if [ -n "${ADMIN_PASS:-}" ]; then
+if [ "$UPDATE_MODE" = true ]; then
+    echo -e "  ${BOLD}Web UI Login:${NC} your existing credentials are preserved."
+    echo -e "  If you forgot them: ${YELLOW}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
+elif [ -n "${ADMIN_PASS:-}" ]; then
     echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
     echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"
