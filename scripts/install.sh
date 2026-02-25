@@ -206,16 +206,22 @@ else
 
     ok "Flaiwheel container started"
 
-    # Wait for container to initialize and extract credentials
-    info "Waiting for Flaiwheel to initialize..."
+    # Wait for container to fully initialize and extract credentials
+    info "Waiting for Flaiwheel to initialize (this may take a minute on first run)..."
     ADMIN_PASS=""
-    for i in $(seq 1 30); do
-        ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -A1 "INITIAL ADMIN CREDENTIALS" | grep "Password:" | awk '{print $NF}' || true)
-        if [ -n "$ADMIN_PASS" ]; then
+    for i in $(seq 1 60); do
+        # Check if the health endpoint is responding
+        if curl -sf http://localhost:8080/health &>/dev/null; then
+            ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep "Password:" | head -1 | awk '{print $NF}' || true)
             break
         fi
         sleep 2
     done
+
+    if [ -z "$ADMIN_PASS" ]; then
+        warn "Container is still starting. To get your credentials later, run:"
+        echo "  docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
+    fi
 fi
 
 echo ""
@@ -490,22 +496,37 @@ echo -e "${BOLD}╔════════════════════�
 echo -e "${BOLD}║         Setup Complete                       ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  Knowledge repo:  ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
-echo -e "  Web UI:          ${GREEN}http://localhost:8080${NC}"
-echo -e "  MCP endpoint:    ${GREEN}http://localhost:8081/sse${NC}"
-echo -e "  Container:       ${GREEN}${CONTAINER_NAME}${NC}"
+echo -e "  ${BOLD}What was created:${NC}"
+echo -e "    Knowledge repo:  ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
+echo -e "    Container:       ${GREEN}${CONTAINER_NAME}${NC}"
+echo -e "    Cursor config:   ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC}"
+echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
 echo ""
-if [ -n "${ADMIN_PASS:-}" ]; then
-    echo -e "  ${BOLD}Web UI Login:${NC}"
-    echo -e "    Username:  ${GREEN}admin${NC}"
-    echo -e "    Password:  ${GREEN}${ADMIN_PASS}${NC}"
-    echo -e "    ${YELLOW}(save this — it won't be shown again)${NC}"
-    echo ""
-fi
-echo -e "  ${BOLD}Next step:${NC} Restart Cursor to activate the MCP connection."
+echo -e "  ${BOLD}What to do next:${NC}"
+echo -e "    1. Restart Cursor to activate the MCP connection"
+echo -e "    2. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+echo -e "    3. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 echo ""
 if [ "$MD_COUNT" -gt 2 ]; then
     echo -e "  ${YELLOW}Tip:${NC} Tell Cursor AI: \"migrate docs\" to organize existing"
     echo -e "       documentation into the knowledge repo."
     echo ""
 fi
+echo -e "  ${BOLD}Endpoints:${NC}"
+echo -e "    Web UI:     ${GREEN}http://localhost:8080${NC}"
+echo -e "    MCP (SSE):  ${GREEN}http://localhost:8081/sse${NC}"
+echo ""
+if [ -n "${ADMIN_PASS:-}" ]; then
+    echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
+    echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
+    echo -e "  ${BOLD}║                                            ║${NC}"
+    echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
+    echo -e "  ${BOLD}║  Password:  ${GREEN}${ADMIN_PASS}${NC}${BOLD}              ║${NC}"
+    echo -e "  ${BOLD}║                                            ║${NC}"
+    echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}     ║${NC}"
+    echo -e "  ${BOLD}╚════════════════════════════════════════════╝${NC}"
+else
+    echo -e "  ${YELLOW}To retrieve your Web UI credentials:${NC}"
+    echo -e "    docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
+fi
+echo ""
