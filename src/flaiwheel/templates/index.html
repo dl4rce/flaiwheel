@@ -530,11 +530,12 @@
                 var mins = Math.floor(diff / 60);
                 if (diff < 3600) return mins + 'm ago';
                 var hrs = Math.floor(diff / 3600);
-                var remainMins = Math.floor((diff % 3600) / 60);
-                if (diff < 86400) return remainMins > 0 ? hrs + 'h ' + remainMins + 'm ago' : hrs + 'h ago';
+                var rm = Math.floor((diff % 3600) / 60);
+                var pad = rm < 10 ? '0' + rm : '' + rm;
+                if (diff < 86400) return hrs + ':' + pad + 'h ago';
                 var days = Math.floor(diff / 86400);
-                var remainHrs = Math.floor((diff % 86400) / 3600);
-                return remainHrs > 0 ? days + 'd ' + remainHrs + 'h ago' : days + 'd ago';
+                var rh = Math.floor((diff % 86400) / 3600);
+                return days + 'd ' + rh + 'h ago';
             }
 
             document.getElementById('health-index').innerHTML =
