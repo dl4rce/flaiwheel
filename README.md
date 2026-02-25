@@ -37,7 +37,14 @@ curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/instal
 5. Creates `.cursor/rules/flaiwheel.mdc` so the AI knows how to use the tools
 6. If existing `.md` docs are found, creates a migration guide — the AI will offer to organize them into the knowledge repo
 
-**After install:** restart Cursor. If you have existing docs, tell the AI: *"migrate docs"*.
+**After install:**
+
+1. Restart Cursor
+2. Go to **Cursor Settings → MCP** and verify that `flaiwheel` appears in the server list
+3. If the toggle next to `flaiwheel` is off, **enable it manually**
+4. Wait for the green "connected" indicator
+
+Once connected, the AI has access to all Flaiwheel tools. If you have existing docs, tell the AI: *"migrate docs"*.
 
 ---
 
