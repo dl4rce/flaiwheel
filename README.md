@@ -119,12 +119,14 @@ Add to `.cursor/mcp.json` (or `claude_desktop_config.json`):
 </details>
 
 Your AI agent now has access to these MCP tools:
-- `search_docs` — search all documentation before writing code
-- `search_bugfixes` — learn from past bugs before fixing new ones
+- `search_docs` — semantic search across all documentation
+- `search_bugfixes` — search bugfix summaries for past issues
+- `search_by_type` — search filtered by category (architecture, api, bugfix, best-practice, setup, changelog)
 - `write_bugfix_summary` — document fixes (auto-pushed to knowledge repo)
-- `check_knowledge_quality` — validate knowledge base consistency
-- `reindex` — manual re-index after bulk changes
 - `git_pull_reindex` — pull latest from knowledge repo + re-index
+- `get_index_stats` — show index statistics
+- `reindex` — manual re-index after bulk changes
+- `check_knowledge_quality` — validate knowledge base consistency
 - `check_update` — check if a newer Flaiwheel version is available
 
 ---
