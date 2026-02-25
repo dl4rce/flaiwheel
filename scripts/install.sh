@@ -205,6 +205,17 @@ else
         "$IMAGE_NAME"
 
     ok "Flaiwheel container started"
+
+    # Wait for container to initialize and extract credentials
+    info "Waiting for Flaiwheel to initialize..."
+    ADMIN_PASS=""
+    for i in $(seq 1 30); do
+        ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -A1 "INITIAL ADMIN CREDENTIALS" | grep "Password:" | awk '{print $NF}' || true)
+        if [ -n "$ADMIN_PASS" ]; then
+            break
+        fi
+        sleep 2
+    done
 fi
 
 echo ""
@@ -484,6 +495,13 @@ echo -e "  Web UI:          ${GREEN}http://localhost:8080${NC}"
 echo -e "  MCP endpoint:    ${GREEN}http://localhost:8081/sse${NC}"
 echo -e "  Container:       ${GREEN}${CONTAINER_NAME}${NC}"
 echo ""
+if [ -n "${ADMIN_PASS:-}" ]; then
+    echo -e "  ${BOLD}Web UI Login:${NC}"
+    echo -e "    Username:  ${GREEN}admin${NC}"
+    echo -e "    Password:  ${GREEN}${ADMIN_PASS}${NC}"
+    echo -e "    ${YELLOW}(save this — it won't be shown again)${NC}"
+    echo ""
+fi
 echo -e "  ${BOLD}Next step:${NC} Restart Cursor to activate the MCP connection."
 echo ""
 if [ "$MD_COUNT" -gt 2 ]; then
