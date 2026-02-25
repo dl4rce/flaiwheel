@@ -11,14 +11,14 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir .
+COPY src/ src/
+COPY scripts/ scripts/
+
+RUN pip install --no-cache-dir . && \
+    chmod +x scripts/*.sh
 
 # Pre-load default embedding model so first start is fast
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
-COPY src/ src/
-COPY scripts/ scripts/
-RUN chmod +x scripts/*.sh
 
 # /docs = your markdown docs (mount or git clone)
 # /data = vector index + config (persistent!)
