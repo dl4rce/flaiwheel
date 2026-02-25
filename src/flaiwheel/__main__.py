@@ -6,7 +6,7 @@
 Unified entry point: python -m flaiwheel
 
 Runs Web-UI + MCP Server in a single process with shared state.
-Web-UI in a background thread, MCP server in the main thread.
+Web-UI in a background thread, MCP SSE server in the main thread.
 """
 import threading
 
@@ -19,6 +19,21 @@ from .quality import KnowledgeQualityChecker
 from .server import create_mcp_server
 from .watcher import GitWatcher
 from .web import create_web_app
+
+
+def _run_mcp_sse(mcp_server, host: str, port: int):
+    """Run MCP server via SSE, compatible with both old and new mcp SDK versions."""
+    # Try sse_app() first (mcp >= 1.20), fall back to run() for older versions
+    try:
+        sse_app = mcp_server.sse_app()
+        uvicorn.run(sse_app, host=host, port=port, log_level="warning")
+    except AttributeError:
+        try:
+            mcp_server.run(transport="sse", host=host, port=port)
+        except TypeError:
+            mcp_server.settings.host = host
+            mcp_server.settings.port = port
+            mcp_server.run(transport="sse")
 
 
 def main():
@@ -57,7 +72,7 @@ def main():
 
     print(f"MCP server starting ({config.transport} transport)...")
     if config.transport == "sse":
-        mcp_server.run(transport="sse", port=config.sse_port)
+        _run_mcp_sse(mcp_server, "0.0.0.0", config.sse_port)
     else:
         mcp_server.run(transport="stdio")
 
