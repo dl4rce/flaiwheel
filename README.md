@@ -56,9 +56,15 @@ echo "# Project Knowledge Base" > README.md
 git add -A && git commit -m "init" && git push
 ```
 
-### 2. Start Flaiwheel
+### 2. Build and start Flaiwheel
 
 ```bash
+# Clone and build
+git clone https://github.com/dl4rce/flaiwheel.git /tmp/flaiwheel-build
+docker build -t flaiwheel:latest /tmp/flaiwheel-build
+rm -rf /tmp/flaiwheel-build
+
+# Run
 docker run -d \
   --name flaiwheel \
   -p 8080:8080 \
@@ -66,7 +72,7 @@ docker run -d \
   -e MCP_GIT_REPO_URL=https://github.com/you/yourproject-knowledge.git \
   -e MCP_GIT_TOKEN=ghp_your_token \
   -v flaiwheel-data:/data \
-  ghcr.io/dl4rce/flaiwheel:latest
+  flaiwheel:latest
 ```
 
 ### 3. Connect your AI agent

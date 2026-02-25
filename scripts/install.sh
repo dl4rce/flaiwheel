@@ -152,11 +152,33 @@ if [ -z "$GH_TOKEN" ]; then
 fi
 
 # ══════════════════════════════════════════════════════
-#  PHASE 5: Start Flaiwheel Docker container
+#  PHASE 5: Build and start Flaiwheel Docker container
 # ══════════════════════════════════════════════════════
 
 CONTAINER_NAME="flaiwheel-${PROJECT}"
 VOLUME_NAME="flaiwheel-${PROJECT}-data"
+IMAGE_NAME="flaiwheel:latest"
+FLAIWHEEL_REPO="https://github.com/dl4rce/flaiwheel.git"
+
+# Build image if it doesn't exist locally
+if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+    info "Building Flaiwheel Docker image (first time only)..."
+
+    BUILD_DIR=$(mktemp -d)
+    GH_TOKEN_FOR_CLONE=$(gh auth token 2>/dev/null || true)
+
+    CLONE_URL=$(echo "$FLAIWHEEL_REPO" | sed "s|https://|https://${GH_TOKEN_FOR_CLONE}@|")
+    git clone --depth 1 "$CLONE_URL" "$BUILD_DIR" 2>/dev/null || \
+        fail "Could not clone Flaiwheel repo. Check your gh permissions for dl4rce/flaiwheel."
+
+    docker build -t "$IMAGE_NAME" "$BUILD_DIR" || \
+        fail "Docker build failed. Check the build output above."
+
+    rm -rf "$BUILD_DIR"
+    ok "Docker image built: ${IMAGE_NAME}"
+else
+    ok "Docker image ${IMAGE_NAME} already exists"
+fi
 
 # Check if container already exists
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
@@ -180,7 +202,7 @@ else
         -e MCP_GIT_AUTO_PUSH=true \
         -v "${VOLUME_NAME}:/data" \
         --restart unless-stopped \
-        ghcr.io/dl4rce/flaiwheel:latest
+        "$IMAGE_NAME"
 
     ok "Flaiwheel container started"
 fi

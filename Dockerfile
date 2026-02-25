@@ -10,7 +10,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir .
 
 # Pre-load default embedding model so first start is fast
