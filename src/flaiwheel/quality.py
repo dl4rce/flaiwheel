@@ -149,14 +149,17 @@ class KnowledgeQualityChecker:
                 sections = re.findall(r"^##\s+(.+)", content, re.MULTILINE)
                 for section_name in sections:
                     clean_name = _strip_heading_decorators(section_name)
-                    section_pattern = rf"^##\s+.*{re.escape(clean_name)}.*\s*\n(.*?)(?=^##|\Z)"
+                    section_pattern = rf"^##\s+.*{re.escape(clean_name)}.*\s*\n(.*?)(?=^##\s|\Z)"
                     match = re.search(section_pattern, content, re.MULTILINE | re.DOTALL)
-                    if match and len(match.group(1).strip()) < 20:
-                        issues.append(_issue(
-                            "warning", rel,
-                            f"Section '## {section_name.strip()}' has very little content. "
-                            f"Add meaningful detail for future reference.",
-                        ))
+                    if match:
+                        body = match.group(1)
+                        stripped = re.sub(r"^#{1,6}\s+.*$", "", body, flags=re.MULTILINE).strip()
+                        if len(stripped) < 20:
+                            issues.append(_issue(
+                                "warning", rel,
+                                f"Section '## {section_name.strip()}' has very little content. "
+                                f"Add meaningful detail for future reference.",
+                            ))
             except Exception:
                 pass
         return issues
