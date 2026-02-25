@@ -527,9 +527,13 @@
                 if (!iso) return '–';
                 var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
                 if (diff < 60) return diff + 's ago';
-                if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-                if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-                return Math.floor(diff / 86400) + 'd ago';
+                var mins = Math.floor(diff / 60);
+                if (diff < 3600) return mins + 'm ago';
+                var hrs = Math.floor(diff / 3600);
+                var remainMins = Math.floor((diff % 3600) / 60);
+                if (diff < 86400) return hrs + 'h ' + remainMins + 'm ago';
+                var days = Math.floor(diff / 86400);
+                return days + 'd ' + Math.floor((diff % 86400) / 3600) + 'h ago';
             }
 
             document.getElementById('health-index').innerHTML =
@@ -616,6 +620,10 @@
         loadStats();
     }
 
+    async function refreshAll() {
+        await Promise.all([loadStats(), loadHealth()]);
+    }
+
     async function triggerReindex() {
         toast('info', 'Re-indexing...');
         var result = await api('POST', '/reindex');
@@ -624,7 +632,7 @@
         var changed = result.files_changed ?? result.files_indexed ?? 0;
         var skipped = result.files_skipped ?? 0;
         toast('success', chunks + ' chunks indexed from ' + result.files_indexed + ' files (' + changed + ' changed, ' + skipped + ' skipped)');
-        loadStats();
+        await refreshAll();
     }
 
     async function triggerGitPull() {
@@ -636,7 +644,7 @@
         } else {
             toast('info', 'No changes in git repo');
         }
-        loadStats();
+        await refreshAll();
     }
 
     async function clearIndex() {

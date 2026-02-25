@@ -211,6 +211,12 @@ def create_web_app(
         if changed:
             with index_lock:
                 result = indexer.index_all()
+            if health:
+                health.record_index(
+                    ok=result.get("status") == "success",
+                    chunks=result.get("chunks_upserted", 0),
+                    files=result.get("files_indexed", 0),
+                )
 
         return {
             "status": "success",
