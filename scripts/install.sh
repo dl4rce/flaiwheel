@@ -486,6 +486,7 @@ Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed
 | \`get_index_stats()\` | Show index statistics |
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base consistency |
+| \`check_update()\` | Check if a newer Flaiwheel version is available |
 RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
@@ -549,6 +550,7 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 | \`get_index_stats()\` | Index statistics |
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base |
+| \`check_update()\` | Check for newer Flaiwheel version |
 BLOCKEOF
 )
 

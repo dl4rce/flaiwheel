@@ -124,6 +124,8 @@ Your AI agent now has access to these MCP tools:
 - `write_bugfix_summary` — document fixes (auto-pushed to knowledge repo)
 - `check_knowledge_quality` — validate knowledge base consistency
 - `reindex` — manual re-index after bulk changes
+- `git_pull_reindex` — pull latest from knowledge repo + re-index
+- `check_update` — check if a newer Flaiwheel version is available
 
 ---
 
@@ -192,6 +194,7 @@ For every task, follow this order:
 | `get_index_stats()` | Show index statistics |
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
+| `check_update()` | Check if a newer Flaiwheel version is available |
 
 ---
 

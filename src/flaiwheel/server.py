@@ -17,14 +17,19 @@ Tools:
 """
 import re
 import threading
+import urllib.request
+import json
 from datetime import date
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
+from . import __version__
 from .config import Config
 from .health import HealthTracker
 from .indexer import DocsIndexer
 from .quality import KnowledgeQualityChecker
 from .watcher import GitWatcher
+
+GITHUB_REPO = "dl4rce/flaiwheel"
 
 
 def create_mcp_server(
@@ -290,5 +295,48 @@ def create_mcp_server(
             )
 
         return "\n".join(lines)
+
+    @mcp.tool()
+    def check_update() -> str:
+        """Check if a newer version of Flaiwheel is available on GitHub.
+
+        Compares the running version with the latest GitHub release.
+        If an update is available, returns the update command for the user.
+
+        Returns:
+            Version status and update instructions if needed
+        """
+        current = __version__
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            req = urllib.request.Request(url, headers={"Accept": "application/vnd.github.v3+json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            latest = data.get("tag_name", "").lstrip("v")
+        except Exception as e:
+            return f"Could not check for updates: {e}\nCurrent version: {current}"
+
+        if not latest:
+            return f"Could not determine latest version.\nCurrent version: {current}"
+
+        if latest == current:
+            return f"Flaiwheel is up to date! (v{current})"
+
+        from packaging.version import Version
+        try:
+            if Version(current) >= Version(latest):
+                return f"Flaiwheel is up to date! (v{current}, latest release: v{latest})"
+        except Exception:
+            pass
+
+        return (
+            f"**Update available!** v{current} → v{latest}\n\n"
+            f"Tell the user to run this command in their project directory:\n\n"
+            f"```bash\n"
+            f"curl -sSL https://raw.githubusercontent.com/{GITHUB_REPO}/main/scripts/install.sh | bash\n"
+            f"```\n\n"
+            f"This will rebuild the Docker image and recreate the container with the latest code. "
+            f"Data and configuration are preserved."
+        )
 
     return mcp
