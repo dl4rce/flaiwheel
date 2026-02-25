@@ -8,7 +8,7 @@ Thread-safe, no external dependencies.
 """
 import subprocess
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -34,12 +34,12 @@ class HealthTracker:
             "git_commit": None,
             "git_branch": None,
             "git_repo_url": None,
-            "started_at": datetime.now().isoformat(),
+            "started_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def record_index(self, ok: bool, chunks: int = 0, files: int = 0, error: str | None = None):
         with self._lock:
-            self._data["last_index_at"] = datetime.now().isoformat()
+            self._data["last_index_at"] = datetime.now(timezone.utc).isoformat()
             self._data["last_index_ok"] = ok
             self._data["last_index_chunks"] = chunks
             self._data["last_index_files"] = files
@@ -47,14 +47,14 @@ class HealthTracker:
 
     def record_pull(self, ok: bool, changed: bool = False, error: str | None = None):
         with self._lock:
-            self._data["last_pull_at"] = datetime.now().isoformat()
+            self._data["last_pull_at"] = datetime.now(timezone.utc).isoformat()
             self._data["last_pull_ok"] = ok
             self._data["last_pull_changed"] = changed
             self._data["last_pull_error"] = error
 
     def record_push(self, ok: bool, error: str | None = None):
         with self._lock:
-            self._data["last_push_at"] = datetime.now().isoformat()
+            self._data["last_push_at"] = datetime.now(timezone.utc).isoformat()
             self._data["last_push_ok"] = ok
             self._data["last_push_error"] = error
 
