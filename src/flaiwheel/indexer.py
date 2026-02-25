@@ -59,6 +59,10 @@ class DocsIndexer:
             self.chroma.delete_collection("project_docs")
         except Exception:
             pass
+        try:
+            self._hashes_path.unlink(missing_ok=True)
+        except Exception:
+            pass
         self._init_vectorstore()
 
     # ── Chunk ID (content-based, position-independent) ───
@@ -348,6 +352,11 @@ class DocsIndexer:
             embedding_function=self.ef,
             metadata={"hnsw:space": "cosine"},
         )
+        # Reset file hashes so next index_all() re-embeds everything
+        try:
+            self._hashes_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     # ── Search ───────────────────────────────────────────
 
