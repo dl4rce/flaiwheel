@@ -72,9 +72,20 @@ ok "All prerequisites met"
 # Extract owner and repo name from remote URL
 # Handles: git@github.com:owner/repo.git  AND  https://github.com/owner/repo.git
 OWNER=$(echo "$REMOTE_URL" | sed -E 's|.*[:/]([^/]+)/[^/]+\.git$|\1|; s|.*[:/]([^/]+)/[^/]+$|\1|')
-PROJECT=$(echo "$REMOTE_URL" | sed -E 's|.*[:/][^/]+/([^/]+)\.git$|\1|; s|.*[:/][^/]+/([^/]+)$|\1|')
-KNOWLEDGE_REPO="${PROJECT}-knowledge"
+REPO_NAME=$(echo "$REMOTE_URL" | sed -E 's|.*[:/][^/]+/([^/]+)\.git$|\1|; s|.*[:/][^/]+/([^/]+)$|\1|')
 PROJECT_DIR=$(git rev-parse --show-toplevel)
+
+# If running from inside a knowledge repo (ends with -knowledge), derive the
+# actual project name so we don't create double-suffixed repos or containers
+if [[ "$REPO_NAME" == *-knowledge ]]; then
+    PROJECT="${REPO_NAME%-knowledge}"
+    KNOWLEDGE_REPO="$REPO_NAME"
+    warn "Running from inside the knowledge repo (${REPO_NAME})"
+    info "Derived project name: ${BOLD}${PROJECT}${NC}"
+else
+    PROJECT="$REPO_NAME"
+    KNOWLEDGE_REPO="${PROJECT}-knowledge"
+fi
 
 CONTAINER_NAME="flaiwheel-${PROJECT}"
 VOLUME_NAME="flaiwheel-${PROJECT}-data"
@@ -92,7 +103,27 @@ echo ""
 
 UPDATE_MODE=false
 
+# First: check for exact container name match
+# Second: check if ANY flaiwheel container is using ports 8080/8081
+EXISTING_CONTAINER=""
+
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    EXISTING_CONTAINER="$CONTAINER_NAME"
+else
+    # Check for flaiwheel containers occupying our ports
+    PORT_CONTAINER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+        | grep -E '(8080|8081)' \
+        | grep -E '^flaiwheel-' \
+        | awk '{print $1}' \
+        | head -1 || true)
+    if [ -n "$PORT_CONTAINER" ]; then
+        EXISTING_CONTAINER="$PORT_CONTAINER"
+        warn "Found existing flaiwheel container '${PORT_CONTAINER}' on ports 8080/8081"
+        warn "This may have been created under a different project name"
+    fi
+fi
+
+if [ -n "$EXISTING_CONTAINER" ]; then
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║  Existing installation detected!              ║${NC}"
@@ -100,10 +131,10 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo ""
 
     # Show current version info
-    CURRENT_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")
-    CONTAINER_STATUS=$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "unknown")
-    CREATED_AT=$(docker inspect --format '{{.Created}}' "$CONTAINER_NAME" 2>/dev/null | cut -d'T' -f1 || echo "unknown")
-    echo -e "  Container:  ${GREEN}${CONTAINER_NAME}${NC} (${CONTAINER_STATUS})"
+    CURRENT_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$EXISTING_CONTAINER" 2>/dev/null || echo "unknown")
+    CONTAINER_STATUS=$(docker inspect --format '{{.State.Status}}' "$EXISTING_CONTAINER" 2>/dev/null || echo "unknown")
+    CREATED_AT=$(docker inspect --format '{{.Created}}' "$EXISTING_CONTAINER" 2>/dev/null | cut -d'T' -f1 || echo "unknown")
+    echo -e "  Container:  ${GREEN}${EXISTING_CONTAINER}${NC} (${CONTAINER_STATUS})"
     echo -e "  Image:      ${CURRENT_IMAGE}"
     echo -e "  Created:    ${CREATED_AT}"
     echo ""
@@ -120,10 +151,19 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     ok "Update mode — will rebuild image and recreate container"
 
     # Extract env vars from existing container for re-use
-    OLD_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)
+    OLD_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
     OLD_REPO_URL=$(echo "$OLD_ENV" | grep "^MCP_GIT_REPO_URL=" | cut -d= -f2- || true)
     OLD_AUTO_PUSH=$(echo "$OLD_ENV" | grep "^MCP_GIT_AUTO_PUSH=" | cut -d= -f2- || true)
     OLD_WEBHOOK_SECRET=$(echo "$OLD_ENV" | grep "^MCP_WEBHOOK_SECRET=" | cut -d= -f2- || true)
+
+    # Preserve volume name from existing container
+    OLD_VOLUME=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
+    if [ -n "$OLD_VOLUME" ]; then
+        VOLUME_NAME="$OLD_VOLUME"
+    fi
+
+    # Remember old container name (may differ from derived CONTAINER_NAME)
+    OLD_CONTAINER_NAME="$EXISTING_CONTAINER"
 
     echo ""
 fi
@@ -246,9 +286,9 @@ start_container() {
 
 if [ "$UPDATE_MODE" = true ]; then
     # ── Update path: stop → rebuild → recreate ──
-    info "Stopping container ${CONTAINER_NAME}..."
-    docker stop "$CONTAINER_NAME" 2>/dev/null || true
-    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    info "Stopping container ${OLD_CONTAINER_NAME}..."
+    docker stop "$OLD_CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$OLD_CONTAINER_NAME" 2>/dev/null || true
     ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
 
     # Remove old image to force rebuild
@@ -256,7 +296,7 @@ if [ "$UPDATE_MODE" = true ]; then
 
     build_image
 
-    info "Recreating container with preserved config..."
+    info "Recreating container as ${CONTAINER_NAME}..."
     start_container \
         "${OLD_REPO_URL:-$KNOWLEDGE_REPO_URL}" \
         "${OLD_AUTO_PUSH:-true}" \
@@ -266,6 +306,16 @@ if [ "$UPDATE_MODE" = true ]; then
 
 else
     # ── Fresh install path ──
+
+    # Check for port conflicts before starting
+    PORT_BLOCKER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+        | grep -E '(0\.0\.0\.0:8080|0\.0\.0\.0:8081)' \
+        | awk '{print $1}' \
+        | head -1 || true)
+    if [ -n "$PORT_BLOCKER" ]; then
+        fail "Port 8080 or 8081 is already in use by container '${PORT_BLOCKER}'. Stop it first: docker stop ${PORT_BLOCKER}"
+    fi
+
     if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
         build_image
     else
@@ -279,20 +329,40 @@ fi
 
 # Wait for container to be healthy and extract credentials
 info "Waiting for Flaiwheel to be ready..."
-ADMIN_PASS=""
+HEALTHY=false
 for i in $(seq 1 60); do
     if curl -sf http://localhost:8080/health &>/dev/null; then
-        ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep "Password:" | tail -1 | awk '{print $NF}' || true)
+        HEALTHY=true
         break
     fi
     sleep 2
 done
 
-if [ -z "$ADMIN_PASS" ]; then
-    warn "Could not extract credentials automatically."
-    warn "Run this to get them:  docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
-else
+if [ "$HEALTHY" = false ]; then
+    warn "Container did not become healthy within 120s."
+    warn "Check logs: docker logs ${CONTAINER_NAME}"
+fi
+
+# Extract password — try file first (most reliable), then logs
+ADMIN_PASS=""
+for i in $(seq 1 15); do
+    # Method 1: read from credential file written by auth module
+    ADMIN_PASS=$(docker exec "$CONTAINER_NAME" cat /data/.admin_password 2>/dev/null || true)
+    if [ -n "$ADMIN_PASS" ]; then
+        break
+    fi
+    # Method 2: parse from container logs
+    ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
+    if [ -n "$ADMIN_PASS" ]; then
+        break
+    fi
+    sleep 1
+done
+
+if [ -n "$ADMIN_PASS" ]; then
     ok "Flaiwheel is ready"
+else
+    warn "Could not extract credentials automatically."
 fi
 
 echo ""
