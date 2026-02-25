@@ -1,7 +1,15 @@
 .DS_Store
-node_modules/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
 .env
 .env.*
 !.env.example
+/data/
+*.sqlite
+node_modules/
+.pytest_cache/
+.ruff_cache/

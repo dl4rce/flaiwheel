@@ -1,0 +1,37 @@
+services:
+  mcp-docs:
+    build: .
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+      - "${SSE_PORT:-8081}:8081"
+
+    volumes:
+      # Your markdown docs (writable for auto-push of bugfix summaries)
+      # Use :ro suffix if you only need read-only (disables auto-push)
+      - ${DOCS_PATH:-./example-docs}:/docs
+      # Persistent index + config (survives container restarts)
+      - mcp-data:/data
+
+    environment:
+      - MCP_EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
+      - MCP_EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - MCP_OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - MCP_GIT_REPO_URL=${GIT_REPO_URL:-}
+      - MCP_GIT_BRANCH=${GIT_BRANCH:-main}
+      - MCP_GIT_SYNC_INTERVAL=${GIT_SYNC_INTERVAL:-300}
+      - MCP_GIT_TOKEN=${GIT_TOKEN:-}
+      - MCP_GIT_AUTO_PUSH=${GIT_AUTO_PUSH:-true}
+      - MCP_CHUNK_STRATEGY=${CHUNK_STRATEGY:-heading}
+      - MCP_TRANSPORT=sse
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mcp-data:
+    name: flaiwheel-data

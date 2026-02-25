@@ -1,0 +1,30 @@
+[project]
+name = "flaiwheel"
+version = "0.1.0"
+description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "chromadb>=0.5.0",
+    "sentence-transformers>=3.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flaiwheel"]

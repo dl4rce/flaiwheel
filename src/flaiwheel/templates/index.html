@@ -1,0 +1,748 @@
+<!--
+  Flaiwheel – Self-improving knowledge base for AI coding agents
+  Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.
+  Non-commercial use only. Commercial licensing: info@4rce.com
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flaiwheel – Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-input: #252833;
+            --border: #2e3347;
+            --text: #e4e4e7;
+            --text-dim: #8b8fa3;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        header {
+            display: flex; align-items: center; gap: 16px;
+            padding: 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 32px;
+        }
+        header .logo { font-size: 32px; line-height: 1; }
+        header h1 { font-size: 24px; font-weight: 700; }
+        header .subtitle { color: var(--text-dim); font-size: 14px; }
+
+        .grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 24px; margin-bottom: 24px;
+        }
+        .grid-full { grid-column: 1 / -1; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
+        }
+        .card h2 {
+            font-size: 16px; font-weight: 600; margin-bottom: 20px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .card h2 .icon { font-size: 20px; }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block; font-size: 13px; font-weight: 500;
+            color: var(--text-dim); margin-bottom: 6px;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%; padding: 10px 14px; background: var(--bg-input);
+            border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text); font-size: 14px; font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none; border-color: var(--accent);
+        }
+        .form-group .hint { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+        .btn {
+            padding: 10px 20px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 500; cursor: pointer;
+            transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger {
+            background: transparent; border: 1px solid var(--danger); color: var(--danger);
+        }
+        .btn-danger:hover { background: var(--danger); color: white; }
+        .btn-ghost {
+            background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { border-color: var(--accent); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-row { display: flex; gap: 8px; margin-top: 16px; }
+
+        .stat-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;
+        }
+        .stat-item {
+            background: var(--bg-input); border-radius: 8px; padding: 16px; text-align: center;
+        }
+        .stat-item .value { font-size: 28px; font-weight: 700; color: var(--accent); }
+        .stat-item .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+        .type-dist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .badge {
+            padding: 4px 12px; border-radius: 20px; font-size: 12px;
+            font-weight: 500; background: var(--bg-input); border: 1px solid var(--border);
+        }
+        .badge.bugfix { border-color: var(--danger); color: var(--danger); }
+        .badge.api { border-color: #3b82f6; color: #3b82f6; }
+        .badge.architecture { border-color: var(--warning); color: var(--warning); }
+        .badge.best-practice { border-color: var(--success); color: var(--success); }
+
+        .search-result {
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 8px; padding: 16px; margin-bottom: 12px;
+        }
+        .search-result .meta {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+        }
+        .search-result .source { font-weight: 600; font-size: 14px; color: var(--accent); }
+        .search-result .relevance {
+            font-size: 13px; padding: 2px 10px; border-radius: 12px;
+            background: var(--accent); color: white;
+        }
+        .search-result .heading { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+        .search-result .text {
+            font-size: 13px; color: var(--text); white-space: pre-wrap;
+            max-height: 200px; overflow-y: auto; padding: 12px;
+            background: var(--bg); border-radius: 6px;
+            font-family: 'SF Mono', 'Fira Code', monospace; line-height: 1.5;
+        }
+
+        .model-list { display: flex; flex-direction: column; gap: 8px; }
+        .model-option {
+            display: flex; align-items: center; gap: 12px; padding: 12px;
+            background: var(--bg-input); border: 2px solid var(--border);
+            border-radius: 8px; cursor: pointer; transition: all 0.2s;
+        }
+        .model-option:hover { border-color: var(--accent); }
+        .model-option.selected { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+        .model-option input[type="radio"] { display: none; }
+        .model-option .model-info { flex: 1; }
+        .model-option .model-name { font-weight: 600; font-size: 14px; }
+        .model-option .model-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+        .model-option .model-badges { display: flex; gap: 6px; }
+        .model-option .model-badges span {
+            font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-card);
+        }
+
+        .toast-container {
+            position: fixed; top: 24px; right: 24px; z-index: 1000;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .toast {
+            padding: 12px 20px; border-radius: 8px; font-size: 14px;
+            animation: slideIn 0.3s ease; max-width: 400px;
+        }
+        .toast.success { background: var(--success); color: white; }
+        .toast.error { background: var(--danger); color: white; }
+        .toast.info { background: var(--accent); color: white; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white;
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .connection-info { background: var(--bg-input); border-radius: 8px; padding: 16px; margin-top: 12px; }
+        .connection-info code {
+            display: block; background: var(--bg); padding: 12px; border-radius: 6px;
+            font-size: 13px; font-family: 'SF Mono', monospace;
+            white-space: pre; overflow-x: auto; margin-top: 8px;
+        }
+        .tab-row { display: flex; gap: 4px; margin-bottom: 12px; }
+        .tab-btn {
+            padding: 6px 16px; border: none; background: transparent;
+            color: var(--text-dim); cursor: pointer; border-radius: 6px; font-size: 13px;
+        }
+        .tab-btn.active { background: var(--accent); color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <span class="logo">&#128269;</span>
+            <div>
+                <h1>Flaiwheel</h1>
+                <div class="subtitle">Flywheel with AI, for AI – self-improving knowledge base</div>
+            </div>
+        </header>
+
+        <!-- Stats -->
+        <div class="card" style="margin-bottom: 24px;">
+            <h2><span class="icon">&#128202;</span> Index Status</h2>
+            <div class="stat-grid" id="stats-grid">
+                <div class="stat-item">
+                    <div class="value" id="stat-chunks">&ndash;</div>
+                    <div class="label">Chunks</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="stat-provider">&ndash;</div>
+                    <div class="label">Embedding</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="stat-model">&ndash;</div>
+                    <div class="label">Model</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="stat-strategy">&ndash;</div>
+                    <div class="label">Chunking</div>
+                </div>
+            </div>
+            <div class="type-dist" id="type-dist"></div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="triggerReindex()">Re-Index</button>
+                <button class="btn btn-ghost" onclick="triggerGitPull()">Git Pull + Reindex</button>
+                <button class="btn btn-danger" onclick="clearIndex()">Clear Index</button>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Embedding Model -->
+            <div class="card">
+                <h2><span class="icon">&#129504;</span> Embedding Model</h2>
+                <div class="form-group">
+                    <label>Provider</label>
+                    <select id="cfg-provider" onchange="toggleProviderFields()">
+                        <option value="local">Local (free, private)</option>
+                        <option value="openai">OpenAI (better quality)</option>
+                    </select>
+                </div>
+                <div id="local-models-section">
+                    <label style="font-size:13px; color:var(--text-dim); margin-bottom:8px; display:block;">
+                        Select model
+                    </label>
+                    <div class="model-list" id="model-list"></div>
+                </div>
+                <div id="openai-section" style="display:none;">
+                    <div class="form-group">
+                        <label>OpenAI API Key</label>
+                        <input type="password" id="cfg-openai-key" placeholder="sk-...">
+                    </div>
+                    <div class="form-group">
+                        <label>Model</label>
+                        <select id="cfg-openai-model">
+                            <option value="text-embedding-3-small">text-embedding-3-small ($0.02/1M tok)</option>
+                            <option value="text-embedding-3-large">text-embedding-3-large ($0.13/1M tok)</option>
+                            <option value="text-embedding-ada-002">text-embedding-ada-002 (legacy)</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveEmbeddingConfig()" style="margin-top:12px; width:100%;">
+                    Save &amp; Re-Index
+                </button>
+            </div>
+
+            <!-- Chunking & Docs -->
+            <div class="card">
+                <h2><span class="icon">&#9986;&#65039;</span> Chunking &amp; Documentation</h2>
+                <div class="form-group">
+                    <label>Docs path (in container)</label>
+                    <input type="text" id="cfg-docs-path" value="/docs">
+                    <div class="hint">Volume mount or git clone target</div>
+                </div>
+                <div class="form-group">
+                    <label>Chunking strategy</label>
+                    <select id="cfg-chunk-strategy">
+                        <option value="heading">Heading-based (recommended for Markdown)</option>
+                        <option value="fixed">Fixed size with overlap</option>
+                        <option value="hybrid">Hybrid (heading + subdivide)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Max chunk size (chars)</label>
+                        <input type="number" id="cfg-chunk-max" value="2000">
+                    </div>
+                    <div class="form-group">
+                        <label>Overlap (chars)</label>
+                        <input type="number" id="cfg-chunk-overlap" value="200">
+                    </div>
+                </div>
+
+                <h2 style="margin-top:20px;"><span class="icon">&#128225;</span> Git Sync</h2>
+                <div class="form-group">
+                    <label>Git repo URL (optional)</label>
+                    <input type="text" id="cfg-git-url" placeholder="https://github.com/user/docs.git">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Branch</label>
+                        <input type="text" id="cfg-git-branch" value="main">
+                    </div>
+                    <div class="form-group">
+                        <label>Sync interval (sec)</label>
+                        <input type="number" id="cfg-git-interval" value="300">
+                        <div class="hint">0 = disabled</div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Git token (for private repos)</label>
+                    <input type="password" id="cfg-git-token" placeholder="ghp_...">
+                </div>
+                <div class="form-group" style="margin-top:8px;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text);">
+                        <input type="checkbox" id="cfg-git-auto-push" checked
+                               style="width:18px; height:18px; accent-color:var(--accent);">
+                        Auto-push (commit &amp; push bugfix summaries to remote)
+                    </label>
+                </div>
+                <button class="btn btn-primary" onclick="saveGeneralConfig()" style="margin-top:8px; width:100%;">
+                    Save
+                </button>
+            </div>
+        </div>
+
+        <!-- Test Search -->
+        <div class="card" style="margin-bottom: 24px;">
+            <h2><span class="icon">&#128270;</span> Test Search</h2>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="search-query"
+                       placeholder="e.g. 'Payment retry logic' or 'Race condition fix'"
+                       style="flex:1; padding:12px 16px; background:var(--bg-input);
+                              border:1px solid var(--border); border-radius:8px;
+                              color:var(--text); font-size:15px;"
+                       onkeypress="if(event.key==='Enter') testSearch()">
+                <select id="search-type"
+                        style="padding:12px; background:var(--bg-input);
+                               border:1px solid var(--border); border-radius:8px; color:var(--text);">
+                    <option value="">All types</option>
+                    <option value="docs">Docs</option>
+                    <option value="bugfix">Bugfix</option>
+                    <option value="best-practice">Best Practice</option>
+                    <option value="api">API</option>
+                    <option value="architecture">Architecture</option>
+                </select>
+                <button class="btn btn-primary" onclick="testSearch()">Search</button>
+            </div>
+            <div id="search-results" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- Knowledge Quality -->
+        <div class="card" style="margin-bottom: 24px;">
+            <h2><span class="icon">&#9989;</span> Knowledge Quality</h2>
+            <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
+                <div id="quality-score" style="font-size:48px; font-weight:700; color:var(--accent);">&ndash;</div>
+                <div>
+                    <div style="font-size:16px; font-weight:600;">Quality Score</div>
+                    <div id="quality-summary" style="font-size:13px; color:var(--text-dim);">Click check to analyze</div>
+                </div>
+                <button class="btn btn-primary" onclick="checkQuality()" style="margin-left:auto;">
+                    Run Quality Check
+                </button>
+            </div>
+            <div id="quality-issues" style="display:none;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Issues:</div>
+                <div id="quality-list"></div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Connection Config -->
+            <div class="card">
+                <h2><span class="icon">&#128279;</span> Client Configuration</h2>
+                <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
+                    Copy the matching config into your client:
+                </p>
+                <div class="tab-row">
+                    <button class="tab-btn active" onclick="showTab(this, 'tab-cursor')">Cursor</button>
+                    <button class="tab-btn" onclick="showTab(this, 'tab-claude')">Claude Desktop</button>
+                    <button class="tab-btn" onclick="showTab(this, 'tab-docker')">Docker (stdio)</button>
+                </div>
+                <div id="tab-cursor" class="connection-info">
+                    <strong>.cursor/mcp.json</strong>
+                    <code id="config-cursor"></code>
+                </div>
+                <div id="tab-claude" class="connection-info" style="display:none;">
+                    <strong>claude_desktop_config.json</strong>
+                    <code id="config-claude"></code>
+                </div>
+                <div id="tab-docker" class="connection-info" style="display:none;">
+                    <strong>.cursor/mcp.json (Docker stdio)</strong>
+                    <code id="config-docker"></code>
+                </div>
+            </div>
+
+            <!-- Security -->
+            <div class="card">
+                <h2><span class="icon">&#128274;</span> Security</h2>
+                <p style="color:var(--text-dim); font-size:14px; margin-bottom:16px;">
+                    Change the admin password for the Web UI.
+                </p>
+                <div class="form-group">
+                    <label>Current password</label>
+                    <input type="password" id="pw-old" placeholder="Current password">
+                </div>
+                <div class="form-group">
+                    <label>New password</label>
+                    <input type="password" id="pw-new" placeholder="New password">
+                </div>
+                <div class="form-group">
+                    <label>Confirm new password</label>
+                    <input type="password" id="pw-confirm" placeholder="Confirm new password">
+                </div>
+                <button class="btn btn-primary" onclick="changePassword()" style="width:100%;">
+                    Change Password
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toasts"></div>
+
+    <script>
+    let currentConfig = {};
+    let selectedModel = 'all-MiniLM-L6-v2';
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadConfig();
+        loadStats();
+        setInterval(loadStats, 30000);
+    });
+
+    async function api(method, path, body = null) {
+        const opts = {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+        };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch('/api' + path, opts);
+        if (res.status === 401) {
+            toast('error', 'Authentication required – reload page');
+            return null;
+        }
+        return res.json();
+    }
+
+    async function loadConfig() {
+        const data = await api('GET', '/config');
+        if (!data) return;
+        currentConfig = data.config;
+
+        document.getElementById('cfg-provider').value = currentConfig.embedding_provider;
+        document.getElementById('cfg-docs-path').value = currentConfig.docs_path;
+        document.getElementById('cfg-chunk-strategy').value = currentConfig.chunk_strategy;
+        document.getElementById('cfg-chunk-max').value = currentConfig.chunk_max_chars;
+        document.getElementById('cfg-chunk-overlap').value = currentConfig.chunk_overlap;
+        document.getElementById('cfg-git-url').value = currentConfig.git_repo_url || '';
+        document.getElementById('cfg-git-branch').value = currentConfig.git_branch;
+        document.getElementById('cfg-git-interval').value = currentConfig.git_sync_interval;
+        document.getElementById('cfg-git-auto-push').checked = currentConfig.git_auto_push !== false;
+
+        selectedModel = currentConfig.embedding_model;
+        renderModelList(data.available_models);
+        toggleProviderFields();
+        updateConnectionConfigs();
+    }
+
+    async function loadStats() {
+        const stats = await api('GET', '/stats');
+        if (!stats) return;
+
+        document.getElementById('stat-chunks').textContent = stats.total_chunks.toLocaleString();
+        document.getElementById('stat-provider').textContent = stats.embedding_provider;
+        document.getElementById('stat-model').textContent = (stats.embedding_model || '').split('/').pop() || '–';
+        document.getElementById('stat-strategy').textContent = stats.chunk_strategy;
+
+        const dist = document.getElementById('type-dist');
+        dist.innerHTML = Object.entries(stats.type_distribution || {})
+            .map(([type, count]) => '<span class="badge ' + type + '">' + type + ': ' + count + '</span>')
+            .join('');
+    }
+
+    function renderModelList(models) {
+        const list = document.getElementById('model-list');
+        list.innerHTML = models.map(function(m) {
+            return '<label class="model-option ' + (m.id === selectedModel ? 'selected' : '') + '" '
+                + 'onclick="selectModel(\'' + m.id + '\', this)">'
+                + '<input type="radio" name="model" value="' + m.id + '" '
+                + (m.id === selectedModel ? 'checked' : '') + '>'
+                + '<div class="model-info">'
+                + '<div class="model-name">' + m.name + '</div>'
+                + '<div class="model-meta">' + m.desc + '</div>'
+                + '</div>'
+                + '<div class="model-badges">'
+                + '<span>' + m.speed + '</span>'
+                + '<span>' + m.ram + '</span>'
+                + '<span>' + m.lang + '</span>'
+                + '</div></label>';
+        }).join('');
+    }
+
+    function selectModel(modelId, el) {
+        selectedModel = modelId;
+        document.querySelectorAll('.model-option').forEach(function(e) { e.classList.remove('selected'); });
+        el.classList.add('selected');
+    }
+
+    function toggleProviderFields() {
+        var provider = document.getElementById('cfg-provider').value;
+        document.getElementById('local-models-section').style.display = provider === 'local' ? 'block' : 'none';
+        document.getElementById('openai-section').style.display = provider === 'openai' ? 'block' : 'none';
+    }
+
+    async function saveEmbeddingConfig() {
+        var provider = document.getElementById('cfg-provider').value;
+        var body = { embedding_provider: provider };
+        if (provider === 'local') {
+            body.embedding_model = selectedModel;
+        } else {
+            body.openai_api_key = document.getElementById('cfg-openai-key').value;
+            body.openai_embedding_model = document.getElementById('cfg-openai-model').value;
+        }
+        toast('info', 'Saving & reindexing...');
+        var result = await api('POST', '/config', body);
+        if (!result) return;
+        if (result.model_changed) {
+            toast('success', 'Model changed! ' + (result.reindex_result?.chunks_created || 0) + ' chunks reindexed');
+        } else {
+            toast('success', 'Saved');
+        }
+        loadStats();
+    }
+
+    async function saveGeneralConfig() {
+        var body = {
+            docs_path: document.getElementById('cfg-docs-path').value,
+            chunk_strategy: document.getElementById('cfg-chunk-strategy').value,
+            chunk_max_chars: parseInt(document.getElementById('cfg-chunk-max').value),
+            chunk_overlap: parseInt(document.getElementById('cfg-chunk-overlap').value),
+            git_repo_url: document.getElementById('cfg-git-url').value,
+            git_branch: document.getElementById('cfg-git-branch').value,
+            git_sync_interval: parseInt(document.getElementById('cfg-git-interval').value),
+            git_token: document.getElementById('cfg-git-token').value,
+            git_auto_push: document.getElementById('cfg-git-auto-push').checked,
+        };
+        var result = await api('POST', '/config', body);
+        if (!result) return;
+        toast('success', 'Configuration saved');
+        loadStats();
+    }
+
+    async function triggerReindex() {
+        toast('info', 'Re-indexing...');
+        var result = await api('POST', '/reindex');
+        if (!result) return;
+        toast('success', result.chunks_created + ' chunks indexed from ' + result.files_indexed + ' files');
+        loadStats();
+    }
+
+    async function triggerGitPull() {
+        toast('info', 'Git pull...');
+        var result = await api('POST', '/git/pull');
+        if (!result) return;
+        if (result.changes_detected) {
+            toast('success', 'New commits! ' + (result.reindex_result?.chunks_created || 0) + ' chunks reindexed');
+        } else {
+            toast('info', 'No changes in git repo');
+        }
+        loadStats();
+    }
+
+    async function clearIndex() {
+        if (!confirm('Really clear the entire index?')) return;
+        await api('POST', '/clear');
+        toast('success', 'Index cleared');
+        loadStats();
+    }
+
+    async function testSearch() {
+        var query = document.getElementById('search-query').value;
+        if (!query) return;
+        var typeFilter = document.getElementById('search-type').value || null;
+        var container = document.getElementById('search-results');
+        container.innerHTML = '<div style="text-align:center; padding:20px;"><span class="spinner"></span> Searching...</div>';
+
+        var data = await api('POST', '/search', { query: query, top_k: 5, type_filter: typeFilter });
+        if (!data) { container.innerHTML = ''; return; }
+
+        if (!data.results || data.results.length === 0) {
+            container.innerHTML = '<p style="color:var(--text-dim); padding:16px;">No results found.</p>';
+            return;
+        }
+
+        container.innerHTML = data.results.map(function(r) {
+            return '<div class="search-result">'
+                + '<div class="meta">'
+                + '<span class="source">' + escapeHtml(r.source) + ' &gt; ' + escapeHtml(r.heading) + '</span>'
+                + '<span class="relevance">' + r.relevance + '%</span>'
+                + '</div>'
+                + '<div class="heading">'
+                + '<span class="badge ' + r.type + '">' + r.type + '</span> '
+                + r.char_count + ' chars'
+                + '</div>'
+                + '<div class="text">' + escapeHtml(r.text.substring(0, 500)) + (r.text.length > 500 ? '...' : '') + '</div>'
+                + '</div>';
+        }).join('');
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    async function checkQuality() {
+        document.getElementById('quality-score').textContent = '...';
+        document.getElementById('quality-summary').textContent = 'Checking...';
+
+        var data = await api('GET', '/quality');
+        if (!data) return;
+
+        var scoreEl = document.getElementById('quality-score');
+        scoreEl.textContent = data.score;
+        if (data.score >= 80) scoreEl.style.color = 'var(--success)';
+        else if (data.score >= 50) scoreEl.style.color = 'var(--warning)';
+        else scoreEl.style.color = 'var(--danger)';
+
+        document.getElementById('quality-summary').textContent =
+            data.critical + ' critical, ' + data.warnings + ' warnings, ' + data.info + ' info';
+
+        var issuesDiv = document.getElementById('quality-issues');
+        var listDiv = document.getElementById('quality-list');
+
+        if (data.issues.length === 0) {
+            issuesDiv.style.display = 'block';
+            listDiv.innerHTML = '<p style="color:var(--success);">No issues found!</p>';
+        } else {
+            issuesDiv.style.display = 'block';
+            listDiv.innerHTML = data.issues.map(function(i) {
+                var color = i.severity === 'critical' ? 'var(--danger)'
+                          : i.severity === 'warning' ? 'var(--warning)' : 'var(--text-dim)';
+                var icon = i.severity === 'critical' ? '[!]'
+                         : i.severity === 'warning' ? '[~]' : '[i]';
+                return '<div style="padding:8px 12px; margin-bottom:4px; background:var(--bg-input);'
+                    + 'border-radius:6px; font-size:13px; border-left:3px solid ' + color + ';">'
+                    + '<span style="color:' + color + '; font-weight:600;">' + icon + '</span> '
+                    + '<strong>' + escapeHtml(i.file) + '</strong>: '
+                    + escapeHtml(i.message) + '</div>';
+            }).join('');
+        }
+    }
+
+    function updateConnectionConfigs() {
+        var host = window.location.hostname;
+        var ssePort = currentConfig.sse_port || 8081;
+
+        document.getElementById('config-cursor').textContent = JSON.stringify({
+            "mcpServers": {
+                "flaiwheel": {
+                    "url": "http://" + host + ":" + ssePort + "/sse"
+                }
+            }
+        }, null, 2);
+
+        document.getElementById('config-claude').textContent = JSON.stringify({
+            "mcpServers": {
+                "flaiwheel": {
+                    "url": "http://" + host + ":" + ssePort + "/sse"
+                }
+            }
+        }, null, 2);
+
+        document.getElementById('config-docker').textContent = JSON.stringify({
+            "mcpServers": {
+                "flaiwheel": {
+                    "command": "docker",
+                    "args": [
+                        "run", "-i", "--rm",
+                        "-v", "${workspaceFolder}/docs:/docs:ro",
+                        "-v", "flaiwheel-data:/data",
+                        "flaiwheel:latest"
+                    ]
+                }
+            }
+        }, null, 2);
+    }
+
+    function showTab(btn, tabId) {
+        btn.parentElement.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        ['tab-cursor', 'tab-claude', 'tab-docker'].forEach(function(id) {
+            document.getElementById(id).style.display = id === tabId ? 'block' : 'none';
+        });
+    }
+
+    async function changePassword() {
+        var oldPw = document.getElementById('pw-old').value;
+        var newPw = document.getElementById('pw-new').value;
+        var confirmPw = document.getElementById('pw-confirm').value;
+
+        if (!oldPw || !newPw) {
+            toast('error', 'Please fill in all password fields');
+            return;
+        }
+        if (newPw !== confirmPw) {
+            toast('error', 'New passwords do not match');
+            return;
+        }
+        if (newPw.length < 8) {
+            toast('error', 'New password must be at least 8 characters');
+            return;
+        }
+
+        var result = await api('POST', '/auth/change-password', {
+            old_password: oldPw,
+            new_password: newPw,
+        });
+        if (!result) return;
+
+        if (result.status === 'success') {
+            toast('success', 'Password changed – please reload and re-authenticate');
+            document.getElementById('pw-old').value = '';
+            document.getElementById('pw-new').value = '';
+            document.getElementById('pw-confirm').value = '';
+        } else {
+            toast('error', result.detail || 'Password change failed');
+        }
+    }
+
+    function toast(type, message) {
+        var container = document.getElementById('toasts');
+        var el = document.createElement('div');
+        el.className = 'toast ' + type;
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(function() { el.remove(); }, 4000);
+    }
+    </script>
+</body>
+</html>
