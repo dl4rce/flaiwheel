@@ -65,7 +65,7 @@ def main():
         config, indexer, watcher, index_lock, config_lock, auth, quality_checker, health,
     )
     mcp_server = create_mcp_server(
-        config, indexer, index_lock, watcher, quality_checker,
+        config, indexer, index_lock, watcher, quality_checker, health,
     )
 
     def run_web():

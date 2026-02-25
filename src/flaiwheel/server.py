@@ -21,6 +21,7 @@ from datetime import date
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from .config import Config
+from .health import HealthTracker
 from .indexer import DocsIndexer
 from .quality import KnowledgeQualityChecker
 from .watcher import GitWatcher
@@ -32,6 +33,7 @@ def create_mcp_server(
     index_lock: threading.Lock,
     watcher: GitWatcher,
     quality_checker: KnowledgeQualityChecker,
+    health: HealthTracker | None = None,
 ) -> FastMCP:
     """Factory: returns a configured FastMCP server that shares state with web.py."""
 
@@ -219,6 +221,40 @@ def create_mcp_server(
             result = indexer.index_all(force=force)
         return (
             f"Re-index complete!\n"
+            f"  Files: {result['files_indexed']} ({result.get('files_changed', '?')} changed, "
+            f"{result.get('files_skipped', '?')} skipped)\n"
+            f"  Chunks upserted: {result.get('chunks_upserted', result.get('chunks_created', '?'))}\n"
+            f"  Stale removed: {result['chunks_removed']}"
+        )
+
+    @mcp.tool()
+    def git_pull_reindex() -> str:
+        """Pull latest changes from the knowledge repo and re-index.
+
+        Call this AFTER you have committed and pushed new or updated .md files
+        to the knowledge repo. Flaiwheel will pull the changes and re-index
+        so they become searchable immediately.
+
+        Returns:
+            Summary of pull result and reindex statistics
+        """
+        if not watcher or not config.git_repo_url:
+            return "No git repo configured. Set MCP_GIT_REPO_URL first."
+
+        changed = watcher.pull_and_check()
+        if not changed:
+            return "No new changes in knowledge repo. Already up to date."
+
+        with index_lock:
+            result = indexer.index_all()
+        if health:
+            health.record_index(
+                ok=result.get("status") == "success",
+                chunks=result.get("chunks_upserted", 0),
+                files=result.get("files_indexed", 0),
+            )
+        return (
+            f"Pulled new changes and re-indexed!\n"
             f"  Files: {result['files_indexed']} ({result.get('files_changed', '?')} changed, "
             f"{result.get('files_skipped', '?')} skipped)\n"
             f"  Chunks upserted: {result.get('chunks_upserted', result.get('chunks_created', '?'))}\n"

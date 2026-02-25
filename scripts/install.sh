@@ -398,7 +398,7 @@ RULE_FILE="${RULES_DIR}/flaiwheel.mdc"
 
 mkdir -p "$RULES_DIR"
 
-cat > "$RULE_FILE" << 'EOF'
+cat > "$RULE_FILE" << RULEEOF
 ---
 description: Flaiwheel knowledge base integration
 globs: *
@@ -408,11 +408,26 @@ globs: *
 
 This project has a **semantic knowledge base** powered by Flaiwheel (MCP endpoint: http://localhost:8081/sse).
 
+## Knowledge Repo Location
+
+The knowledge base lives in a **separate Git repo**: \`${KNOWLEDGE_REPO_URL}\`
+It is cloned and served by Flaiwheel inside a Docker container.
+
+**IMPORTANT — DO NOT:**
+- Do NOT try to access, read, or modify files inside the Docker container
+- Do NOT try to find the knowledge base on the local filesystem
+- Do NOT try to \`docker exec\` into the Flaiwheel container
+
+**INSTEAD:**
+- Use the MCP tools below to **search** the knowledge base
+- Use \`write_bugfix_summary()\` to **add** bugfix entries (auto-pushed to the repo)
+- To add/update other docs: commit and push to the knowledge repo directly, then call \`git_pull_reindex()\`
+
 ## Step 1: Flaiwheel — Step 2: Native tools
 
 **For every task, follow this order:**
 
-1. **FIRST → Search Flaiwheel** for context: architecture decisions, past bugs, best practices, API docs, setup guides
+1. **FIRST → Search Flaiwheel** for context: architecture decisions, past bugs, best practices, API docs, code understanding, application questions
 2. **THEN → Use your native tools** (file search, code reading, grep, etc.) for source code details
 
 Flaiwheel knows things the source code cannot tell you: the _why_ behind decisions, past mistakes to avoid, patterns to follow, and how components relate. Your native tools (Cursor, Claude Code, VS Code) are best for reading and editing actual source files. **Use both — but always start with Flaiwheel.**
@@ -421,38 +436,38 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 | Category | Search with | What you'll find |
 |----------|-------------|-----------------|
-| `architecture` | `search_by_type("query", "architecture")` | System design, component relationships, trade-offs, decisions |
-| `api` | `search_by_type("query", "api")` | Endpoints, contracts, schemas, integration patterns |
-| `bugfix` | `search_bugfixes("query")` | Root causes, solutions, lessons learned from past bugs |
-| `best-practice` | `search_by_type("query", "best-practice")` | Coding standards, patterns, conventions for this project |
-| `setup` | `search_by_type("query", "setup")` | Environment setup, deployment, infrastructure, CI/CD |
-| `changelog` | `search_by_type("query", "changelog")` | Release notes, breaking changes, migration guides |
-| _all docs_ | `search_docs("query")` | Semantic search across everything |
+| \`architecture\` | \`search_by_type("query", "architecture")\` | System design, component relationships, trade-offs, decisions |
+| \`api\` | \`search_by_type("query", "api")\` | Endpoints, contracts, schemas, integration patterns |
+| \`bugfix\` | \`search_bugfixes("query")\` | Root causes, solutions, lessons learned from past bugs |
+| \`best-practice\` | \`search_by_type("query", "best-practice")\` | Coding standards, patterns, conventions for this project |
+| \`setup\` | \`search_by_type("query", "setup")\` | Environment setup, deployment, infrastructure, CI/CD |
+| \`changelog\` | \`search_by_type("query", "changelog")\` | Release notes, breaking changes, migration guides |
+| _all docs_ | \`search_docs("query")\` | Semantic search across everything |
 
 ## Rules — MANDATORY
 
 ### Before writing or changing code:
 1. **ALWAYS search Flaiwheel first:**
-   - `search_docs("what you're about to change")` — architecture, patterns, constraints
-   - `search_bugfixes("the problem you're solving")` — past issues, known pitfalls
-   - `search_by_type()` for targeted searches — e.g. `search_by_type("auth", "architecture")`
+   - \`search_docs("what you're about to change")\` — architecture, patterns, constraints
+   - \`search_bugfixes("the problem you're solving")\` — past issues, known pitfalls
+   - \`search_by_type()\` for targeted searches — e.g. \`search_by_type("auth", "architecture")\`
 2. Prefer 2-3 targeted searches over one vague query
 3. THEN use your native file search/code reading for source code details
 
 ### After fixing a bug:
-1. **ALWAYS** call `write_bugfix_summary()` with:
+1. **ALWAYS** call \`write_bugfix_summary()\` with:
    - Clear title describing the bug
    - Technical root cause
    - What was changed to fix it
    - What should be done differently next time
 2. This is **mandatory** — skipping this breaks the flywheel
 
-### After making architecture decisions or learning something important:
-1. Document it in the knowledge repo (appropriate category)
-2. Call `reindex()` so it's immediately searchable
+### After committing new/updated docs to the knowledge repo:
+1. Push your changes to the knowledge repo (\`${KNOWLEDGE_REPO_URL}\`)
+2. Call \`git_pull_reindex()\` so Flaiwheel pulls and indexes them immediately
 
 ### Periodically:
-1. Call `check_knowledge_quality()` to find issues in the knowledge base
+1. Call \`check_knowledge_quality()\` to find issues in the knowledge base
 2. Fix critical issues immediately
 
 ## The flywheel effect
@@ -463,14 +478,15 @@ Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed
 
 | Tool | Purpose |
 |------|---------|
-| `search_docs(query, top_k)` | Semantic search across all documentation |
-| `search_bugfixes(query, top_k)` | Search only bugfix summaries |
-| `search_by_type(query, doc_type, top_k)` | Filter by type: docs, bugfix, best-practice, api, architecture, changelog, setup, readme |
-| `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` | Document a bugfix (auto-pushed + reindexed) |
-| `get_index_stats()` | Show index statistics |
-| `reindex()` | Re-index all documentation |
-| `check_knowledge_quality()` | Validate knowledge base consistency |
-EOF
+| \`search_docs(query, top_k)\` | Semantic search across all documentation |
+| \`search_bugfixes(query, top_k)\` | Search only bugfix summaries |
+| \`search_by_type(query, doc_type, top_k)\` | Filter by type: docs, bugfix, best-practice, api, architecture, changelog, setup, readme |
+| \`write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)\` | Document a bugfix (auto-pushed + reindexed) |
+| \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index (call after pushing new docs) |
+| \`get_index_stats()\` | Show index statistics |
+| \`reindex()\` | Re-index all documentation |
+| \`check_knowledge_quality()\` | Validate knowledge base consistency |
+RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
 
@@ -480,11 +496,18 @@ ok "Created .cursor/rules/flaiwheel.mdc"
 
 AGENTS_FILE="${PROJECT_DIR}/AGENTS.md"
 
-FLAIWHEEL_AGENTS_BLOCK=$(cat << 'BLOCKEOF'
+FLAIWHEEL_AGENTS_BLOCK=$(cat << BLOCKEOF
 ## Flaiwheel — Project Knowledge Base (MCP) — YOUR FIRST STOP
 
 This project has a **semantic knowledge base** powered by Flaiwheel.
-MCP endpoint: `http://localhost:8081/sse`
+MCP endpoint: \`http://localhost:8081/sse\`
+
+### Knowledge Repo
+
+The knowledge base lives in a **separate Git repo**: \`${KNOWLEDGE_REPO_URL}\`
+
+**DO NOT** access, read, or modify files inside the Flaiwheel Docker container.
+Use the MCP tools to search, and commit/push to the knowledge repo to add docs.
 
 ### Step 1: Flaiwheel — Step 2: Native tools
 
@@ -496,35 +519,36 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 ### Mandatory workflow
 
-1. **FIRST: Search Flaiwheel** — `search_docs("what you're working on")`, `search_bugfixes("the problem")`, `search_by_type("query", "architecture")` BEFORE touching code
+1. **FIRST: Search Flaiwheel** — \`search_docs("what you're working on")\`, \`search_bugfixes("the problem")\`, \`search_by_type("query", "architecture")\` BEFORE touching code
 2. **THEN: Use native tools** to read/edit source code with the knowledge you found
-3. **AFTER fixing a bug:** `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` — auto-pushed + reindexed
-4. **AFTER decisions or doc changes:** `reindex()` so changes are searchable immediately
-5. **Periodically:** `check_knowledge_quality()` and fix issues
+3. **AFTER fixing a bug:** \`write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)\` — auto-pushed + reindexed
+4. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\` so Flaiwheel pulls and indexes them immediately
+5. **Periodically:** \`check_knowledge_quality()\` and fix issues
 
 ### What the knowledge base contains
 
 | Category | Search with | What you'll find |
 |----------|-------------|-----------------|
-| `architecture` | `search_by_type("q", "architecture")` | System design, trade-offs, decisions |
-| `api` | `search_by_type("q", "api")` | Endpoints, contracts, schemas |
-| `bugfix` | `search_bugfixes("q")` | Root causes, solutions, lessons learned |
-| `best-practice` | `search_by_type("q", "best-practice")` | Coding standards, patterns |
-| `setup` | `search_by_type("q", "setup")` | Deployment, infrastructure, CI/CD |
-| `changelog` | `search_by_type("q", "changelog")` | Release notes, breaking changes |
-| _everything_ | `search_docs("q")` | Semantic search across all docs |
+| \`architecture\` | \`search_by_type("q", "architecture")\` | System design, trade-offs, decisions |
+| \`api\` | \`search_by_type("q", "api")\` | Endpoints, contracts, schemas |
+| \`bugfix\` | \`search_bugfixes("q")\` | Root causes, solutions, lessons learned |
+| \`best-practice\` | \`search_by_type("q", "best-practice")\` | Coding standards, patterns |
+| \`setup\` | \`search_by_type("q", "setup")\` | Deployment, infrastructure, CI/CD |
+| \`changelog\` | \`search_by_type("q", "changelog")\` | Release notes, breaking changes |
+| _everything_ | \`search_docs("q")\` | Semantic search across all docs |
 
 ### All tools
 
 | Tool | Purpose |
 |------|---------|
-| `search_docs(query, top_k)` | Semantic search across all documentation |
-| `search_bugfixes(query, top_k)` | Search bugfix summaries only |
-| `search_by_type(query, doc_type, top_k)` | Filter by type |
-| `write_bugfix_summary(...)` | Document a bugfix (auto-pushed + reindexed) |
-| `get_index_stats()` | Index statistics |
-| `reindex()` | Re-index all documentation |
-| `check_knowledge_quality()` | Validate knowledge base |
+| \`search_docs(query, top_k)\` | Semantic search across all documentation |
+| \`search_bugfixes(query, top_k)\` | Search bugfix summaries only |
+| \`search_by_type(query, doc_type, top_k)\` | Filter by type |
+| \`write_bugfix_summary(...)\` | Document a bugfix (auto-pushed + reindexed) |
+| \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index |
+| \`get_index_stats()\` | Index statistics |
+| \`reindex()\` | Re-index all documentation |
+| \`check_knowledge_quality()\` | Validate knowledge base |
 BLOCKEOF
 )
 

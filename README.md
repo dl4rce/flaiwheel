@@ -133,6 +133,14 @@ Your AI agent now has access to these MCP tools:
 
 Flaiwheel is your **primary knowledge source** for this project. It contains architecture decisions, API documentation, past bugfixes with root causes, best practices, setup guides, and changelogs — things the source code alone cannot tell you.
 
+### Knowledge Repo Location
+
+The knowledge base lives in a **separate Git repo**: `<your-project>-knowledge` (private, on GitHub).
+Flaiwheel clones it into a Docker container and serves it via MCP.
+
+**DO NOT** access, read, or modify files inside the Docker container. Use MCP tools to search.
+To add/update docs: commit and push to the knowledge repo, then call `git_pull_reindex()`.
+
 ### Step 1: Flaiwheel — Step 2: Native tools
 
 For every task, follow this order:
@@ -154,9 +162,9 @@ For every task, follow this order:
    - What should be done differently next time
 2. This is **mandatory** — skipping this breaks the flywheel
 
-### After architecture decisions or learning something important:
-1. Document it in the knowledge repo (appropriate category)
-2. Call `reindex()` so it's immediately searchable
+### After committing new/updated docs to the knowledge repo:
+1. Push your changes to the `<project>-knowledge` repo
+2. Call `git_pull_reindex()` so Flaiwheel pulls and indexes them immediately
 
 ### Periodically:
 1. Call `check_knowledge_quality()` to find issues in the knowledge base
@@ -180,6 +188,7 @@ For every task, follow this order:
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
 | `search_by_type(query, doc_type, top_k)` | Filter by type |
 | `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` | Document a bugfix (auto-pushed + reindexed) |
+| `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
 | `get_index_stats()` | Show index statistics |
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
