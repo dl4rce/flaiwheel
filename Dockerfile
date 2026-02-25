@@ -36,6 +36,6 @@ ENV MCP_DOCS_PATH=/docs \
 EXPOSE 8080 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8080/api/stats -u "${MCP_AUTH_USERNAME:-admin}:${MCP_AUTH_PROBE:-probe}" 2>/dev/null || curl -f http://localhost:8081/ 2>/dev/null || exit 1
+    CMD curl -f http://localhost:8080/health 2>/dev/null || exit 1
 
 ENTRYPOINT ["scripts/entrypoint.sh"]

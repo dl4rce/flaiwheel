@@ -82,6 +82,12 @@ def create_web_app(
             )
         return credentials.username
 
+    # ── Health (no auth — used by Docker healthcheck) ──
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "chunks": indexer.collection.count()}
+
     # ── Web Frontend ─────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)
