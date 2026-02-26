@@ -175,6 +175,38 @@ fi
 if gh repo view "${OWNER}/${KNOWLEDGE_REPO}" &>/dev/null 2>&1; then
     ok "Knowledge repo ${OWNER}/${KNOWLEDGE_REPO} already exists"
     KNOWLEDGE_REPO_URL="https://github.com/${OWNER}/${KNOWLEDGE_REPO}.git"
+
+    # Ensure FLAIWHEEL_TOOLS.md exists (add/update for existing repos)
+    TMPDIR=$(mktemp -d)
+    if gh repo clone "${OWNER}/${KNOWLEDGE_REPO}" "$TMPDIR" 2>/dev/null; then
+        pushd "$TMPDIR" > /dev/null
+        cat > FLAIWHEEL_TOOLS.md << 'TOOLSEOF'
+# Flaiwheel MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `search_docs(query, top_k)` | Semantic search across all documentation |
+| `search_bugfixes(query, top_k)` | Search only bugfix summaries |
+| `search_by_type(query, doc_type, top_k)` | Filter by type |
+| `write_bugfix_summary(...)` | Document a bugfix (auto-pushed + reindexed) |
+| `write_architecture_doc(...)` | Document architecture decisions |
+| `write_api_doc(...)` | Document API endpoints |
+| `write_best_practice(...)` | Document coding standards |
+| `write_setup_doc(...)` | Document setup/deployment |
+| `write_changelog_entry(...)` | Document release notes |
+| `validate_doc(content, category)` | Validate markdown before committing |
+| `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
+| `get_index_stats()` | Show index statistics |
+| `reindex()` | Re-index all documentation |
+| `check_knowledge_quality()` | Validate knowledge base consistency |
+| `check_update()` | Check if a newer Flaiwheel version is available |
+TOOLSEOF
+        git add FLAIWHEEL_TOOLS.md
+        git diff --staged --quiet || { git commit -m "docs: add/update Flaiwheel tools reference" && git push origin main 2>/dev/null || git push origin master 2>/dev/null; }
+        popd > /dev/null
+        ok "FLAIWHEEL_TOOLS.md updated in knowledge repo"
+    fi
+    rm -rf "$TMPDIR"
 else
     info "Creating knowledge repo ${OWNER}/${KNOWLEDGE_REPO} (private)..."
 
@@ -210,6 +242,28 @@ This knowledge base is managed by [Flaiwheel](https://github.com/dl4rce/flaiwhee
 
 AI agents write bugfix summaries here automatically. Documentation is indexed into a vector database and served via MCP, so every agent benefits from past knowledge.
 READMEEOF
+
+    cat > FLAIWHEEL_TOOLS.md << 'TOOLSEOF'
+# Flaiwheel MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `search_docs(query, top_k)` | Semantic search across all documentation |
+| `search_bugfixes(query, top_k)` | Search only bugfix summaries |
+| `search_by_type(query, doc_type, top_k)` | Filter by type |
+| `write_bugfix_summary(...)` | Document a bugfix (auto-pushed + reindexed) |
+| `write_architecture_doc(...)` | Document architecture decisions |
+| `write_api_doc(...)` | Document API endpoints |
+| `write_best_practice(...)` | Document coding standards |
+| `write_setup_doc(...)` | Document setup/deployment |
+| `write_changelog_entry(...)` | Document release notes |
+| `validate_doc(content, category)` | Validate markdown before committing |
+| `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
+| `get_index_stats()` | Show index statistics |
+| `reindex()` | Re-index all documentation |
+| `check_knowledge_quality()` | Validate knowledge base consistency |
+| `check_update()` | Check if a newer Flaiwheel version is available |
+TOOLSEOF
 
     # Placeholder READMEs so folders are tracked
     for dir in architecture api bugfix-log best-practices setup changelog; do
@@ -351,6 +405,16 @@ done
 
 if [ -n "$ADMIN_PASS" ]; then
     ok "Flaiwheel is ready"
+
+    # Index only Flaiwheel reference docs (README, FLAIWHEEL_TOOLS) — fast, no full reindex
+    if [ "$HEALTHY" = true ]; then
+        info "Indexing Flaiwheel reference docs..."
+        if curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null; then
+            ok "Flaiwheel docs indexed"
+        else
+            warn "Index request failed (docs may still be syncing)"
+        fi
+    fi
 else
     warn "Could not extract credentials automatically."
 fi

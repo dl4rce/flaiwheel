@@ -166,6 +166,25 @@ def create_web_app(
     async def get_stats(_user: str = Depends(require_auth)):
         return indexer.stats
 
+    @app.post("/api/index-flaiwheel-docs")
+    async def index_flaiwheel_docs(_user: str = Depends(require_auth)):
+        """Index only README.md and FLAIWHEEL_TOOLS.md — fast, for post-install."""
+        docs_path = Path(config.docs_path)
+        total: int = 0
+        files: list[str] = []
+        for name in ("README.md", "FLAIWHEEL_TOOLS.md"):
+            filepath = docs_path / name
+            if filepath.exists():
+                try:
+                    content = filepath.read_text(encoding="utf-8", errors="ignore")
+                    with index_lock:
+                        n = indexer.index_single(name, content)
+                    total += n
+                    files.append(name)
+                except Exception as e:
+                    return {"status": "error", "message": str(e), "file": name}
+        return {"status": "success", "chunks": total, "files": files}
+
     @app.post("/api/reindex")
     async def trigger_reindex(_user: str = Depends(require_auth)):
         with index_lock:
