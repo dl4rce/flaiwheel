@@ -11,6 +11,9 @@ Flaiwheel is a self-contained Docker service that:
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Searches semantically** — agents find relevant docs by meaning, not keywords
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
+- **Structured write tools** — 6 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog) that enforce quality at the source
+- **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
+- **Ingest quality gate** — files with critical issues are automatically skipped during indexing (never deleted — you own your files)
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
 - **Tracks search metrics** — hit rate, miss rate, per-tool usage visible in the health panel
 - **Proactive quality checks** — automatically validates knowledge base after every reindex
@@ -300,22 +303,34 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 │                                                       │
 │  ┌─────────────────────────────────────────────────┐ │
 │  │  Web-UI (FastAPI)                   Port 8080   │ │
-│  │  Config, monitoring, test search, quality check  │ │
+│  │  Config, monitoring, test search, health panel   │ │
 │  └──────────────────┬──────────────────────────────┘ │
 │                      │ shared state                   │
 │  ┌──────────────────┴──────────────────────────────┐ │
 │  │  MCP Server (FastMCP)               Port 8081   │ │
-│  │  search_docs, write_bugfix_summary, etc.         │ │
+│  │  15 tools: search, write, validate, manage       │ │
+│  └──────────────────┬──────────────────────────────┘ │
+│                      │                                │
+│  ┌──────────────────┴──────────────────────────────┐ │
+│  │  Quality Checker + Ingest Gate                   │ │
+│  │  Validates docs, skips critical failures         │ │
+│  │  (never deletes or modifies user files)          │ │
 │  └──────────────────┬──────────────────────────────┘ │
 │                      │                                │
 │  ┌──────────────────┴──────────────────────────────┐ │
 │  │  Indexer + ChromaDB (embedded, persistent)       │ │
 │  │  Markdown chunking → vector embeddings           │ │
+│  │  Diff-aware: only re-embeds changed files        │ │
 │  └──────────────────┬──────────────────────────────┘ │
 │                      │                                │
 │  ┌──────────────────┴──────────────────────────────┐ │
 │  │  Git Watcher (background thread)                 │ │
 │  │  Auto pull + push, reindex on changes            │ │
+│  └──────────────────┬──────────────────────────────┘ │
+│                      │                                │
+│  ┌──────────────────┴──────────────────────────────┐ │
+│  │  Health Tracker (thread-safe)                    │ │
+│  │  Index, git, search metrics, quality, skipped    │ │
 │  └─────────────────────────────────────────────────┘ │
 │                                                       │
 │  /docs (volume) ← knowledge repo                     │
@@ -330,6 +345,7 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 Access at **http://localhost:8080** (HTTP Basic Auth — credentials shown on first start).
 
 Features:
+- System health panel: last index, last git pull, git commit, version, search metrics, quality score, skipped files count
 - Index status and statistics
 - Embedding model selection (visual picker)
 - Chunking strategy configuration
@@ -337,6 +353,7 @@ Features:
 - Test search interface
 - Knowledge quality checker (also runs automatically after every reindex)
 - Search metrics (hits/total, miss rate, per-tool breakdown)
+- Skipped files indicator (files excluded from indexing due to critical quality issues)
 - Client configuration snippets (Cursor, Claude Desktop, Docker)
 - Password management
 
