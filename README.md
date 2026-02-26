@@ -125,6 +125,12 @@ Your AI agent now has access to these MCP tools:
 - `search_bugfixes` — search bugfix summaries for past issues
 - `search_by_type` — search filtered by category (architecture, api, bugfix, best-practice, setup, changelog)
 - `write_bugfix_summary` — document fixes (auto-pushed to knowledge repo)
+- `write_architecture_doc` — document architecture decisions
+- `write_api_doc` — document API endpoints
+- `write_best_practice` — document coding standards/patterns
+- `write_setup_doc` — document setup/deployment procedures
+- `write_changelog_entry` — document release notes
+- `validate_doc` — validate markdown before committing
 - `git_pull_reindex` — pull latest from knowledge repo + re-index
 - `get_index_stats` — show index statistics
 - `reindex` — manual re-index after bulk changes
@@ -160,13 +166,18 @@ For every task, follow this order:
 4. Prefer 2-3 targeted searches over one vague query
 5. THEN use your native file search/code reading for source code details
 
-### After fixing a bug:
-1. **ALWAYS** call `write_bugfix_summary()` with:
-   - Clear title describing the bug
-   - Technical root cause
-   - What was changed to fix it
-   - What should be done differently next time
-2. This is **mandatory** — skipping this breaks the flywheel
+### Documenting knowledge (use structured write tools):
+Instead of writing raw markdown, use the built-in write tools — they enforce correct structure, place files in the right directory, index immediately, and auto-push:
+- `write_bugfix_summary()` — after every bugfix (**mandatory**)
+- `write_architecture_doc()` — architecture decisions, system design
+- `write_api_doc()` — API endpoints, contracts, schemas
+- `write_best_practice()` — coding standards, patterns
+- `write_setup_doc()` — setup, deployment, infrastructure
+- `write_changelog_entry()` — release notes
+
+For freeform docs not covered by these tools: call `validate_doc(content, category)` before committing to catch quality issues early.
+
+**Important:** Files that fail critical quality checks are skipped during indexing (not searchable). Flaiwheel never deletes or modifies your files — you own cleanup.
 
 ### After committing new/updated docs to the knowledge repo:
 1. Push your changes to the `<project>-knowledge` repo
@@ -200,7 +211,13 @@ You can also call `check_update()` to check if a newer version is available (wor
 | `search_docs(query, top_k)` | Semantic search across all documentation |
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
 | `search_by_type(query, doc_type, top_k)` | Filter by type |
-| `write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)` | Document a bugfix (auto-pushed + reindexed) |
+| `write_bugfix_summary(title, root_cause, solution, ...)` | Document a bugfix (auto-pushed + reindexed) |
+| `write_architecture_doc(title, overview, decisions, trade_offs, ...)` | Document architecture decisions |
+| `write_api_doc(title, endpoint, method, request_schema, response_schema, ...)` | Document API endpoints |
+| `write_best_practice(title, context, rule, rationale, ...)` | Document coding standards |
+| `write_setup_doc(title, prerequisites, steps, verification, ...)` | Document setup/deployment |
+| `write_changelog_entry(version, release_date, added, changed, fixed, breaking)` | Document release notes |
+| `validate_doc(content, category)` | Validate markdown before committing |
 | `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
 | `get_index_stats()` | Show index statistics |
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |

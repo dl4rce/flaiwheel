@@ -145,6 +145,27 @@ def create_mcp_server(
             )
         return "\n".join(output)
 
+    # ── Shared write helper ────────────────────────────
+
+    def _write_knowledge_doc(filename: str, content: str) -> str:
+        filepath = Path(config.docs_path) / filename
+        safe_base = Path(config.docs_path).resolve()
+        if not filepath.resolve().is_relative_to(safe_base):
+            return "Error: path traversal detected."
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_text(content, encoding="utf-8")
+        chunk_count = indexer.index_single(filename, content)
+        watcher.push_pending()
+        return (
+            f"Saved and indexed: {filename} ({chunk_count} chunks)\n"
+            f"Auto-pushed to remote: {config.git_auto_push and bool(config.git_repo_url)}"
+        )
+
+    def _make_slug(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60]
+
+    # ── Write tools ──────────────────────────────────
+
     @mcp.tool()
     def write_bugfix_summary(
         title: str,
@@ -167,16 +188,6 @@ def create_mcp_server(
             affected_files: Affected files (comma-separated)
             tags: Categories (e.g. "payment,race-condition,critical")
         """
-        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60]
-        filename = f"bugfix-log/{date.today().isoformat()}-{slug}.md"
-
-        filepath = Path(config.docs_path) / filename
-        safe_base = Path(config.docs_path).resolve()
-        if not filepath.resolve().is_relative_to(safe_base):
-            return "Error: Invalid title - path traversal detected."
-
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-
         content = (
             f"# {title}\n\n"
             f"**Date:** {date.today().isoformat()}  \n"
@@ -186,19 +197,207 @@ def create_mcp_server(
             f"## Solution\n{solution}\n\n"
             f"## Lesson Learned\n{lesson_learned}\n"
         )
+        filename = f"bugfix-log/{date.today().isoformat()}-{_make_slug(title)}.md"
+        return _write_knowledge_doc(filename, content)
 
-        filepath.write_text(content, encoding="utf-8")
-        chunk_count = indexer.index_single(filename, content)
+    @mcp.tool()
+    def write_architecture_doc(
+        title: str,
+        overview: str,
+        decisions: str,
+        trade_offs: str,
+        components: str = "",
+        diagrams: str = "",
+    ) -> str:
+        """Write an architecture decision/design document.
 
-        watcher.push_pending()
+        Use this to document system design, architectural decisions,
+        and their trade-offs so future developers understand the "why".
 
-        return (
-            f"Bugfix summary saved and indexed!\n"
-            f"  File: {filename}\n"
-            f"  Chunks: {chunk_count}\n"
-            f"  Auto-pushed to remote: {config.git_auto_push and bool(config.git_repo_url)}\n"
-            f"  Will be found for similar bugs from now on."
-        )
+        Args:
+            title: Short title (e.g. "Payment Service Architecture")
+            overview: High-level description of the system/component
+            decisions: Key architectural decisions made and why
+            trade_offs: What was considered and rejected, pros/cons
+            components: Optional component breakdown
+            diagrams: Optional ASCII/mermaid diagrams
+        """
+        sections = [
+            f"# {title}\n",
+            f"**Date:** {date.today().isoformat()}\n",
+            f"## Overview\n{overview}\n",
+            f"## Decisions\n{decisions}\n",
+            f"## Trade-offs\n{trade_offs}\n",
+        ]
+        if components:
+            sections.append(f"## Components\n{components}\n")
+        if diagrams:
+            sections.append(f"## Diagrams\n{diagrams}\n")
+        content = "\n".join(sections)
+        filename = f"architecture/{date.today().isoformat()}-{_make_slug(title)}.md"
+        return _write_knowledge_doc(filename, content)
+
+    @mcp.tool()
+    def write_api_doc(
+        title: str,
+        endpoint: str,
+        method: str,
+        request_schema: str,
+        response_schema: str,
+        auth: str = "",
+        examples: str = "",
+    ) -> str:
+        """Write an API endpoint document.
+
+        Use this to document REST/GraphQL endpoints, contracts, and schemas.
+
+        Args:
+            title: Short title (e.g. "Create User Endpoint")
+            endpoint: URL path (e.g. "/api/v1/users")
+            method: HTTP method (GET, POST, PUT, DELETE, etc.)
+            request_schema: Request body/params schema description
+            response_schema: Response body schema description
+            auth: Optional authentication requirements
+            examples: Optional request/response examples
+        """
+        sections = [
+            f"# {title}\n",
+            f"**Endpoint:** `{method} {endpoint}`\n",
+            f"## Request\n{request_schema}\n",
+            f"## Response\n{response_schema}\n",
+        ]
+        if auth:
+            sections.append(f"## Authentication\n{auth}\n")
+        if examples:
+            sections.append(f"## Examples\n{examples}\n")
+        content = "\n".join(sections)
+        filename = f"api/{_make_slug(title)}.md"
+        return _write_knowledge_doc(filename, content)
+
+    @mcp.tool()
+    def write_best_practice(
+        title: str,
+        context: str,
+        rule: str,
+        rationale: str,
+        examples: str = "",
+    ) -> str:
+        """Write a best practice / coding standard document.
+
+        Use this to document patterns, conventions, and standards
+        that the team should follow.
+
+        Args:
+            title: Short title (e.g. "Error Handling in API Routes")
+            context: When/where does this practice apply?
+            rule: The actual rule or pattern to follow
+            rationale: Why this rule exists, what problems it prevents
+            examples: Optional code examples showing correct usage
+        """
+        sections = [
+            f"# {title}\n",
+            f"## Context\n{context}\n",
+            f"## Rule\n{rule}\n",
+            f"## Rationale\n{rationale}\n",
+        ]
+        if examples:
+            sections.append(f"## Examples\n{examples}\n")
+        content = "\n".join(sections)
+        filename = f"best-practices/{_make_slug(title)}.md"
+        return _write_knowledge_doc(filename, content)
+
+    @mcp.tool()
+    def write_setup_doc(
+        title: str,
+        prerequisites: str,
+        steps: str,
+        verification: str,
+        troubleshooting: str = "",
+    ) -> str:
+        """Write a setup/deployment/infrastructure document.
+
+        Use this to document how to set up, deploy, or configure
+        systems and services.
+
+        Args:
+            title: Short title (e.g. "Local Development Setup")
+            prerequisites: What needs to be installed/configured first
+            steps: Step-by-step instructions
+            verification: How to verify the setup works
+            troubleshooting: Optional common issues and solutions
+        """
+        sections = [
+            f"# {title}\n",
+            f"## Prerequisites\n{prerequisites}\n",
+            f"## Steps\n{steps}\n",
+            f"## Verification\n{verification}\n",
+        ]
+        if troubleshooting:
+            sections.append(f"## Troubleshooting\n{troubleshooting}\n")
+        content = "\n".join(sections)
+        filename = f"setup/{_make_slug(title)}.md"
+        return _write_knowledge_doc(filename, content)
+
+    @mcp.tool()
+    def write_changelog_entry(
+        version: str,
+        release_date: str,
+        added: str = "",
+        changed: str = "",
+        fixed: str = "",
+        breaking: str = "",
+    ) -> str:
+        """Write a changelog / release notes entry.
+
+        Use this to document what changed in a release.
+
+        Args:
+            version: Version string (e.g. "2.1.0")
+            release_date: Release date (e.g. "2026-02-25")
+            added: New features (optional)
+            changed: Changes to existing features (optional)
+            fixed: Bug fixes (optional)
+            breaking: Breaking changes (optional)
+        """
+        sections = [f"# {version}\n", f"**Date:** {release_date}\n"]
+        if added:
+            sections.append(f"## Added\n{added}\n")
+        if changed:
+            sections.append(f"## Changed\n{changed}\n")
+        if fixed:
+            sections.append(f"## Fixed\n{fixed}\n")
+        if breaking:
+            sections.append(f"## Breaking Changes\n{breaking}\n")
+        if not any([added, changed, fixed, breaking]):
+            return "Error: At least one of added/changed/fixed/breaking is required."
+        content = "\n".join(sections)
+        slug = re.sub(r"[^a-z0-9]+", "-", version).strip("-")
+        filename = f"changelog/{slug}.md"
+        return _write_knowledge_doc(filename, content)
+
+    @mcp.tool()
+    def validate_doc(content: str, category: str = "docs") -> str:
+        """Validate a markdown document BEFORE committing it to the knowledge repo.
+
+        Checks structure, completeness, and category-specific rules.
+        Call this before pushing freeform .md files to catch issues early.
+
+        Args:
+            content: The full markdown content to validate
+            category: Target category — one of: "architecture", "api",
+                      "bugfix", "best-practice", "setup", "changelog", "docs"
+
+        Returns:
+            "OK" if valid, or a list of issues to fix
+        """
+        issues = quality_checker.check_content(content, category)
+        if not issues:
+            return "OK — document passes all quality checks."
+        lines = [f"Found {len(issues)} issue(s) to fix before committing:\n"]
+        for issue in issues:
+            icon = {"critical": "[!]", "warning": "[~]", "info": "[i]"}
+            lines.append(f"{icon.get(issue['severity'], '[-]')} {issue['message']}")
+        return "\n".join(lines)
 
     @mcp.tool()
     def get_index_stats() -> str:
@@ -227,7 +426,7 @@ def create_mcp_server(
             force: If True, re-embed all files regardless of changes (default: False)
         """
         with index_lock:
-            result = indexer.index_all(force=force)
+            result = indexer.index_all(force=force, quality_checker=quality_checker)
         return (
             f"Re-index complete!\n"
             f"  Files: {result['files_indexed']} ({result.get('files_changed', '?')} changed, "
@@ -255,7 +454,7 @@ def create_mcp_server(
             return "No new changes in knowledge repo. Already up to date."
 
         with index_lock:
-            result = indexer.index_all()
+            result = indexer.index_all(quality_checker=quality_checker)
         if health:
             health.record_index(
                 ok=result.get("status") == "success",

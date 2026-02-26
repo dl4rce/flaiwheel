@@ -107,6 +107,7 @@ def create_web_app(
             "searches_misses": status.get("searches_misses", 0),
             "quality_score": status.get("quality_score"),
             "quality_issues_critical": status.get("quality_issues_critical", 0),
+            "skipped_files_count": len(status.get("skipped_files", [])),
         }
 
     @app.get("/api/health")
@@ -151,7 +152,7 @@ def create_web_app(
         if model_changed:
             with index_lock:
                 indexer.reinit(config)
-                result = indexer.index_all()
+                result = indexer.index_all(quality_checker=quality_checker)
             return {
                 "status": "success",
                 "message": "Config saved + index rebuilt with new model",
@@ -168,13 +169,14 @@ def create_web_app(
     @app.post("/api/reindex")
     async def trigger_reindex(_user: str = Depends(require_auth)):
         with index_lock:
-            result = indexer.index_all()
+            result = indexer.index_all(quality_checker=quality_checker)
         if health:
             health.record_index(
                 ok=result.get("status") == "success",
                 chunks=result.get("chunks_upserted", 0),
                 files=result.get("files_indexed", 0),
             )
+            health.record_skipped_files(result.get("quality_skipped", []))
         if quality_checker and health:
             try:
                 qr = quality_checker.check_all()
@@ -224,13 +226,14 @@ def create_web_app(
         result = None
         if changed:
             with index_lock:
-                result = indexer.index_all()
+                result = indexer.index_all(quality_checker=quality_checker)
             if health:
                 health.record_index(
                     ok=result.get("status") == "success",
                     chunks=result.get("chunks_upserted", 0),
                     files=result.get("files_indexed", 0),
                 )
+                health.record_skipped_files(result.get("quality_skipped", []))
             if quality_checker and health:
                 try:
                     qr = quality_checker.check_all()
@@ -286,7 +289,7 @@ def create_web_app(
         result = None
         if changed:
             with index_lock:
-                result = indexer.index_all()
+                result = indexer.index_all(quality_checker=quality_checker)
 
         return {
             "status": "ok",

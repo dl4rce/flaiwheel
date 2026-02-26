@@ -233,6 +233,10 @@
                     <div class="value" id="health-quality"><span style="color:var(--text-dim)">&ndash;</span></div>
                     <div class="label">Quality</div>
                 </div>
+                <div class="stat-item">
+                    <div class="value" id="health-skipped"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Skipped</div>
+                </div>
             </div>
         </div>
 
@@ -581,6 +585,13 @@
                 document.getElementById('health-quality').innerHTML =
                     qDot + ' ' + qs + '/100';
             }
+
+            var skCount = h.skipped_files_count || 0;
+            var skDot = skCount === 0
+                ? '<span style="color:var(--success)">●</span>'
+                : '<span style="color:var(--danger)">●</span>';
+            document.getElementById('health-skipped').innerHTML =
+                skDot + ' ' + skCount;
 
             document.querySelector('.container header .logo').innerHTML =
                 h.status === 'ok' ? '&#128994;' : '&#128308;';

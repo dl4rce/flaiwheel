@@ -454,13 +454,18 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 2. Prefer 2-3 targeted searches over one vague query
 3. THEN use your native file search/code reading for source code details
 
-### After fixing a bug:
-1. **ALWAYS** call \`write_bugfix_summary()\` with:
-   - Clear title describing the bug
-   - Technical root cause
-   - What was changed to fix it
-   - What should be done differently next time
-2. This is **mandatory** — skipping this breaks the flywheel
+### Documenting knowledge (use structured write tools):
+Instead of writing raw markdown, use the built-in write tools — they enforce correct structure, place files in the right directory, index immediately, and auto-push:
+- \`write_bugfix_summary()\` — after every bugfix (**mandatory**)
+- \`write_architecture_doc()\` — architecture decisions, system design
+- \`write_api_doc()\` — API endpoints, contracts, schemas
+- \`write_best_practice()\` — coding standards, patterns
+- \`write_setup_doc()\` — setup, deployment, infrastructure
+- \`write_changelog_entry()\` — release notes
+
+For freeform docs: call \`validate_doc(content, category)\` before committing.
+
+**Important:** Files with critical quality issues are skipped during indexing (not searchable). Flaiwheel NEVER deletes or modifies user files.
 
 ### After committing new/updated docs to the knowledge repo:
 1. Push your changes to the knowledge repo (\`${KNOWLEDGE_REPO_URL}\`)
@@ -488,9 +493,15 @@ You can also call \`check_update()\` to check if a newer version is available.
 |------|---------|
 | \`search_docs(query, top_k)\` | Semantic search across all documentation |
 | \`search_bugfixes(query, top_k)\` | Search only bugfix summaries |
-| \`search_by_type(query, doc_type, top_k)\` | Filter by type: docs, bugfix, best-practice, api, architecture, changelog, setup, readme |
-| \`write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)\` | Document a bugfix (auto-pushed + reindexed) |
-| \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index (call after pushing new docs) |
+| \`search_by_type(query, doc_type, top_k)\` | Filter by type |
+| \`write_bugfix_summary(...)\` | Document a bugfix (auto-pushed + reindexed) |
+| \`write_architecture_doc(...)\` | Document architecture decisions |
+| \`write_api_doc(...)\` | Document API endpoints |
+| \`write_best_practice(...)\` | Document coding standards |
+| \`write_setup_doc(...)\` | Document setup/deployment |
+| \`write_changelog_entry(...)\` | Document release notes |
+| \`validate_doc(content, category)\` | Validate markdown before committing |
+| \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index |
 | \`get_index_stats()\` | Show index statistics |
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base consistency |
@@ -530,9 +541,14 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 1. **FIRST: Search Flaiwheel** — \`search_docs("what you're working on")\`, \`search_bugfixes("the problem")\`, \`search_by_type("query", "architecture")\` BEFORE touching code
 2. **THEN: Use native tools** to read/edit source code with the knowledge you found
-3. **AFTER fixing a bug:** \`write_bugfix_summary(title, root_cause, solution, lesson_learned, affected_files, tags)\` — auto-pushed + reindexed
-4. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\` so Flaiwheel pulls and indexes them immediately
+3. **Document knowledge using structured write tools** (they enforce structure, auto-push, auto-index):
+   - \`write_bugfix_summary()\` — after every bugfix (**mandatory**)
+   - \`write_architecture_doc()\`, \`write_api_doc()\`, \`write_best_practice()\`, \`write_setup_doc()\`, \`write_changelog_entry()\`
+   - For freeform docs: \`validate_doc(content, category)\` before committing
+4. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\`
 5. **Periodically:** \`check_knowledge_quality()\` and fix issues
+
+**Important:** Files with critical quality issues are skipped during indexing. Flaiwheel NEVER deletes or modifies user files.
 
 ### What the knowledge base contains
 
@@ -562,6 +578,12 @@ You can also call \`check_update()\` to check if a newer version is available.
 | \`search_bugfixes(query, top_k)\` | Search bugfix summaries only |
 | \`search_by_type(query, doc_type, top_k)\` | Filter by type |
 | \`write_bugfix_summary(...)\` | Document a bugfix (auto-pushed + reindexed) |
+| \`write_architecture_doc(...)\` | Document architecture decisions |
+| \`write_api_doc(...)\` | Document API endpoints |
+| \`write_best_practice(...)\` | Document coding standards |
+| \`write_setup_doc(...)\` | Document setup/deployment |
+| \`write_changelog_entry(...)\` | Document release notes |
+| \`validate_doc(content, category)\` | Validate markdown before committing |
 | \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index |
 | \`get_index_stats()\` | Index statistics |
 | \`reindex()\` | Re-index all documentation |

@@ -70,6 +70,98 @@ class KnowledgeQualityChecker:
             "issues": issues,
         }
 
+    def check_file(self, filepath: Path, rel_path: str) -> list[dict]:
+        """Check a single file for quality issues. Returns list of issues.
+        IMPORTANT: This method NEVER modifies or deletes the file."""
+        issues: list[dict] = []
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return issues
+
+        category = _detect_category(rel_path)
+        issues.extend(self._check_single_completeness(content, rel_path))
+        issues.extend(self._check_single_headings(content, rel_path))
+        if category == "bugfix":
+            issues.extend(self._check_single_bugfix(content, rel_path))
+        return issues
+
+    def check_content(self, content: str, category: str = "docs") -> list[dict]:
+        """Validate raw markdown content against quality rules.
+        Used by validate_doc() MCP tool for pre-commit checks.
+        IMPORTANT: This method NEVER modifies or deletes any files."""
+        issues: list[dict] = []
+        fake_path = f"{category}/validate-preview.md"
+        issues.extend(self._check_single_completeness(content, fake_path))
+        issues.extend(self._check_single_headings(content, fake_path))
+        if category == "bugfix":
+            issues.extend(self._check_single_bugfix(content, fake_path))
+        return issues
+
+    def _check_single_completeness(self, content: str, rel: str) -> list[dict]:
+        issues = []
+        text = _strip_markdown_overhead(content)
+        if len(text) < 30:
+            issues.append(_issue(
+                "warning", rel,
+                "File is nearly empty (< 30 chars of content).",
+            ))
+        elif len(text) < 100:
+            issues.append(_issue(
+                "info", rel,
+                "File is very short (< 100 chars). Consider adding more detail.",
+            ))
+        return issues
+
+    def _check_single_headings(self, content: str, rel: str) -> list[dict]:
+        issues = []
+        cleaned = _strip_code_blocks(content)
+        headings = re.findall(r"^(#{1,6})\s+", cleaned, re.MULTILINE)
+        if not headings:
+            issues.append(_issue(
+                "info", rel, "File has no headings. Add at least a # title.",
+            ))
+            return issues
+        if len(headings[0]) > 1:
+            issues.append(_issue(
+                "info", rel,
+                f"First heading is level {len(headings[0])}. Start with a # (h1) title.",
+            ))
+        seen_levels = {len(headings[0])}
+        for i in range(1, len(headings)):
+            curr_level = len(headings[i])
+            if curr_level not in seen_levels and all(
+                lvl < curr_level - 1 or lvl >= curr_level
+                for lvl in seen_levels
+            ):
+                prev_max = max(l for l in seen_levels if l < curr_level)
+                issues.append(_issue(
+                    "info", rel,
+                    f"Heading level jumps from h{prev_max} to h{curr_level}.",
+                ))
+                break
+            seen_levels.add(curr_level)
+        return issues
+
+    def _check_single_bugfix(self, content: str, rel: str) -> list[dict]:
+        issues = []
+        for section in BUGFIX_REQUIRED_SECTIONS:
+            pattern = rf"^##\s+[\*_\s]*(?:\S+\s+)?{re.escape(section)}"
+            if not re.search(pattern, content, re.MULTILINE | re.IGNORECASE):
+                issues.append(_issue(
+                    "critical", rel,
+                    f"Bugfix entry missing required section: '## {section}'.",
+                ))
+        h2_sections = _split_h2_sections(content)
+        for heading, body in h2_sections:
+            measured = _strip_markdown_overhead(body)
+            if len(measured) < 20:
+                issues.append(_issue(
+                    "warning", rel,
+                    f"Section '## {heading}' has very little content.",
+                ))
+        return issues
+
     def _check_structure(self, docs: Path) -> list[dict]:
         """Check that expected directory structure exists."""
         issues = []
@@ -266,6 +358,23 @@ def _strip_heading_decorators(text: str) -> str:
         "", text,
     )
     return text.strip()
+
+
+def _detect_category(path: str) -> str:
+    p = path.lower()
+    if "bugfix" in p or "bug-fix" in p:
+        return "bugfix"
+    if "best-practice" in p:
+        return "best-practice"
+    if "api" in p:
+        return "api"
+    if "architect" in p:
+        return "architecture"
+    if "changelog" in p or "release" in p:
+        return "changelog"
+    if "setup" in p or "install" in p:
+        return "setup"
+    return "docs"
 
 
 def _issue(severity: str, file: str, message: str) -> dict:

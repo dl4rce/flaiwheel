@@ -50,6 +50,8 @@ class HealthTracker:
             "quality_issues_critical": 0,
             "quality_issues_warnings": 0,
             "quality_issues_info": 0,
+
+            "skipped_files": [],
         }
 
     def record_index(self, ok: bool, chunks: int = 0, files: int = 0, error: str | None = None):
@@ -84,6 +86,10 @@ class HealthTracker:
             if tool in by_tool:
                 by_tool[tool] += 1
             self._data["last_search_at"] = datetime.now(timezone.utc).isoformat()
+
+    def record_skipped_files(self, skipped: list[dict]):
+        with self._lock:
+            self._data["skipped_files"] = skipped
 
     def record_quality(self, score: int, critical: int = 0, warnings: int = 0, info: int = 0):
         with self._lock:

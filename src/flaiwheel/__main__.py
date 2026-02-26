@@ -50,13 +50,14 @@ def main():
     watcher = GitWatcher(config, indexer, index_lock, health, quality_checker=quality_checker)
 
     print(f"Initial indexing {config.docs_path} ...")
-    result = indexer.index_all()
+    result = indexer.index_all(quality_checker=quality_checker)
     health.record_index(
         ok=result.get("status") == "success",
         chunks=result.get("chunks_upserted", 0),
         files=result.get("files_indexed", 0),
         error=result.get("message") if result.get("status") != "success" else None,
     )
+    health.record_skipped_files(result.get("quality_skipped", []))
     try:
         qr = quality_checker.check_all()
         health.record_quality(

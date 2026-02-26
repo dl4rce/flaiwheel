@@ -244,9 +244,11 @@ class DocsIndexer:
 
     # ── Indexing ─────────────────────────────────────────
 
-    def index_all(self, force: bool = False) -> dict:
+    def index_all(self, force: bool = False, quality_checker=None) -> dict:
         """Diff-aware (re-)index: only re-embeds changed/new files.
-        Set force=True to skip hash check (full rebuild)."""
+        Set force=True to skip hash check (full rebuild).
+        If quality_checker is provided, files with critical issues are
+        skipped (NOT indexed) but NEVER deleted or modified."""
         docs_path = Path(self.config.docs_path)
 
         if not docs_path.exists():
@@ -266,6 +268,7 @@ class DocsIndexer:
         changed_chunks: list[dict] = []
         file_count = 0
         skipped = 0
+        quality_skipped: list[dict] = []
 
         for md_file in sorted(docs_path.rglob("*.md")):
             try:
@@ -273,6 +276,15 @@ class DocsIndexer:
                 rel_path = str(md_file.relative_to(docs_path))
                 content_hash = self._content_hash(content)
                 new_hashes[rel_path] = content_hash
+
+                if quality_checker:
+                    issues = quality_checker.check_file(md_file, rel_path)
+                    critical = [i for i in issues if i["severity"] == "critical"]
+                    if critical:
+                        reasons = "; ".join(i["message"] for i in critical)
+                        quality_skipped.append({"file": rel_path, "reason": reasons})
+                        print(f"Quality gate: skipping {rel_path} ({reasons})")
+                        continue
 
                 chunks = self.chunk_markdown(content, rel_path)
                 all_chunks.extend(chunks)
@@ -329,6 +341,8 @@ class DocsIndexer:
             "files_indexed": file_count,
             "files_changed": file_count - skipped,
             "files_skipped": skipped,
+            "files_quality_skipped": len(quality_skipped),
+            "quality_skipped": quality_skipped,
             "chunks_upserted": len(upsert_chunks),
             "chunks_total": len(deduped_all),
             "chunks_removed": len(stale_ids),

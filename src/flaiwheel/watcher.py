@@ -268,13 +268,14 @@ class GitWatcher:
                 if self.pull_and_check():
                     print("Changes detected, reindexing...")
                     with self.index_lock:
-                        result = self.indexer.index_all()
+                        result = self.indexer.index_all(quality_checker=self.quality_checker)
                     if self.health:
                         self.health.record_index(
                             ok=result.get("status") == "success",
                             chunks=result.get("chunks_upserted", 0),
                             files=result.get("files_indexed", 0),
                         )
+                        self.health.record_skipped_files(result.get("quality_skipped", []))
                     if self.quality_checker and self.health:
                         try:
                             qr = self.quality_checker.check_all()
