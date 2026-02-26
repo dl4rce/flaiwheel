@@ -46,8 +46,8 @@ def main():
 
     indexer = DocsIndexer(config)
     auth = AuthManager(config)
-    watcher = GitWatcher(config, indexer, index_lock, health, quality_checker=quality_checker)
     quality_checker = KnowledgeQualityChecker(config)
+    watcher = GitWatcher(config, indexer, index_lock, health, quality_checker=quality_checker)
 
     print(f"Initial indexing {config.docs_path} ...")
     result = indexer.index_all()
