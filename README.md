@@ -172,6 +172,13 @@ For every task, follow this order:
 1. Push your changes to the `<project>-knowledge` repo
 2. Call `git_pull_reindex()` so Flaiwheel pulls and indexes them immediately
 
+### Updating Flaiwheel:
+To update Flaiwheel to the latest version, tell the user to run this in their project directory:
+```bash
+curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+```
+You can also call `check_update()` to check if a newer version is available (works when the Flaiwheel repo is public).
+
 ### Periodically:
 1. Call `check_knowledge_quality()` to find issues in the knowledge base
 2. Fix critical issues immediately

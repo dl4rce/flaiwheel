@@ -474,6 +474,14 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed to the repo and automatically reindexed. The next search finds it. **Every task you document makes the next task faster.** You are part of this cycle — always close the loop.
 
+## Updating Flaiwheel
+
+To update Flaiwheel, tell the user to run this in their project directory:
+\`\`\`bash
+curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+\`\`\`
+You can also call \`check_update()\` to check if a newer version is available.
+
 ## All MCP Tools
 
 | Tool | Purpose |
@@ -537,6 +545,14 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 | \`setup\` | \`search_by_type("q", "setup")\` | Deployment, infrastructure, CI/CD |
 | \`changelog\` | \`search_by_type("q", "changelog")\` | Release notes, breaking changes |
 | _everything_ | \`search_docs("q")\` | Semantic search across all docs |
+
+### Updating Flaiwheel
+
+To update Flaiwheel, tell the user to run this in their project directory:
+\`\`\`bash
+curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+\`\`\`
+You can also call \`check_update()\` to check if a newer version is available.
 
 ### All tools
 

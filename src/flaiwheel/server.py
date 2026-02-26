@@ -322,7 +322,14 @@ def create_mcp_server(
                 capture_output=True, text=True, timeout=15,
             )
             if result.returncode != 0:
-                return f"Could not check for updates: git ls-remote failed\nCurrent version: v{current}"
+                return (
+                    f"Could not check remote versions (repo may be private).\n"
+                    f"Current version: v{current}\n\n"
+                    f"To update manually, tell the user to run:\n\n"
+                    f"```bash\n"
+                    f"curl -sSL https://raw.githubusercontent.com/{GITHUB_REPO}/main/scripts/install.sh | bash\n"
+                    f"```"
+                )
 
             versions = []
             for line in result.stdout.strip().splitlines():
@@ -339,7 +346,14 @@ def create_mcp_server(
 
             latest = max(versions)
         except Exception as e:
-            return f"Could not check for updates: {e}\nCurrent version: v{current}"
+            return (
+                f"Could not check for updates: {e}\n"
+                f"Current version: v{current}\n\n"
+                f"To update manually, tell the user to run:\n\n"
+                f"```bash\n"
+                f"curl -sSL https://raw.githubusercontent.com/{GITHUB_REPO}/main/scripts/install.sh | bash\n"
+                f"```"
+            )
 
         if Version(current) >= latest:
             return f"Flaiwheel is up to date! (v{current})"
