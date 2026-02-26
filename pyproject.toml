@@ -1,9 +1,9 @@
 [project]
 name = "flaiwheel"
-version = "1.5.0"
+version = "1.5.1"
 description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
 readme = "README.md"
-license = {text = "Proprietary – Non-commercial use only. Commercial licensing: info@4rce.com"}
+license = {text = "Business Source License 1.1. See LICENSE.md. Commercial licensing: info@4rce.com"}
 requires-python = ">=3.11"
 
 dependencies = [

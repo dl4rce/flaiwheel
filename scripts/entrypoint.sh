@@ -1,7 +1,7 @@
 #!/bin/bash
 # Flaiwheel – Self-improving knowledge base for AI coding agents
 # Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.
-# Non-commercial use only. Commercial licensing: info@4rce.com
+# BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
 set -e
 
 echo "================================================"

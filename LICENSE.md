@@ -1,68 +1,64 @@
-# Flaiwheel License
+# Flaiwheel — Business Source License 1.1
 
 **Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.**
 
-## Terms and Conditions
+## License Parameters
 
-### 1. Definitions
+| Parameter | Value |
+|-----------|-------|
+| **Change Date** | 2030-02-25 |
+| **Change License** | Apache License 2.0 |
+| **Additional Use Grant** | See below |
 
-- **"Software"** means the Flaiwheel source code, documentation, configuration files, Docker images, and all associated materials in this repository.
-- **"Personal Use"** means use by an individual solely for private, non-commercial purposes including personal learning, experimentation, and private projects that generate no revenue.
-- **"Commercial Use"** means any use of the Software intended for or directed toward commercial advantage, monetary compensation, or revenue generation. This includes but is not limited to: using the Software in a business context, integrating it into commercial products or services, using it to provide services to third parties, or deploying it in any environment that supports commercial operations.
+## Additional Use Grant
 
-### 2. Grant of License
+The Licensor grants you the right to use the Licensed Work in production, in addition to the rights granted in the Terms below, provided that your use meets one or more of the following conditions:
 
-Subject to the terms of this license, you are granted a limited, non-exclusive, non-transferable, revocable license to:
+- **(a)** Your use is **non-commercial** (no revenue, no commercial advantage, personal or educational use only), or  
+- **(b)** Your use is by an **organization with no more than 10 individuals** (employees, contractors, or other persons using the Licensed Work on behalf of the organization)
 
-- **(a)** Use the Software for **Personal, non-commercial purposes only**
-- **(b)** View and study the source code for educational purposes
-- **(c)** Modify the Software for Personal Use only
-- **(d)** Run the Software in private, non-commercial environments
+Use beyond these limits (e.g., commercial use by organizations with more than 10 individuals) requires a commercial license from the Licensor.
 
-### 3. Restrictions
+**Commercial licenses:** [info@4rce.com](mailto:info@4rce.com) | [https://4rce.com](https://4rce.com)
 
-You may **NOT**, under any circumstances:
+---
 
-- **(a)** Use the Software for any Commercial purpose without a separate commercial license
-- **(b)** Distribute, sublicense, sell, lease, or rent copies of the Software
-- **(c)** Use the Software to provide services to third parties (SaaS, consulting, managed services, etc.)
-- **(d)** Include the Software in any product or service offered to others
-- **(e)** Remove, alter, or obscure any license notices, copyright notices, or attribution
-- **(f)** Represent the Software as your own work
-- **(g)** Use the Software in any organization with more than one individual without a commercial license
+## Business Source License 1.1 — Terms
 
-### 4. Commercial Licensing
+*License text copyright © 2024 MariaDB plc, All Rights Reserved. "Business Source License" is a trademark of MariaDB plc.*
 
-**Any and all Commercial Use of this Software requires a separate commercial license.**
+### Terms
 
-Commercial licenses are available exclusively from:
+The Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make non-production use of the Licensed Work. The Licensor may make an Additional Use Grant, above, permitting limited production use.
 
-> **4rce.com Digital Technologies GmbH**
-> Contact: Volker Geith
-> Email: [info@4rce.com](mailto:info@4rce.com)
-> Web: [https://4rce.com](https://4rce.com)
+Effective on the Change Date, or the fourth anniversary of the first publicly available distribution of a specific version of the Licensed Work under this License, whichever comes first, the Licensor hereby grants you rights under the terms of the Change License, and the rights granted in the paragraph above terminate.
 
-Contact us to discuss licensing terms for your use case.
+If your use of the Licensed Work does not comply with the requirements currently in effect as described in this License, you must purchase a commercial license from the Licensor, its affiliated entities, or authorized resellers, or you must refrain from using the Licensed Work.
 
-### 5. Contributions
+All copies of the original and modified Licensed Work, and derivative works of the Licensed Work, are subject to this License. This License applies separately for each version of the Licensed Work and the Change Date may vary for each version of the Licensed Work released by Licensor.
 
-By submitting contributions (pull requests, issues, patches) to this repository, you agree that your contributions become the property of 4rce.com Digital Technologies GmbH and are subject to this license.
+You must conspicuously display this License on each original or modified copy of the Licensed Work. If you receive the Licensed Work in original or modified form from a third party, the terms and conditions set forth in this License apply to your use of that work.
 
-### 6. Disclaimer of Warranty
+Any use of the Licensed Work in violation of this License will automatically terminate your rights under this License for the current and all other versions of the Licensed Work.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH YOU.
+This License does not grant you any right in any trademark or logo of Licensor or its affiliates (provided that you may use a trademark or logo of Licensor as expressly required by this License).
 
-### 7. Limitation of Liability
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON AN "AS IS" BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND TITLE.
 
-IN NO EVENT SHALL 4RCE.COM DIGITAL TECHNOLOGIES GMBH, ITS OFFICERS, DIRECTORS, EMPLOYEES, OR AGENTS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING BUT NOT LIMITED TO PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES, LOSS OF USE, DATA, OR PROFITS, OR BUSINESS INTERRUPTION) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+MariaDB hereby grants you permission to use this License's text to license your works, and to refer to it using the trademark "Business Source License", as long as you comply with the Covenants of Licensor below.
 
-### 8. Termination
+### Covenants of Licensor
 
-This license is effective until terminated. Your rights under this license will terminate automatically without notice if you fail to comply with any of its terms. Upon termination, you must destroy all copies of the Software in your possession.
+In consideration of the right to use this License's text and the "Business Source License" name and trademark, Licensor covenants to MariaDB, and to all other recipients of the licensed work to be provided by Licensor:
 
-### 9. Governing Law
+1. To specify as the Change License the GPL Version 2.0 or any later version, or a license that is compatible with GPL Version 2.0 or a later version, where "compatible" means that software provided under the Change License can be included in a program with software provided under GPL Version 2.0 or a later version. Licensor may specify additional Change Licenses without limitation.
+2. To either: (a) specify an additional grant of rights to use that does not impose any additional restriction on the right granted in this License, as the Additional Use Grant; or (b) insert the text "None" to specify a Change Date. Not to modify this License in any other way.
+3. To specify a Change Date.
+4. Not to modify this License in any other way.
 
-This license shall be governed by and construed in accordance with the laws of the Federal Republic of Germany, without regard to its conflict of law provisions.
+### Notice
+
+The Business Source License (this document, or the "License") is not an Open Source license. However, the Licensed Work will eventually be made available under an Open Source License (Apache License 2.0), as stated in this License.
 
 ---
 

@@ -378,12 +378,17 @@ MCP_DOCS_PATH=/tmp/flaiwheel-docs MCP_VECTORSTORE_PATH=/tmp/flaiwheel-data pytho
 
 ## License
 
-**Proprietary — Non-commercial use only.**
+**Business Source License 1.1 (BSL 1.1)**
 
-This software is the property of **4rce.com Digital Technologies GmbH**.
+Flaiwheel is source-available under the [Business Source License 1.1](https://mariadb.com/bsl11/).
 
-- Personal, non-commercial use is permitted
-- **Commercial use requires a separate license**
-- Contact: [info@4rce.com](mailto:info@4rce.com) | [https://4rce.com](https://4rce.com)
+**You may use Flaiwheel for free** if:
+- Your use is **non-commercial** (personal, educational, no revenue), or
+- Your organization has **no more than 10 individuals** using it
+
+**Commercial use beyond these limits** (e.g., teams of 11+ or commercial deployment) requires a paid license.
+
+- Effective **2030-02-25**, this version converts to **Apache License 2.0** (fully open source)
+- Commercial licenses: [info@4rce.com](mailto:info@4rce.com) | [https://4rce.com](https://4rce.com)
 
 See [LICENSE.md](LICENSE.md) for full terms.
