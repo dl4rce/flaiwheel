@@ -69,6 +69,8 @@ def create_mcp_server(
             Relevant doc chunks with source reference and relevance score
         """
         results = indexer.search(query, top_k=top_k)
+        if health:
+            health.record_search("search_docs", bool(results))
 
         if not results:
             return (
@@ -99,6 +101,8 @@ def create_mcp_server(
             Similar bugfix summaries with root cause, solution and lessons learned
         """
         results = indexer.search(query, top_k=top_k, type_filter="bugfix")
+        if health:
+            health.record_search("search_bugfixes", bool(results))
 
         if not results:
             return (
@@ -126,6 +130,8 @@ def create_mcp_server(
             top_k: Number of results
         """
         results = indexer.search(query, top_k=top_k, type_filter=doc_type)
+        if health:
+            health.record_search("search_by_type", bool(results))
 
         if not results:
             return f"No results of type '{doc_type}' found."

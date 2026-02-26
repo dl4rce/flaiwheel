@@ -225,6 +225,14 @@
                     <div class="value" id="health-version"><span style="color:var(--text-dim)">&ndash;</span></div>
                     <div class="label">Version</div>
                 </div>
+                <div class="stat-item">
+                    <div class="value" id="health-searches"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Searches</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="health-quality"><span style="color:var(--text-dim)">&ndash;</span></div>
+                    <div class="label">Quality</div>
+                </div>
             </div>
         </div>
 
@@ -545,6 +553,34 @@
             document.getElementById('health-git').innerHTML =
                 (h.git_commit || '–') + (h.git_branch ? ' <span style="color:var(--text-dim)">(' + h.git_branch + ')</span>' : '');
             document.getElementById('health-version').textContent = h.version || '–';
+
+            var total = h.searches_total || 0;
+            var hits = h.searches_hits || 0;
+            var misses = h.searches_misses || 0;
+            var missRate = total > 0 ? misses / total : 0;
+            var searchDot = total === 0
+                ? '<span style="color:var(--text-dim)">●</span>'
+                : missRate < 0.2
+                    ? '<span style="color:var(--success)">●</span>'
+                    : missRate < 0.5
+                        ? '<span style="color:var(--warning)">●</span>'
+                        : '<span style="color:var(--danger)">●</span>';
+            document.getElementById('health-searches').innerHTML =
+                searchDot + ' ' + hits + '/' + total;
+
+            var qs = h.quality_score;
+            if (qs === null || qs === undefined) {
+                document.getElementById('health-quality').innerHTML =
+                    '<span style="color:var(--text-dim)">–</span>';
+            } else {
+                var qDot = qs >= 80
+                    ? '<span style="color:var(--success)">●</span>'
+                    : qs >= 50
+                        ? '<span style="color:var(--warning)">●</span>'
+                        : '<span style="color:var(--danger)">●</span>';
+                document.getElementById('health-quality').innerHTML =
+                    qDot + ' ' + qs + '/100';
+            }
 
             document.querySelector('.container header .logo').innerHTML =
                 h.status === 'ok' ? '&#128994;' : '&#128308;';

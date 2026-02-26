@@ -3,4 +3,4 @@
 # Non-commercial use only. Commercial licensing: info@4rce.com
 
 """Flaiwheel – Self-improving knowledge base for AI coding agents."""
-__version__ = "1.3.1"
+__version__ = "1.4.0"

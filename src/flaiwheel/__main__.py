@@ -46,7 +46,7 @@ def main():
 
     indexer = DocsIndexer(config)
     auth = AuthManager(config)
-    watcher = GitWatcher(config, indexer, index_lock, health)
+    watcher = GitWatcher(config, indexer, index_lock, health, quality_checker=quality_checker)
     quality_checker = KnowledgeQualityChecker(config)
 
     print(f"Initial indexing {config.docs_path} ...")
@@ -57,6 +57,15 @@ def main():
         files=result.get("files_indexed", 0),
         error=result.get("message") if result.get("status") != "success" else None,
     )
+    try:
+        qr = quality_checker.check_all()
+        health.record_quality(
+            qr["score"], qr.get("critical", 0),
+            qr.get("warnings", 0), qr.get("info", 0),
+        )
+        print(f"Quality score: {qr['score']}/100")
+    except Exception as e:
+        print(f"Warning: Initial quality check failed: {e}")
     print(f"Done: {result}")
 
     watcher.start()

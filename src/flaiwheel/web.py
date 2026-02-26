@@ -102,6 +102,11 @@ def create_web_app(
             "last_pull_ok": status.get("last_pull_ok"),
             "git_commit": status.get("git_commit"),
             "git_branch": status.get("git_branch"),
+            "searches_total": status.get("searches_total", 0),
+            "searches_hits": status.get("searches_hits", 0),
+            "searches_misses": status.get("searches_misses", 0),
+            "quality_score": status.get("quality_score"),
+            "quality_issues_critical": status.get("quality_issues_critical", 0),
         }
 
     @app.get("/api/health")
@@ -170,6 +175,15 @@ def create_web_app(
                 chunks=result.get("chunks_upserted", 0),
                 files=result.get("files_indexed", 0),
             )
+        if quality_checker and health:
+            try:
+                qr = quality_checker.check_all()
+                health.record_quality(
+                    qr["score"], qr.get("critical", 0),
+                    qr.get("warnings", 0), qr.get("info", 0),
+                )
+            except Exception:
+                pass
         return result
 
     @app.post("/api/clear")
@@ -217,6 +231,15 @@ def create_web_app(
                     chunks=result.get("chunks_upserted", 0),
                     files=result.get("files_indexed", 0),
                 )
+            if quality_checker and health:
+                try:
+                    qr = quality_checker.check_all()
+                    health.record_quality(
+                        qr["score"], qr.get("critical", 0),
+                        qr.get("warnings", 0), qr.get("info", 0),
+                    )
+                except Exception:
+                    pass
 
         return {
             "status": "success",

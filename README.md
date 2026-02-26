@@ -12,6 +12,8 @@ Flaiwheel is a self-contained Docker service that:
 - **Searches semantically** — agents find relevant docs by meaning, not keywords
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
+- **Tracks search metrics** — hit rate, miss rate, per-tool usage visible in the health panel
+- **Proactive quality checks** — automatically validates knowledge base after every reindex
 - **Includes a Web UI** for configuration, monitoring, and testing
 
 The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Knowledge compounds.
@@ -309,7 +311,8 @@ Features:
 - Chunking strategy configuration
 - Git sync settings (URL, branch, auto-push toggle)
 - Test search interface
-- Knowledge quality checker
+- Knowledge quality checker (also runs automatically after every reindex)
+- Search metrics (hits/total, miss rate, per-tool breakdown)
 - Client configuration snippets (Cursor, Claude Desktop, Docker)
 - Password management
 

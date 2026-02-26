@@ -18,6 +18,7 @@ from pathlib import Path
 from .config import Config
 from .health import HealthTracker
 from .indexer import DocsIndexer
+from .quality import KnowledgeQualityChecker
 
 
 class GitWatcher:
@@ -27,11 +28,13 @@ class GitWatcher:
         indexer: DocsIndexer,
         index_lock: threading.Lock,
         health: HealthTracker | None = None,
+        quality_checker: KnowledgeQualityChecker | None = None,
     ):
         self.config = config
         self.indexer = indexer
         self.index_lock = index_lock
         self.health = health
+        self.quality_checker = quality_checker
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -272,6 +275,15 @@ class GitWatcher:
                             chunks=result.get("chunks_upserted", 0),
                             files=result.get("files_indexed", 0),
                         )
+                    if self.quality_checker and self.health:
+                        try:
+                            qr = self.quality_checker.check_all()
+                            self.health.record_quality(
+                                qr["score"], qr.get("critical", 0),
+                                qr.get("warnings", 0), qr.get("info", 0),
+                            )
+                        except Exception as e:
+                            print(f"Warning: Quality check failed: {e}")
                     print(f"Reindex complete: {result}")
             except Exception as e:
                 if self.health:

@@ -35,6 +35,21 @@ class HealthTracker:
             "git_branch": None,
             "git_repo_url": None,
             "started_at": datetime.now(timezone.utc).isoformat(),
+
+            "searches_total": 0,
+            "searches_hits": 0,
+            "searches_misses": 0,
+            "searches_by_tool": {
+                "search_docs": 0,
+                "search_bugfixes": 0,
+                "search_by_type": 0,
+            },
+            "last_search_at": None,
+
+            "quality_score": None,
+            "quality_issues_critical": 0,
+            "quality_issues_warnings": 0,
+            "quality_issues_info": 0,
         }
 
     def record_index(self, ok: bool, chunks: int = 0, files: int = 0, error: str | None = None):
@@ -57,6 +72,25 @@ class HealthTracker:
             self._data["last_push_at"] = datetime.now(timezone.utc).isoformat()
             self._data["last_push_ok"] = ok
             self._data["last_push_error"] = error
+
+    def record_search(self, tool: str, hit: bool):
+        with self._lock:
+            self._data["searches_total"] += 1
+            if hit:
+                self._data["searches_hits"] += 1
+            else:
+                self._data["searches_misses"] += 1
+            by_tool = self._data["searches_by_tool"]
+            if tool in by_tool:
+                by_tool[tool] += 1
+            self._data["last_search_at"] = datetime.now(timezone.utc).isoformat()
+
+    def record_quality(self, score: int, critical: int = 0, warnings: int = 0, info: int = 0):
+        with self._lock:
+            self._data["quality_score"] = score
+            self._data["quality_issues_critical"] = critical
+            self._data["quality_issues_warnings"] = warnings
+            self._data["quality_issues_info"] = info
 
     def record_git_info(self, git_dir: Path, repo_url: str = "", branch: str = ""):
         with self._lock:
