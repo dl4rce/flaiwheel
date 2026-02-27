@@ -98,74 +98,84 @@ info "Project dir:    ${PROJECT_DIR}"
 echo ""
 
 # ══════════════════════════════════════════════════════
+#  FAST PATH: detect running Flaiwheel → skip Docker
+# ══════════════════════════════════════════════════════
+
+FAST_PATH=false
+RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-' | head -1 || true)
+
+if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
+    FAST_PATH=true
+    echo -e "${GREEN}${BOLD}[✓] Flaiwheel already running (${RUNNING_FW}). Fast-connecting this project...${NC}"
+    echo ""
+fi
+
+# ══════════════════════════════════════════════════════
 #  PHASE 2b: Detect existing installation → update mode
+#  (skipped on fast path — container is healthy, no rebuild needed)
 # ══════════════════════════════════════════════════════
 
 UPDATE_MODE=false
 
-# First: check for exact container name match
-# Second: check if ANY flaiwheel container is using ports 8080/8081
-EXISTING_CONTAINER=""
+if [ "$FAST_PATH" = false ]; then
+    # First: check for exact container name match
+    # Second: check if ANY flaiwheel container is using ports 8080/8081
+    EXISTING_CONTAINER=""
 
-if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    EXISTING_CONTAINER="$CONTAINER_NAME"
-else
-    # Check for flaiwheel containers occupying our ports
-    PORT_CONTAINER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
-        | grep -E '(8080|8081)' \
-        | grep -E '^flaiwheel-' \
-        | awk '{print $1}' \
-        | head -1 || true)
-    if [ -n "$PORT_CONTAINER" ]; then
-        EXISTING_CONTAINER="$PORT_CONTAINER"
-        warn "Found existing flaiwheel container '${PORT_CONTAINER}' on ports 8080/8081"
-        warn "This may have been created under a different project name"
-    fi
-fi
-
-if [ -n "$EXISTING_CONTAINER" ]; then
-    echo ""
-    echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║  Existing installation detected!              ║${NC}"
-    echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
-    echo ""
-
-    # Show current version info
-    CURRENT_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$EXISTING_CONTAINER" 2>/dev/null || echo "unknown")
-    CONTAINER_STATUS=$(docker inspect --format '{{.State.Status}}' "$EXISTING_CONTAINER" 2>/dev/null || echo "unknown")
-    CREATED_AT=$(docker inspect --format '{{.Created}}' "$EXISTING_CONTAINER" 2>/dev/null | cut -d'T' -f1 || echo "unknown")
-    echo -e "  Container:  ${GREEN}${EXISTING_CONTAINER}${NC} (${CONTAINER_STATUS})"
-    echo -e "  Image:      ${CURRENT_IMAGE}"
-    echo -e "  Created:    ${CREATED_AT}"
-    echo ""
-
-    read -p "  Update to latest version? [Y/n] " -n 1 -r REPLY
-    echo ""
-
-    if [[ "$REPLY" =~ ^[Nn]$ ]]; then
-        info "Update cancelled. Existing installation unchanged."
-        exit 0
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        EXISTING_CONTAINER="$CONTAINER_NAME"
+    else
+        PORT_CONTAINER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+            | grep -E '(8080|8081)' \
+            | grep -E '^flaiwheel-' \
+            | awk '{print $1}' \
+            | head -1 || true)
+        if [ -n "$PORT_CONTAINER" ]; then
+            EXISTING_CONTAINER="$PORT_CONTAINER"
+            warn "Found existing flaiwheel container '${PORT_CONTAINER}' on ports 8080/8081"
+            warn "This may have been created under a different project name"
+        fi
     fi
 
-    UPDATE_MODE=true
-    ok "Update mode — will rebuild image and recreate container"
+    if [ -n "$EXISTING_CONTAINER" ]; then
+        echo ""
+        echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}║  Existing installation detected!              ║${NC}"
+        echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
+        echo ""
 
-    # Extract env vars from existing container for re-use
-    OLD_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
-    OLD_REPO_URL=$(echo "$OLD_ENV" | grep "^MCP_GIT_REPO_URL=" | cut -d= -f2- || true)
-    OLD_AUTO_PUSH=$(echo "$OLD_ENV" | grep "^MCP_GIT_AUTO_PUSH=" | cut -d= -f2- || true)
-    OLD_WEBHOOK_SECRET=$(echo "$OLD_ENV" | grep "^MCP_WEBHOOK_SECRET=" | cut -d= -f2- || true)
+        CURRENT_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$EXISTING_CONTAINER" 2>/dev/null || echo "unknown")
+        CONTAINER_STATUS=$(docker inspect --format '{{.State.Status}}' "$EXISTING_CONTAINER" 2>/dev/null || echo "unknown")
+        CREATED_AT=$(docker inspect --format '{{.Created}}' "$EXISTING_CONTAINER" 2>/dev/null | cut -d'T' -f1 || echo "unknown")
+        echo -e "  Container:  ${GREEN}${EXISTING_CONTAINER}${NC} (${CONTAINER_STATUS})"
+        echo -e "  Image:      ${CURRENT_IMAGE}"
+        echo -e "  Created:    ${CREATED_AT}"
+        echo ""
 
-    # Preserve volume name from existing container
-    OLD_VOLUME=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
-    if [ -n "$OLD_VOLUME" ]; then
-        VOLUME_NAME="$OLD_VOLUME"
+        read -p "  Update to latest version? [Y/n] " -n 1 -r REPLY
+        echo ""
+
+        if [[ "$REPLY" =~ ^[Nn]$ ]]; then
+            info "Update cancelled. Existing installation unchanged."
+            exit 0
+        fi
+
+        UPDATE_MODE=true
+        ok "Update mode — will rebuild image and recreate container"
+
+        OLD_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
+        OLD_REPO_URL=$(echo "$OLD_ENV" | grep "^MCP_GIT_REPO_URL=" | cut -d= -f2- || true)
+        OLD_AUTO_PUSH=$(echo "$OLD_ENV" | grep "^MCP_GIT_AUTO_PUSH=" | cut -d= -f2- || true)
+        OLD_WEBHOOK_SECRET=$(echo "$OLD_ENV" | grep "^MCP_WEBHOOK_SECRET=" | cut -d= -f2- || true)
+
+        OLD_VOLUME=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
+        if [ -n "$OLD_VOLUME" ]; then
+            VOLUME_NAME="$OLD_VOLUME"
+        fi
+
+        OLD_CONTAINER_NAME="$EXISTING_CONTAINER"
+        echo ""
     fi
-
-    # Remember old container name (may differ from derived CONTAINER_NAME)
-    OLD_CONTAINER_NAME="$EXISTING_CONTAINER"
-
-    echo ""
 fi
 
 # ══════════════════════════════════════════════════════
@@ -346,103 +356,110 @@ fi
 
 # ══════════════════════════════════════════════════════
 #  PHASE 5: Build and start Flaiwheel Docker container
+#  (skipped entirely on fast path — container already running)
 # ══════════════════════════════════════════════════════
 
 KNOWLEDGE_REPO_URL="${KNOWLEDGE_REPO_URL:-https://github.com/${OWNER}/${KNOWLEDGE_REPO}.git}"
 
-build_image() {
-    info "Building Flaiwheel Docker image..."
+if [ "$FAST_PATH" = true ]; then
+    # ── Fast path: register project with the already-running container ──
+    info "Registering project '${PROJECT}' via API..."
 
-    BUILD_DIR=$(mktemp -d)
-    GH_TOKEN_FOR_CLONE=$(gh auth token 2>/dev/null || true)
-
-    CLONE_URL=$(echo "$FLAIWHEEL_REPO" | sed "s|https://|https://${GH_TOKEN_FOR_CLONE}@|")
-    git clone --depth 1 "$CLONE_URL" "$BUILD_DIR" 2>/dev/null || \
-        fail "Could not clone Flaiwheel repo. Check your gh permissions for dl4rce/flaiwheel."
-
-    docker build -t "$IMAGE_NAME" "$BUILD_DIR" || \
-        fail "Docker build failed. Check the build output above."
-
-    rm -rf "$BUILD_DIR"
-    ok "Docker image built: ${IMAGE_NAME}"
-}
-
-start_container() {
-    local repo_url="${1:-$KNOWLEDGE_REPO_URL}"
-    local auto_push="${2:-true}"
-    local webhook_secret="${3:-}"
-
-    local extra_env=""
-    if [ -n "$webhook_secret" ]; then
-        extra_env="-e MCP_WEBHOOK_SECRET=${webhook_secret}"
+    REG_PASS=$(docker exec "$RUNNING_FW" cat /data/.admin_password 2>/dev/null || true)
+    if [ -z "$REG_PASS" ]; then
+        REG_PASS=$(docker logs "$RUNNING_FW" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
     fi
 
-    docker run -d \
-        --name "$CONTAINER_NAME" \
-        -p 8080:8080 \
-        -p 8081:8081 \
-        -e MCP_GIT_REPO_URL="$repo_url" \
-        -e MCP_GIT_TOKEN="$GH_TOKEN" \
-        -e MCP_GIT_AUTO_PUSH="$auto_push" \
-        $extra_env \
-        -v "${VOLUME_NAME}:/data" \
-        --restart unless-stopped \
-        "$IMAGE_NAME"
-}
+    MULTI_PROJECT_REGISTERED=false
+    if [ -n "$REG_PASS" ]; then
+        REG_RESULT=$(curl -sf -X POST -u "admin:${REG_PASS}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
+            http://localhost:8080/api/projects 2>/dev/null || true)
 
-if [ "$UPDATE_MODE" = true ]; then
-    # ── Update path: stop → rebuild → recreate ──
-    info "Stopping container ${OLD_CONTAINER_NAME}..."
-    docker stop "$OLD_CONTAINER_NAME" 2>/dev/null || true
-    docker rm "$OLD_CONTAINER_NAME" 2>/dev/null || true
-    ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
+        if echo "$REG_RESULT" | grep -q '"status"'; then
+            ok "Project '${PROJECT}' registered with running Flaiwheel (${RUNNING_FW})"
+            MULTI_PROJECT_REGISTERED=true
+        else
+            warn "API registration returned unexpected response — project may already exist"
+            MULTI_PROJECT_REGISTERED=true
+        fi
+    else
+        warn "Could not extract credentials — project may need manual setup in Web UI"
+    fi
 
-    # Remove old image to force rebuild
-    docker rmi "$IMAGE_NAME" 2>/dev/null || true
+    # On fast path, container is already healthy
+    HEALTHY=true
+    CONTAINER_NAME="$RUNNING_FW"
+    ADMIN_PASS="$REG_PASS"
 
-    build_image
-
-    info "Recreating container as ${CONTAINER_NAME}..."
-    start_container \
-        "${OLD_REPO_URL:-$KNOWLEDGE_REPO_URL}" \
-        "${OLD_AUTO_PUSH:-true}" \
-        "${OLD_WEBHOOK_SECRET:-}"
-
-    ok "Container recreated with latest version"
+    if [ -n "$ADMIN_PASS" ]; then
+        ok "Flaiwheel is ready"
+        info "Indexing Flaiwheel reference docs..."
+        curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null || true
+        ok "Flaiwheel docs indexed"
+    fi
 
 else
-    # ── Check for running Flaiwheel (multi-project: register via API) ──
-    RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-' | head -1 || true)
+    # ── Full install / update path ──
 
-    if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
-        info "Flaiwheel already running (${RUNNING_FW}). Registering project via API..."
+    build_image() {
+        info "Building Flaiwheel Docker image..."
 
-        # Extract admin password for API auth
-        REG_PASS=$(docker exec "$RUNNING_FW" cat /data/.admin_password 2>/dev/null || true)
-        if [ -z "$REG_PASS" ]; then
-            REG_PASS=$(docker logs "$RUNNING_FW" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
+        BUILD_DIR=$(mktemp -d)
+        GH_TOKEN_FOR_CLONE=$(gh auth token 2>/dev/null || true)
+
+        CLONE_URL=$(echo "$FLAIWHEEL_REPO" | sed "s|https://|https://${GH_TOKEN_FOR_CLONE}@|")
+        git clone --depth 1 "$CLONE_URL" "$BUILD_DIR" 2>/dev/null || \
+            fail "Could not clone Flaiwheel repo. Check your gh permissions for dl4rce/flaiwheel."
+
+        docker build -t "$IMAGE_NAME" "$BUILD_DIR" || \
+            fail "Docker build failed. Check the build output above."
+
+        rm -rf "$BUILD_DIR"
+        ok "Docker image built: ${IMAGE_NAME}"
+    }
+
+    start_container() {
+        local repo_url="${1:-$KNOWLEDGE_REPO_URL}"
+        local auto_push="${2:-true}"
+        local webhook_secret="${3:-}"
+
+        local extra_env=""
+        if [ -n "$webhook_secret" ]; then
+            extra_env="-e MCP_WEBHOOK_SECRET=${webhook_secret}"
         fi
 
-        if [ -n "$REG_PASS" ]; then
-            REG_RESULT=$(curl -sf -X POST -u "admin:${REG_PASS}" \
-                -H "Content-Type: application/json" \
-                -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
-                http://localhost:8080/api/projects 2>/dev/null || true)
+        docker run -d \
+            --name "$CONTAINER_NAME" \
+            -p 8080:8080 \
+            -p 8081:8081 \
+            -e MCP_GIT_REPO_URL="$repo_url" \
+            -e MCP_GIT_TOKEN="$GH_TOKEN" \
+            -e MCP_GIT_AUTO_PUSH="$auto_push" \
+            $extra_env \
+            -v "${VOLUME_NAME}:/data" \
+            --restart unless-stopped \
+            "$IMAGE_NAME"
+    }
 
-            if echo "$REG_RESULT" | grep -q '"status":\s*"success"'; then
-                ok "Project '${PROJECT}' registered with running Flaiwheel"
-                MULTI_PROJECT_REGISTERED=true
-            else
-                warn "API registration failed — will create a new container"
-                warn "Response: ${REG_RESULT}"
-            fi
-        else
-            warn "Could not extract credentials for API registration"
-        fi
-    fi
+    if [ "$UPDATE_MODE" = true ]; then
+        info "Stopping container ${OLD_CONTAINER_NAME}..."
+        docker stop "$OLD_CONTAINER_NAME" 2>/dev/null || true
+        docker rm "$OLD_CONTAINER_NAME" 2>/dev/null || true
+        ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
 
-    if [ "${MULTI_PROJECT_REGISTERED:-false}" != true ]; then
-        # ── Fresh install path ──
+        docker rmi "$IMAGE_NAME" 2>/dev/null || true
+        build_image
+
+        info "Recreating container as ${CONTAINER_NAME}..."
+        start_container \
+            "${OLD_REPO_URL:-$KNOWLEDGE_REPO_URL}" \
+            "${OLD_AUTO_PUSH:-true}" \
+            "${OLD_WEBHOOK_SECRET:-}"
+        ok "Container recreated with latest version"
+
+    else
         if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
             build_image
         else
@@ -453,54 +470,45 @@ else
         start_container
         ok "Flaiwheel container started"
     fi
-fi
 
-# Wait for container to be healthy and extract credentials
-info "Waiting for Flaiwheel to be ready..."
-HEALTHY=false
-for i in $(seq 1 60); do
-    if curl -sf http://localhost:8080/health &>/dev/null; then
-        HEALTHY=true
-        break
-    fi
-    sleep 2
-done
-
-if [ "$HEALTHY" = false ]; then
-    warn "Container did not become healthy within 120s."
-    warn "Check logs: docker logs ${CONTAINER_NAME}"
-fi
-
-# Extract password — try file first (most reliable), then logs
-ADMIN_PASS=""
-for i in $(seq 1 15); do
-    # Method 1: read from credential file written by auth module
-    ADMIN_PASS=$(docker exec "$CONTAINER_NAME" cat /data/.admin_password 2>/dev/null || true)
-    if [ -n "$ADMIN_PASS" ]; then
-        break
-    fi
-    # Method 2: parse from container logs
-    ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
-    if [ -n "$ADMIN_PASS" ]; then
-        break
-    fi
-    sleep 1
-done
-
-if [ -n "$ADMIN_PASS" ]; then
-    ok "Flaiwheel is ready"
-
-    # Index only Flaiwheel reference docs (README, FLAIWHEEL_TOOLS) — fast, no full reindex
-    if [ "$HEALTHY" = true ]; then
-        info "Indexing Flaiwheel reference docs..."
-        if curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null; then
-            ok "Flaiwheel docs indexed"
-        else
-            warn "Index request failed (docs may still be syncing)"
+    # Wait for container to be healthy and extract credentials
+    info "Waiting for Flaiwheel to be ready..."
+    HEALTHY=false
+    for i in $(seq 1 60); do
+        if curl -sf http://localhost:8080/health &>/dev/null; then
+            HEALTHY=true
+            break
         fi
+        sleep 2
+    done
+
+    if [ "$HEALTHY" = false ]; then
+        warn "Container did not become healthy within 120s."
+        warn "Check logs: docker logs ${CONTAINER_NAME}"
     fi
-else
-    warn "Could not extract credentials automatically."
+
+    ADMIN_PASS=""
+    for i in $(seq 1 15); do
+        ADMIN_PASS=$(docker exec "$CONTAINER_NAME" cat /data/.admin_password 2>/dev/null || true)
+        if [ -n "$ADMIN_PASS" ]; then break; fi
+        ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
+        if [ -n "$ADMIN_PASS" ]; then break; fi
+        sleep 1
+    done
+
+    if [ -n "$ADMIN_PASS" ]; then
+        ok "Flaiwheel is ready"
+        if [ "$HEALTHY" = true ]; then
+            info "Indexing Flaiwheel reference docs..."
+            if curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null; then
+                ok "Flaiwheel docs indexed"
+            else
+                warn "Index request failed (docs may still be syncing)"
+            fi
+        fi
+    else
+        warn "Could not extract credentials automatically."
+    fi
 fi
 
 echo ""
@@ -515,13 +523,22 @@ MCP_JSON="${CURSOR_DIR}/mcp.json"
 mkdir -p "$CURSOR_DIR"
 
 if [ -f "$MCP_JSON" ]; then
-    # Check if flaiwheel is already configured
     if grep -q "flaiwheel" "$MCP_JSON" 2>/dev/null; then
         ok ".cursor/mcp.json already has flaiwheel configured"
     else
-        warn ".cursor/mcp.json exists but doesn't have flaiwheel"
-        warn "Add this manually to your mcpServers:"
-        echo '    "flaiwheel": { "type": "sse", "url": "http://localhost:8081/sse" }'
+        info "Adding flaiwheel to existing .cursor/mcp.json..."
+        python3 -c "
+import json, sys
+try:
+    data = json.load(open('$MCP_JSON', encoding='utf-8'))
+except Exception:
+    data = {}
+if 'mcpServers' not in data:
+    data['mcpServers'] = {}
+data['mcpServers']['flaiwheel'] = {'type': 'sse', 'url': 'http://localhost:8081/sse'}
+json.dump(data, open('$MCP_JSON', 'w', encoding='utf-8'), indent=2)
+"
+        ok "Added flaiwheel to .cursor/mcp.json (existing config preserved)"
     fi
 else
     cat > "$MCP_JSON" << 'EOF'
@@ -913,7 +930,21 @@ fi
 # ══════════════════════════════════════════════════════
 
 echo ""
-if [ "$UPDATE_MODE" = true ]; then
+if [ "$FAST_PATH" = true ]; then
+    echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}${BOLD}║     Project Connected to Flaiwheel           ║${NC}"
+    echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Container:${NC}     ${GREEN}${CONTAINER_NAME}${NC} (already running)"
+    echo -e "  ${BOLD}This project:${NC}  ${GREEN}${PROJECT}${NC} (registered)"
+    echo -e "  ${BOLD}Knowledge:${NC}     ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
+    echo -e "  ${BOLD}Config:${NC}        ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC} + ${GREEN}AGENTS.md${NC}"
+    echo ""
+    echo -e "  ${BOLD}What to do next:${NC}"
+    echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
+    echo -e "    2. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
+    echo -e "    3. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
+elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Update Complete                       ║${NC}"
     echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
@@ -954,7 +985,10 @@ echo -e "  ${BOLD}Endpoints:${NC}"
 echo -e "    Web UI:     ${GREEN}http://localhost:8080${NC}"
 echo -e "    MCP (SSE):  ${GREEN}http://localhost:8081/sse${NC}"
 echo ""
-if [ "$UPDATE_MODE" = true ]; then
+if [ "$FAST_PATH" = true ]; then
+    echo -e "  ${BOLD}Web UI Login:${NC} existing credentials are preserved."
+    echo -e "  If you forgot them: ${YELLOW}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
+elif [ "$UPDATE_MODE" = true ]; then
     echo -e "  ${BOLD}Web UI Login:${NC} your existing credentials are preserved."
     echo -e "  If you forgot them: ${YELLOW}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
 elif [ -n "${ADMIN_PASS:-}" ]; then
