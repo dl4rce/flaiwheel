@@ -81,6 +81,10 @@ class KnowledgeQualityChecker:
         except Exception:
             return issues
 
+        # Skip directory placeholder READMEs from quality checks
+        if Path(rel_path).name == "README.md" and len(Path(rel_path).parts) == 2:
+            return issues
+
         category = _detect_category(rel_path)
         issues.extend(self._check_single_completeness(content, rel_path))
         issues.extend(self._check_single_headings(content, rel_path))
