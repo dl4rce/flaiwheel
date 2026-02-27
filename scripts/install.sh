@@ -207,7 +207,7 @@ TOOLSEOF
         for dir in architecture api bugfix-log best-practices setup changelog tests; do
             if [ ! -d "$dir" ]; then
                 mkdir -p "$dir"
-                echo "# ${dir}" > "${dir}/README.md"
+                echo -e "# ${dir}\n\nThis directory contains ${dir} documentation managed by Flaiwheel.\nAdd .md files here or use the corresponding write tool." > "${dir}/README.md"
             fi
         done
         git add -A
@@ -279,7 +279,7 @@ TOOLSEOF
 
     # Placeholder READMEs so folders are tracked
     for dir in architecture api bugfix-log best-practices setup changelog tests; do
-        echo "# ${dir}" > "${dir}/README.md"
+        echo -e "# ${dir}\n\nThis directory contains ${dir} documentation managed by Flaiwheel.\nAdd .md files here or use the corresponding write tool." > "${dir}/README.md"
     done
 
     git add -A
