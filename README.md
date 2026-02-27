@@ -384,6 +384,9 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
+# Run tests (88 tests covering quality checker, indexer, health tracker, MCP tools)
+pytest
+
 # Run locally (needs /docs and /data directories)
 mkdir -p /tmp/flaiwheel-docs /tmp/flaiwheel-data
 MCP_DOCS_PATH=/tmp/flaiwheel-docs MCP_VECTORSTORE_PATH=/tmp/flaiwheel-data python -m flaiwheel
