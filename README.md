@@ -27,6 +27,8 @@ The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Know
 
 **Prerequisites:** [GitHub CLI](https://cli.github.com) authenticated (`gh auth login`), [Docker](https://docs.docker.com/get-docker/) running.
 
+**Platform support:** macOS and Linux work out of the box. On **Windows**, run the installer from [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) or [Git Bash](https://gitforwindows.org/) (Docker Desktop must be running with WSL 2 backend enabled).
+
 Run this from inside your project directory:
 
 ```bash
