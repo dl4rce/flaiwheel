@@ -15,6 +15,7 @@ from datetime import date
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from . import __version__
+from .bootstrap import KnowledgeBootstrap, format_report
 from .config import Config
 from .project import ProjectConfig, ProjectRegistry, ProjectContext
 
@@ -44,7 +45,10 @@ def create_mcp_server(
             "5. AFTER every bugfix: call write_bugfix_summary()\n"
             "6. If one chunk isn't enough, search more specifically\n"
             "7. Periodically call check_knowledge_quality() to maintain docs\n"
-            "8. Every tool accepts project='name' as an explicit override"
+            "8. Every tool accepts project='name' as an explicit override\n"
+            "9. 'This is the Way' (or '42'): user says this to bootstrap a messy repo.\n"
+            "   Call analyze_knowledge_repo(), review the plan, execute_cleanup() with\n"
+            "   approved IDs, rewrite flagged files with write_* tools, finalize with reindex()"
         ),
     )
 
@@ -830,6 +834,106 @@ def create_mcp_server(
             f"No active project set. {len(names)} projects available: "
             f"{', '.join(names)}. Call set_project('name') to bind one."
         )
+
+    # ── Bootstrap / Cleanup tools ────────────────────────
+
+    _bootstrap_cache: dict[str, KnowledgeBootstrap] = {}
+
+    @mcp.tool()
+    def analyze_knowledge_repo(project: str = "") -> str:
+        """"This is the Way" — Analyse the knowledge repository for structure,
+        quality, duplicates, and misplaced files.  Returns a detailed report
+        with proposed actions.
+
+        Trigger: user says "This is the Way" or "42".
+
+        This is READ-ONLY — no files are modified.
+
+        Use this when a project has an existing, potentially messy documentation
+        structure and you want to understand what cleanup is needed.
+
+        Args:
+            project: Target project name (optional)
+
+        Returns:
+            Structured analysis report with proposed cleanup actions
+        """
+        ctx, err = _ctx(project or None)
+        if not ctx:
+            return err
+
+        docs = Path(ctx.merged_config.docs_path)
+        bootstrap = KnowledgeBootstrap(
+            docs_path=docs,
+            embedding_fn=registry.embedding_fn,
+            quality_checker=ctx.quality_checker,
+        )
+        report = bootstrap.analyze()
+        _bootstrap_cache[ctx.name] = bootstrap
+        return format_report(report)
+
+    @mcp.tool()
+    def execute_cleanup(actions: str, project: str = "") -> str:
+        """Execute approved cleanup actions from analyze_knowledge_repo().
+
+        SAFETY: This tool NEVER deletes any file. It only creates directories
+        and moves files (using git mv to preserve history).
+
+        Args:
+            actions: Comma-separated action IDs (e.g. "a1,a2,a5") or "all"
+            project: Target project name (optional)
+
+        Returns:
+            Execution results with rollback instructions
+        """
+        ctx, err = _ctx(project or None)
+        if not ctx:
+            return err
+
+        bootstrap = _bootstrap_cache.get(ctx.name)
+        if not bootstrap or not bootstrap.last_report:
+            return (
+                "No analysis report available. "
+                "Call analyze_knowledge_repo() first."
+            )
+
+        if actions.strip().lower() == "all":
+            action_ids = [
+                a["id"] for a in bootstrap.last_report["proposed_actions"]
+            ]
+        else:
+            action_ids = [a.strip() for a in actions.split(",") if a.strip()]
+
+        if not action_ids:
+            return "No action IDs provided."
+
+        result = bootstrap.execute(action_ids)
+
+        lines = [
+            f"**Cleanup executed:** {result['executed']} action(s)\n",
+        ]
+        for r in result.get("results", []):
+            if r["type"] == "create_dir":
+                lines.append(f"- Created directory (action {r['id']})")
+            elif r["type"] == "move":
+                lines.append(f"- Moved `{r['from']}` → `{r['to']}` (action {r['id']})")
+            elif r["type"] == "flag_review":
+                lines.append(f"- Flagged for review (action {r['id']})")
+
+        if result.get("errors"):
+            lines.append(f"\n**Errors:** {len(result['errors'])}")
+            for e in result["errors"]:
+                lines.append(f"- {e}")
+
+        if result.get("rollback_command"):
+            lines.append(f"\n**Rollback:** `{result['rollback_command']}`")
+
+        lines.append(
+            "\n**Next:** Call `reindex()` to rebuild the search index, "
+            "then `check_knowledge_quality()` to verify improvement."
+        )
+
+        return "\n".join(lines)
 
     @mcp.tool()
     def check_update() -> str:

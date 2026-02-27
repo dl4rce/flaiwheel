@@ -21,6 +21,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from .auth import AuthManager
+from .bootstrap import KnowledgeBootstrap
 from .config import LOCAL_MODELS, Config
 from .project import ProjectConfig, ProjectContext, ProjectRegistry, merge_config
 
@@ -65,6 +66,10 @@ class SearchRequest(BaseModel):
 class PasswordChange(BaseModel):
     old_password: str
     new_password: str
+
+
+class BootstrapExecuteRequest(BaseModel):
+    actions: list[str]
 
 
 def create_web_app(
@@ -486,6 +491,59 @@ def create_web_app(
     ):
         ctx = _resolve(project)
         return ctx.quality_checker.check_all()
+
+    # ── Bootstrap / Cleanup ─────────────────────────────
+
+    _bootstrap_cache: dict[str, KnowledgeBootstrap] = {}
+
+    @app.post("/api/bootstrap/analyze")
+    async def bootstrap_analyze(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        docs = Path(ctx.merged_config.docs_path)
+        bootstrap = KnowledgeBootstrap(
+            docs_path=docs,
+            embedding_fn=registry.embedding_fn,
+            quality_checker=ctx.quality_checker,
+        )
+        report = bootstrap.analyze()
+        _bootstrap_cache[ctx.name] = bootstrap
+        return report
+
+    @app.get("/api/bootstrap/report")
+    async def bootstrap_report(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        bootstrap = _bootstrap_cache.get(ctx.name)
+        if bootstrap and bootstrap.last_report:
+            return bootstrap.last_report
+        return {"summary": {"total_files": 0}, "file_inventory": [],
+                "duplicate_clusters": [], "proposed_actions": [],
+                "needs_ai_rewrite": []}
+
+    @app.post("/api/bootstrap/execute")
+    async def bootstrap_execute(
+        req: BootstrapExecuteRequest,
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        bootstrap = _bootstrap_cache.get(ctx.name)
+        if not bootstrap or not bootstrap.last_report:
+            raise HTTPException(400, "No analysis report. Run analyze first.")
+        result = bootstrap.execute(req.actions)
+        if result.get("executed", 0) > 0:
+            with ctx.index_lock:
+                ctx.indexer.index_all(quality_checker=ctx.quality_checker)
+            try:
+                ctx.watcher.push_pending()
+            except Exception:
+                pass
+        return result
 
     # ── GitHub Webhook (HMAC auth) ────────────────────
 

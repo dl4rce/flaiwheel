@@ -7,7 +7,7 @@
 ## What is Flaiwheel?
 
 Flaiwheel is a self-contained Docker service that:
-- **Indexes** your project documentation (`.md` files) into a vector database
+- **Indexes** your project documentation (`.md`, `.pdf`, `.html`, `.docx`, `.rst`, `.txt`, `.json`, `.yaml`, `.csv`) into a vector database
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Searches semantically** — agents find relevant docs by meaning, not keywords
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
@@ -17,7 +17,9 @@ Flaiwheel is a self-contained Docker service that:
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
 - **Tracks search metrics** — hit rate, miss rate, per-tool usage visible in the health panel
 - **Proactive quality checks** — automatically validates knowledge base after every reindex
-- **Includes a Web UI** for configuration, monitoring, and testing
+- **Knowledge Bootstrap** — "This is the Way": analyse messy repos, classify files, detect duplicates, propose a cleanup plan, execute with user approval (never deletes files)
+- **Multi-project support** — one container manages multiple knowledge repos with per-project isolation
+- **Includes a Web UI** for configuration, monitoring, testing, and bootstrap
 
 The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Knowledge compounds.
 
@@ -147,6 +149,8 @@ Your AI agent now has access to 21 MCP tools:
 - `reindex` — manual re-index after bulk changes
 - `check_knowledge_quality` — validate knowledge base consistency
 - `check_update` — check if a newer Flaiwheel version is available
+- `analyze_knowledge_repo` — **"This is the Way"** — analyse repo structure, classify files, detect duplicates
+- `execute_cleanup` — execute approved cleanup actions (never deletes files)
 
 ---
 
@@ -212,6 +216,9 @@ You can also call `check_update()` to check if a newer version is available (wor
 1. Call `check_knowledge_quality()` to find issues in the knowledge base
 2. Fix critical issues immediately
 
+### For messy repos — "This is the Way":
+Tell your agent **"This is the Way"** (or **"42"**) to trigger bootstrap analysis and guided cleanup. See the dedicated section below.
+
 ### What the knowledge base contains:
 | Category | Search with | What you'll find |
 |----------|-------------|-----------------|
@@ -251,6 +258,22 @@ All tools accept an optional `project` parameter as explicit override. When omit
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
+| `analyze_knowledge_repo()` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+
+---
+
+## "This is the Way" — Knowledge Bootstrap
+
+Got a messy existing repo with scattered docs? Tell your AI agent **"This is the Way"** (or just **"42"**) and the full bootstrap workflow kicks in:
+
+1. **`analyze_knowledge_repo()`** — read-only scan: classifies files, detects duplicates, scores quality, proposes a cleanup plan
+2. **Review** — the agent presents the report; you decide what to approve
+3. **`execute_cleanup(actions)`** — executes only the actions you approved (creates directories, moves files via `git mv`)
+4. **AI rewrite** — for files flagged as low quality, the agent rewrites them using `write_*` tools
+5. **`reindex()`** — finalize the clean knowledge base
+
+**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — you decide.
 
 ---
 
@@ -422,6 +445,8 @@ Features:
 - Knowledge quality checker (also runs automatically after every reindex)
 - Search metrics (hits/total, miss rate, per-tool breakdown)
 - Skipped files indicator (files excluded from indexing due to critical quality issues)
+- **"This is the Way" — Knowledge Bootstrap**: analyse, classify, detect duplicates, execute cleanup — all from the Web UI
+- Multi-project switcher (manage multiple repos from one instance)
 - Client configuration snippets (Cursor, Claude Desktop, Docker)
 - Password management
 

@@ -1,6 +1,6 @@
 [project]
 name = "flaiwheel"
-version = "2.2.0"
+version = "2.3.0"
 description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
 readme = "README.md"
 license = {text = "Business Source License 1.1. See LICENSE.md. Commercial licensing: info@4rce.com"}

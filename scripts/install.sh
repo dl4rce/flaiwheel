@@ -208,6 +208,20 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `reindex()` | Re-index all documentation |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
+| `analyze_knowledge_repo()` | Analyse repo structure, classify files, detect duplicates |
+| `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+
+## "This is the Way" — Knowledge Bootstrap
+
+Got a messy repo? Tell your AI agent **"This is the Way"** (or just **"42"**) and it will:
+
+1. `analyze_knowledge_repo()` — full read-only scan (classify, detect duplicates, score quality)
+2. Review the report with you
+3. `execute_cleanup(actions)` — execute only the actions you approve
+4. For files flagged as `needs_ai_rewrite` — rewrite using `write_*` tools
+5. `reindex()` — finalize
+
+**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — you decide.
 TOOLSEOF
         # Ensure all expected directories exist with proper placeholder READMEs
         for dir in architecture api bugfix-log best-practices setup changelog tests; do
@@ -287,6 +301,20 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `reindex()` | Re-index all documentation |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
+| `analyze_knowledge_repo()` | Analyse repo structure, classify files, detect duplicates |
+| `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+
+## "This is the Way" — Knowledge Bootstrap
+
+Got a messy repo? Tell your AI agent **"This is the Way"** (or just **"42"**) and it will:
+
+1. `analyze_knowledge_repo()` — full read-only scan (classify, detect duplicates, score quality)
+2. Review the report with you
+3. `execute_cleanup(actions)` — execute only the actions you approve
+4. For files flagged as `needs_ai_rewrite` — rewrite using `write_*` tools
+5. `reindex()` — finalize
+
+**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — you decide.
 TOOLSEOF
 
     # Placeholder READMEs so folders are tracked
@@ -612,6 +640,15 @@ For freeform docs: call \`validate_doc(content, category)\` before committing.
 1. Call \`check_knowledge_quality()\` to find issues in the knowledge base
 2. Fix critical issues immediately
 
+### "This is the Way" — Knowledge Bootstrap
+When the user says **"This is the Way"** or **"42"**, trigger the full bootstrap workflow:
+1. \`analyze_knowledge_repo()\` — full read-only analysis (classify, detect duplicates, score quality)
+2. Review the report **with the user** — never auto-execute
+3. \`execute_cleanup(actions)\` — execute only the actions the user approves
+4. For files flagged as \`needs_ai_rewrite\` — read the file and rewrite using \`write_*\` tools
+5. \`reindex()\` — finalize
+**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — the user decides.
+
 ## The flywheel effect
 
 Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed to the repo and automatically reindexed. The next search finds it. **Every task you document makes the next task faster.** You are part of this cycle — always close the loop.
@@ -651,6 +688,8 @@ All tools accept an optional \`project\` parameter as explicit override. When om
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base consistency |
 | \`check_update()\` | Check if a newer Flaiwheel version is available |
+| \`analyze_knowledge_repo()\` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| \`execute_cleanup(actions)\` | Execute approved cleanup actions (never deletes files) |
 RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
@@ -704,6 +743,7 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
    - After writing tests: \`write_test_case()\` — document scenario, steps, expected result, status, tags
 5. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\`
 6. **Periodically:** \`check_knowledge_quality()\` and fix issues
+7. **"This is the Way"** — for messy repos, the user says this phrase (or "42"). Run \`analyze_knowledge_repo()\`, review the plan together, then \`execute_cleanup(actions)\` with approved IDs. Rewrite flagged files with \`write_*\` tools. Finalize with \`reindex()\`
 
 **Important:** Files with critical quality issues are skipped during indexing. Flaiwheel NEVER deletes or modifies user files.
 
@@ -755,6 +795,8 @@ All tools accept an optional \`project\` parameter as explicit override.
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base |
 | \`check_update()\` | Check for newer Flaiwheel version |
+| \`analyze_knowledge_repo()\` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| \`execute_cleanup(actions)\` | Execute approved cleanup actions (never deletes files) |
 BLOCKEOF
 )
 
