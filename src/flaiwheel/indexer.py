@@ -24,7 +24,7 @@ from .config import Config
 
 DOC_TYPES = [
     "docs", "bugfix", "best-practice", "api",
-    "architecture", "changelog", "setup", "readme",
+    "architecture", "changelog", "setup", "readme", "test",
 ]
 
 
@@ -220,6 +220,8 @@ class DocsIndexer:
             return "setup"
         if "readme" in p:
             return "readme"
+        if "test" in p:
+            return "test"
         return "docs"
 
     # ── File hash tracking (for diff-aware reindex) ─────

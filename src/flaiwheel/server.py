@@ -126,7 +126,7 @@ def create_mcp_server(
         Args:
             query: Search query
             doc_type: One of: "docs", "bugfix", "best-practice", "api",
-                      "architecture", "changelog", "setup", "readme"
+                      "architecture", "changelog", "setup", "readme", "test"
             top_k: Number of results
         """
         results = indexer.search(query, top_k=top_k, type_filter=doc_type)
@@ -376,6 +376,83 @@ def create_mcp_server(
         return _write_knowledge_doc(filename, content)
 
     @mcp.tool()
+    def write_test_case(
+        title: str,
+        scenario: str,
+        steps: str,
+        expected_result: str,
+        preconditions: str = "",
+        actual_result: str = "",
+        status: str = "",
+        tags: str = "",
+    ) -> str:
+        """Write a test case document and index it IMMEDIATELY.
+
+        Use this to document manual or automated test scenarios so they become
+        searchable knowledge. Future agents can find existing test patterns
+        and avoid duplicating test effort.
+
+        Args:
+            title: Short test case title (e.g. "User login with expired token")
+            scenario: What is being tested and why
+            steps: Step-by-step test procedure
+            expected_result: What should happen if the test passes
+            preconditions: Optional setup/prerequisites before running the test
+            actual_result: Optional actual result if already executed
+            status: Optional test status (e.g. "pass", "fail", "blocked", "pending")
+            tags: Optional categories (e.g. "auth,regression,critical")
+        """
+        sections = [
+            f"# {title}\n",
+            f"**Date:** {date.today().isoformat()}  \n"
+            f"**Status:** {status or 'pending'}  \n"
+            f"**Tags:** {tags}\n",
+        ]
+        if preconditions:
+            sections.append(f"## Preconditions\n{preconditions}\n")
+        sections.extend([
+            f"## Scenario\n{scenario}\n",
+            f"## Steps\n{steps}\n",
+            f"## Expected Result\n{expected_result}\n",
+        ])
+        if actual_result:
+            sections.append(f"## Actual Result\n{actual_result}\n")
+        content = "\n".join(sections)
+        filename = f"tests/{date.today().isoformat()}-{_make_slug(title)}.md"
+        return _write_knowledge_doc(filename, content)
+
+    @mcp.tool()
+    def search_tests(query: str, top_k: int = 5) -> str:
+        """Search test cases in the knowledge base.
+
+        Find existing test scenarios, regression patterns, and test strategies.
+        Useful before writing new tests to check what's already covered.
+
+        Args:
+            query: What to search for (e.g. "authentication edge cases")
+            top_k: Number of results to return
+        """
+        results = indexer.search(query, top_k=top_k, type_filter="test")
+        if health:
+            health.record_search("search_tests", bool(results))
+
+        if not results:
+            return "No test cases found. Use write_test_case to document tests."
+
+        output = []
+        for r in results:
+            loc = (
+                f"{r['source']}:{r['line_start']}-{r['line_end']}"
+                if r.get("line_start")
+                else r["source"]
+            )
+            output.append(
+                f"**{loc}** > _{r['heading']}_ ({r['relevance']}%)\n\n"
+                f"{r['text']}\n\n---"
+            )
+        return "\n".join(output)
+
+    @mcp.tool()
     def validate_doc(content: str, category: str = "docs") -> str:
         """Validate a markdown document BEFORE committing it to the knowledge repo.
 
@@ -385,7 +462,7 @@ def create_mcp_server(
         Args:
             content: The full markdown content to validate
             category: Target category — one of: "architecture", "api",
-                      "bugfix", "best-practice", "setup", "changelog", "docs"
+                      "bugfix", "best-practice", "setup", "changelog", "test", "docs"
 
         Returns:
             "OK" if valid, or a list of issues to fix

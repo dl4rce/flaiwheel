@@ -11,7 +11,7 @@ Flaiwheel is a self-contained Docker service that:
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Searches semantically** — agents find relevant docs by meaning, not keywords
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
-- **Structured write tools** — 6 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog) that enforce quality at the source
+- **Structured write tools** — 7 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) that enforce quality at the source
 - **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
 - **Ingest quality gate** — files with critical issues are automatically skipped during indexing (never deleted — you own your files)
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
@@ -128,13 +128,15 @@ Add to `.cursor/mcp.json` (or `claude_desktop_config.json`):
 Your AI agent now has access to these MCP tools:
 - `search_docs` — semantic search across all documentation
 - `search_bugfixes` — search bugfix summaries for past issues
-- `search_by_type` — search filtered by category (architecture, api, bugfix, best-practice, setup, changelog)
+- `search_by_type` — search filtered by category (architecture, api, bugfix, best-practice, setup, changelog, test)
 - `write_bugfix_summary` — document fixes (auto-pushed to knowledge repo)
 - `write_architecture_doc` — document architecture decisions
 - `write_api_doc` — document API endpoints
 - `write_best_practice` — document coding standards/patterns
 - `write_setup_doc` — document setup/deployment procedures
 - `write_changelog_entry` — document release notes
+- `write_test_case` — document test cases (scenario, steps, expected result)
+- `search_tests` — search test cases for existing coverage and patterns
 - `validate_doc` — validate markdown before committing
 - `git_pull_reindex` — pull latest from knowledge repo + re-index
 - `get_index_stats` — show index statistics
@@ -179,6 +181,8 @@ Instead of writing raw markdown, use the built-in write tools — they enforce c
 - `write_best_practice()` — coding standards, patterns
 - `write_setup_doc()` — setup, deployment, infrastructure
 - `write_changelog_entry()` — release notes
+- `write_test_case()` — test scenarios, steps, expected results
+- `search_tests()` — find existing test cases and coverage
 
 For freeform docs not covered by these tools: call `validate_doc(content, category)` before committing to catch quality issues early.
 
@@ -208,6 +212,7 @@ You can also call `check_update()` to check if a newer version is available (wor
 | `best-practice` | `search_by_type("q", "best-practice")` | Coding standards, patterns |
 | `setup` | `search_by_type("q", "setup")` | Deployment, infrastructure, CI/CD |
 | `changelog` | `search_by_type("q", "changelog")` | Release notes, breaking changes |
+| `test` | `search_tests("q")` | Test cases, scenarios, regression patterns |
 | _everything_ | `search_docs("q")` | Semantic search across all docs |
 
 ### All MCP tools:
@@ -222,6 +227,8 @@ You can also call `check_update()` to check if a newer version is available (wor
 | `write_best_practice(title, context, rule, rationale, ...)` | Document coding standards |
 | `write_setup_doc(title, prerequisites, steps, verification, ...)` | Document setup/deployment |
 | `write_changelog_entry(version, release_date, added, changed, fixed, breaking)` | Document release notes |
+| `write_test_case(title, scenario, steps, expected_result, ...)` | Document test cases (auto-pushed + reindexed) |
+| `search_tests(query, top_k)` | Search test cases for coverage and patterns |
 | `validate_doc(content, category)` | Validate markdown before committing |
 | `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
 | `get_index_stats()` | Show index statistics |
@@ -242,7 +249,8 @@ yourproject-knowledge/
 │   └── 2026-02-25-fix-payment-retry.md
 ├── best-practices/        ← coding standards, patterns
 ├── setup/                 ← deployment, environment setup
-└── changelog/             ← release notes
+├── changelog/             ← release notes
+└── tests/                 ← test cases, scenarios, regression patterns
 ```
 
 ---

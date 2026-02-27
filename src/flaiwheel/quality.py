@@ -21,9 +21,11 @@ EXPECTED_DIRS = [
     "best-practices",
     "setup",
     "changelog",
+    "tests",
 ]
 
 BUGFIX_REQUIRED_SECTIONS = ["Root Cause", "Solution", "Lesson Learned"]
+TEST_REQUIRED_SECTIONS = ["Scenario", "Steps", "Expected Result"]
 
 SEVERITY_PENALTY = {"critical": 10, "warning": 2, "info": 0}
 MAX_DEDUCTION = {"critical": 60, "warning": 30, "info": 0}
@@ -84,6 +86,8 @@ class KnowledgeQualityChecker:
         issues.extend(self._check_single_headings(content, rel_path))
         if category == "bugfix":
             issues.extend(self._check_single_bugfix(content, rel_path))
+        if category == "test":
+            issues.extend(self._check_single_test(content, rel_path))
         return issues
 
     def check_content(self, content: str, category: str = "docs") -> list[dict]:
@@ -96,6 +100,8 @@ class KnowledgeQualityChecker:
         issues.extend(self._check_single_headings(content, fake_path))
         if category == "bugfix":
             issues.extend(self._check_single_bugfix(content, fake_path))
+        if category == "test":
+            issues.extend(self._check_single_test(content, fake_path))
         return issues
 
     def _check_single_completeness(self, content: str, rel: str) -> list[dict]:
@@ -151,6 +157,25 @@ class KnowledgeQualityChecker:
                 issues.append(_issue(
                     "critical", rel,
                     f"Bugfix entry missing required section: '## {section}'.",
+                ))
+        h2_sections = _split_h2_sections(content)
+        for heading, body in h2_sections:
+            measured = _strip_markdown_overhead(body)
+            if len(measured) < 20:
+                issues.append(_issue(
+                    "warning", rel,
+                    f"Section '## {heading}' has very little content.",
+                ))
+        return issues
+
+    def _check_single_test(self, content: str, rel: str) -> list[dict]:
+        issues = []
+        for section in TEST_REQUIRED_SECTIONS:
+            pattern = rf"^##\s+[\*_\s]*(?:\S+\s+)?{re.escape(section)}"
+            if not re.search(pattern, content, re.MULTILINE | re.IGNORECASE):
+                issues.append(_issue(
+                    "critical", rel,
+                    f"Test case missing required section: '## {section}'.",
                 ))
         h2_sections = _split_h2_sections(content)
         for heading, body in h2_sections:
@@ -374,6 +399,8 @@ def _detect_category(path: str) -> str:
         return "changelog"
     if "setup" in p or "install" in p:
         return "setup"
+    if "test" in p:
+        return "test"
     return "docs"
 
 

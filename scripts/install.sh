@@ -194,6 +194,8 @@ if gh repo view "${OWNER}/${KNOWLEDGE_REPO}" &>/dev/null 2>&1; then
 | `write_best_practice(...)` | Document coding standards |
 | `write_setup_doc(...)` | Document setup/deployment |
 | `write_changelog_entry(...)` | Document release notes |
+| `write_test_case(...)` | Document test cases (auto-pushed + reindexed) |
+| `search_tests(query, top_k)` | Search test cases for coverage and patterns |
 | `validate_doc(content, category)` | Validate markdown before committing |
 | `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
 | `get_index_stats()` | Show index statistics |
@@ -220,7 +222,7 @@ else
 
     pushd "$TMPDIR" > /dev/null
 
-    mkdir -p architecture api bugfix-log best-practices setup changelog
+    mkdir -p architecture api bugfix-log best-practices setup changelog tests
 
     cat > README.md << 'READMEEOF'
 # Project Knowledge Base
@@ -237,6 +239,7 @@ This knowledge base is managed by [Flaiwheel](https://github.com/dl4rce/flaiwhee
 | `best-practices/` | Coding standards, patterns |
 | `setup/` | Deployment, environment setup |
 | `changelog/` | Release notes |
+| `tests/` | Test cases, scenarios, regression patterns |
 
 ## How it works
 
@@ -257,6 +260,8 @@ READMEEOF
 | `write_best_practice(...)` | Document coding standards |
 | `write_setup_doc(...)` | Document setup/deployment |
 | `write_changelog_entry(...)` | Document release notes |
+| `write_test_case(...)` | Document test cases (auto-pushed + reindexed) |
+| `search_tests(query, top_k)` | Search test cases for coverage and patterns |
 | `validate_doc(content, category)` | Validate markdown before committing |
 | `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
 | `get_index_stats()` | Show index statistics |
@@ -266,7 +271,7 @@ READMEEOF
 TOOLSEOF
 
     # Placeholder READMEs so folders are tracked
-    for dir in architecture api bugfix-log best-practices setup changelog; do
+    for dir in architecture api bugfix-log best-practices setup changelog tests; do
         echo "# ${dir}" > "${dir}/README.md"
     done
 
@@ -506,6 +511,7 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 | \`best-practice\` | \`search_by_type("query", "best-practice")\` | Coding standards, patterns, conventions for this project |
 | \`setup\` | \`search_by_type("query", "setup")\` | Environment setup, deployment, infrastructure, CI/CD |
 | \`changelog\` | \`search_by_type("query", "changelog")\` | Release notes, breaking changes, migration guides |
+| \`test\` | \`search_tests("query")\` | Test cases, scenarios, regression patterns |
 | _all docs_ | \`search_docs("query")\` | Semantic search across everything |
 
 ## Rules — MANDATORY
@@ -526,6 +532,8 @@ Instead of writing raw markdown, use the built-in write tools — they enforce c
 - \`write_best_practice()\` — coding standards, patterns
 - \`write_setup_doc()\` — setup, deployment, infrastructure
 - \`write_changelog_entry()\` — release notes
+- \`write_test_case()\` — test scenarios, steps, expected results
+- \`search_tests()\` — find existing test cases and coverage
 
 For freeform docs: call \`validate_doc(content, category)\` before committing.
 
@@ -564,6 +572,8 @@ You can also call \`check_update()\` to check if a newer version is available.
 | \`write_best_practice(...)\` | Document coding standards |
 | \`write_setup_doc(...)\` | Document setup/deployment |
 | \`write_changelog_entry(...)\` | Document release notes |
+| \`write_test_case(...)\` | Document test cases (auto-pushed + reindexed) |
+| \`search_tests(query, top_k)\` | Search test cases for coverage and patterns |
 | \`validate_doc(content, category)\` | Validate markdown before committing |
 | \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index |
 | \`get_index_stats()\` | Show index statistics |
@@ -608,6 +618,8 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 3. **Document knowledge using structured write tools** (they enforce structure, auto-push, auto-index):
    - \`write_bugfix_summary()\` — after every bugfix (**mandatory**)
    - \`write_architecture_doc()\`, \`write_api_doc()\`, \`write_best_practice()\`, \`write_setup_doc()\`, \`write_changelog_entry()\`
+   - \`write_test_case()\` — test scenarios, steps, expected results
+   - \`search_tests()\` — find existing test cases and coverage
    - For freeform docs: \`validate_doc(content, category)\` before committing
 4. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\`
 5. **Periodically:** \`check_knowledge_quality()\` and fix issues
@@ -624,6 +636,7 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 | \`best-practice\` | \`search_by_type("q", "best-practice")\` | Coding standards, patterns |
 | \`setup\` | \`search_by_type("q", "setup")\` | Deployment, infrastructure, CI/CD |
 | \`changelog\` | \`search_by_type("q", "changelog")\` | Release notes, breaking changes |
+| \`test\` | \`search_tests("q")\` | Test cases, scenarios, regression patterns |
 | _everything_ | \`search_docs("q")\` | Semantic search across all docs |
 
 ### Updating Flaiwheel
@@ -647,6 +660,8 @@ You can also call \`check_update()\` to check if a newer version is available.
 | \`write_best_practice(...)\` | Document coding standards |
 | \`write_setup_doc(...)\` | Document setup/deployment |
 | \`write_changelog_entry(...)\` | Document release notes |
+| \`write_test_case(...)\` | Document test cases (auto-pushed + reindexed) |
+| \`search_tests(query, top_k)\` | Search test cases for coverage and patterns |
 | \`validate_doc(content, category)\` | Validate markdown before committing |
 | \`git_pull_reindex()\` | Pull latest from knowledge repo + re-index |
 | \`get_index_stats()\` | Index statistics |
@@ -723,6 +738,7 @@ When the user starts a conversation or asks about setup/documentation, proactive
    - Coding standards, patterns, conventions → \`best-practices/\`
    - Deploy guides, environment setup, install instructions → \`setup/\`
    - Release notes, version history → \`changelog/\`
+   - Test cases, scenarios, regression tests → \`tests/\`
 3. **Present** a migration plan to the user (table: source file → destination folder)
 4. **Ask** the user to confirm before copying anything
 5. **Copy** approved files to the knowledge repo (clone it, copy, commit, push)
