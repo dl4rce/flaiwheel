@@ -3,7 +3,10 @@
 # Use of this software is governed by the Business Source License 1.1. See LICENSE.md.
 
 """
-Markdown docs -> Chunks -> Vector Embeddings -> ChromaDB
+Documents -> Markdown text -> Chunks -> Vector Embeddings -> ChromaDB
+
+Supports: .md, .txt, .pdf, .html, .rst, .docx, .json, .yaml, .csv
+All non-markdown formats are converted to markdown-like text in memory.
 
 Chunking strategies:
 - "heading": Split at ## headings (default, best for structured docs)
@@ -25,8 +28,19 @@ from typing import Optional
 import chromadb
 from chromadb.utils import embedding_functions
 from .config import Config
+from .readers import extract_text, SUPPORTED_EXTENSIONS
 
 DEFAULT_COLLECTION = "project_docs"
+
+
+def _iter_docs(docs_path: Path):
+    """Yield all supported document files under docs_path, deduplicated."""
+    seen: set[Path] = set()
+    for ext in sorted(SUPPORTED_EXTENSIONS):
+        for p in docs_path.rglob(f"*{ext}"):
+            if p not in seen:
+                seen.add(p)
+                yield p
 
 
 @dataclass
@@ -152,12 +166,12 @@ class DocsIndexer:
                 return {"status": "skipped", "message": "Same model selected, nothing to do"}
 
             docs_path = Path(new_config.docs_path)
-            md_files = sorted(docs_path.rglob("*.md")) if docs_path.exists() else []
+            doc_files = sorted(_iter_docs(docs_path)) if docs_path.exists() else []
 
             migration = ModelMigration(
                 old_model=old_model,
                 new_model=new_model,
-                total_files=len(md_files),
+                total_files=len(doc_files),
             )
             self._migration = migration
 
@@ -189,15 +203,18 @@ class DocsIndexer:
                     metadata={"hnsw:space": "cosine"},
                 )
 
-                for md_file in md_files:
+                for doc_file in doc_files:
                     if migration.status == "cancelled":
                         break
                     try:
-                        content = md_file.read_text(encoding="utf-8", errors="ignore")
-                        rel_path = str(md_file.relative_to(docs_path))
+                        content = extract_text(doc_file)
+                        if content is None:
+                            migration.files_done += 1
+                            continue
+                        rel_path = str(doc_file.relative_to(docs_path))
 
-                        if quality_checker:
-                            issues = quality_checker.check_file(md_file, rel_path)
+                        if quality_checker and doc_file.suffix.lower() == ".md":
+                            issues = quality_checker.check_file(doc_file, rel_path)
                             critical = [i for i in issues if i["severity"] == "critical"]
                             if critical:
                                 migration.files_done += 1
@@ -212,7 +229,7 @@ class DocsIndexer:
                             )
                             migration.chunks_created += len(chunks)
                     except Exception as e:
-                        print(f"Migration: error processing {md_file}: {e}")
+                        print(f"Migration: error processing {doc_file}: {e}")
                     migration.files_done += 1
 
                 if migration.status == "cancelled":
@@ -511,15 +528,17 @@ class DocsIndexer:
         skipped = 0
         quality_skipped: list[dict] = []
 
-        for md_file in sorted(docs_path.rglob("*.md")):
+        for doc_file in sorted(_iter_docs(docs_path)):
             try:
-                content = md_file.read_text(encoding="utf-8", errors="ignore")
-                rel_path = str(md_file.relative_to(docs_path))
+                content = extract_text(doc_file)
+                if content is None:
+                    continue
+                rel_path = str(doc_file.relative_to(docs_path))
                 content_hash = self._content_hash(content)
                 new_hashes[rel_path] = content_hash
 
-                if quality_checker:
-                    issues = quality_checker.check_file(md_file, rel_path)
+                if quality_checker and doc_file.suffix.lower() == ".md":
+                    issues = quality_checker.check_file(doc_file, rel_path)
                     critical = [i for i in issues if i["severity"] == "critical"]
                     if critical:
                         reasons = "; ".join(i["message"] for i in critical)
@@ -536,7 +555,7 @@ class DocsIndexer:
                 else:
                     skipped += 1
             except Exception as e:
-                print(f"Warning: Error processing {md_file}: {e}")
+                print(f"Warning: Error processing {doc_file}: {e}")
 
         # Deduplicate
         deduped_all: dict[str, dict] = {}

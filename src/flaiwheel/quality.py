@@ -13,6 +13,7 @@ Quality score starts at 100 and decreases per issue.
 import re
 from pathlib import Path
 from .config import Config
+from .readers import SUPPORTED_EXTENSIONS
 
 EXPECTED_DIRS = [
     "architecture",
@@ -202,10 +203,12 @@ class KnowledgeQualityChecker:
                     f"Expected directory '{dirname}/' not found. "
                     f"Create it to keep the knowledge base organized.",
                 ))
-            elif not any(dirpath.rglob("*.md")):
+            elif not any(
+                f for ext in SUPPORTED_EXTENSIONS for f in dirpath.rglob(f"*{ext}")
+            ):
                 issues.append(_issue(
                     "info", dirname,
-                    f"Directory '{dirname}/' exists but contains no .md files.",
+                    f"Directory '{dirname}/' exists but contains no supported files.",
                 ))
         if not (docs / "README.md").exists():
             issues.append(_issue(
@@ -329,27 +332,28 @@ class KnowledgeQualityChecker:
         return issues
 
     def _check_orphans(self, docs: Path) -> list[dict]:
-        """Check for .md files outside the expected structure."""
+        """Check for supported files outside the expected structure."""
         issues = []
         known_roots = set(EXPECTED_DIRS) | {"README.md", "FLAIWHEEL_TOOLS.md"}
         root_whitelist = {"README.md", "FLAIWHEEL_TOOLS.md"}
 
-        for md_file in docs.rglob("*.md"):
-            rel = md_file.relative_to(docs)
-            parts = rel.parts
+        for ext in SUPPORTED_EXTENSIONS:
+            for doc_file in docs.rglob(f"*{ext}"):
+                rel = doc_file.relative_to(docs)
+                parts = rel.parts
 
-            if len(parts) == 1 and parts[0] not in root_whitelist:
-                issues.append(_issue(
-                    "info", str(rel),
-                    f"File is in docs root instead of a category folder. "
-                    f"Move to an appropriate directory ({', '.join(EXPECTED_DIRS)}).",
-                ))
-            elif len(parts) > 1 and parts[0] not in known_roots:
-                issues.append(_issue(
-                    "info", str(rel),
-                    f"File is in non-standard directory '{parts[0]}/'. "
-                    f"Expected: {', '.join(EXPECTED_DIRS)}.",
-                ))
+                if len(parts) == 1 and parts[0] not in root_whitelist:
+                    issues.append(_issue(
+                        "info", str(rel),
+                        f"File is in docs root instead of a category folder. "
+                        f"Move to an appropriate directory ({', '.join(EXPECTED_DIRS)}).",
+                    ))
+                elif len(parts) > 1 and parts[0] not in known_roots:
+                    issues.append(_issue(
+                        "info", str(rel),
+                        f"File is in non-standard directory '{parts[0]}/'. "
+                        f"Expected: {', '.join(EXPECTED_DIRS)}.",
+                    ))
         return issues
 
 

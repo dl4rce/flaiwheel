@@ -1,6 +1,6 @@
 [project]
 name = "flaiwheel"
-version = "2.1.0"
+version = "2.2.0"
 description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
 readme = "README.md"
 license = {text = "Business Source License 1.1. See LICENSE.md. Commercial licensing: info@4rce.com"}
@@ -13,6 +13,9 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic-settings>=2.0.0",
+    "pypdf>=4.0.0",
+    "beautifulsoup4>=4.12.0",
+    "python-docx>=1.0.0",
 ]
 
 [project.optional-dependencies]

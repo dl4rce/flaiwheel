@@ -271,6 +271,26 @@ yourproject-knowledge/
 
 ---
 
+## Supported Input Formats
+
+Flaiwheel indexes 9 file formats. All non-markdown files are converted to markdown-like text in memory at index time — no generated files on disk, no repo clutter.
+
+| Format | Extension(s) | How it works |
+|--------|-------------|--------------|
+| **Markdown** | `.md` | Native (pass-through) |
+| **Plain text** | `.txt` | Wrapped in `# filename` heading |
+| **PDF** | `.pdf` | Text extracted per page via `pypdf` |
+| **HTML** | `.html`, `.htm` | Headings/lists/code converted to markdown, scripts stripped |
+| **reStructuredText** | `.rst` | Heading underlines converted to `#` levels, code blocks preserved |
+| **Word** | `.docx` | Paragraphs + heading styles mapped to markdown |
+| **JSON** | `.json` | Pretty-printed in fenced `json` code block |
+| **YAML** | `.yaml`, `.yml` | Wrapped in fenced `yaml` code block |
+| **CSV** | `.csv` | Converted to markdown table |
+
+Quality checks (structure, completeness, bugfix format) apply only to `.md` files. Other formats are indexed as-is.
+
+---
+
 ## Configuration
 
 All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8080), or `.env` file.
@@ -417,7 +437,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (126 tests covering quality checker, indexer, health tracker, MCP tools, model migration, multi-project)
+# Run tests (155 tests covering readers, quality checker, indexer, health tracker, MCP tools, model migration, multi-project)
 pytest
 
 # Run locally (needs /docs and /data directories)
