@@ -12,9 +12,12 @@ import pytest
 from flaiwheel.bootstrap import (
     CATEGORY_KEYWORDS,
     DUPLICATE_THRESHOLD,
+    DocumentClassifier,
     FileInfo,
     KnowledgeBootstrap,
+    _classify_by_keywords,
     _cosine_similarity,
+    format_classification_report,
     format_report,
 )
 
@@ -620,3 +623,170 @@ class TestFormatReport:
         }
         text = format_report(report)
         assert "execute_cleanup" not in text
+
+
+# ── Keyword Classification (module-level function) ────
+
+
+class TestClassifyByKeywords:
+    def test_bugfix_keywords(self):
+        cat, score = _classify_by_keywords("The root cause was X. The solution was Y.")
+        assert cat == "bugfix-log"
+        assert score > 0
+
+    def test_no_match_returns_docs(self):
+        cat, score = _classify_by_keywords("Just random text with nothing special.")
+        assert cat == "docs"
+        assert score == 0.0
+
+    def test_api_keywords(self):
+        cat, _ = _classify_by_keywords("The endpoint returns a JSON response body.")
+        assert cat == "api"
+
+
+# ── DocumentClassifier ───────────────────────────────
+
+
+class TestDocumentClassifier:
+    def test_empty_input(self):
+        clf = DocumentClassifier()
+        result = clf.classify([])
+        assert result["status"] == "empty"
+
+    def test_single_file_no_embedding(self):
+        clf = DocumentClassifier(embedding_fn=None)
+        result = clf.classify([{
+            "path": "docs/auth-api.md",
+            "content": "# Auth API\n\nThe endpoint accepts a POST request with JSON credentials.\n",
+        }])
+        assert result["status"] == "ok"
+        assert result["total_files"] == 1
+        assert len(result["classifications"]) == 1
+        c = result["classifications"][0]
+        assert c["path"] == "docs/auth-api.md"
+        assert c["category"] in ("api", "docs")
+        assert "confidence" in c
+        assert "target_directory" in c
+
+    def test_with_embedding_fn(self):
+        clf = DocumentClassifier(embedding_fn=_fake_embedding_fn)
+        result = clf.classify([
+            {"path": "setup.md", "content": "Install and setup the local dev environment."},
+            {"path": "bugfix.md", "content": "The root cause was a race condition. Solution was locking."},
+        ])
+        assert result["status"] == "ok"
+        assert result["total_files"] == 2
+        assert len(result["classifications"]) == 2
+
+    def test_duplicate_detection(self):
+        same_content = "Exactly the same document content for testing."
+        clf = DocumentClassifier(embedding_fn=_fake_embedding_fn)
+        result = clf.classify([
+            {"path": "a.md", "content": same_content},
+            {"path": "b.md", "content": same_content},
+        ])
+        assert result["duplicate_clusters"] >= 0
+
+    def test_write_tool_suggested(self):
+        clf = DocumentClassifier(embedding_fn=None)
+        result = clf.classify([{
+            "path": "my-bugfix.md",
+            "content": "## Root Cause\nNull pointer. ## Solution\nAdded null check.",
+        }])
+        c = result["classifications"][0]
+        if c["category"] == "bugfix-log":
+            assert c["write_tool"] == "write_bugfix_summary"
+
+    def test_needs_rewrite_flag(self):
+        clf = DocumentClassifier(embedding_fn=None)
+        result = clf.classify([{
+            "path": "messy-notes.md",
+            "content": " ".join(["word"] * 100),
+        }])
+        c = result["classifications"][0]
+        assert c["needs_rewrite"] is True
+
+    def test_structured_file_no_rewrite(self):
+        clf = DocumentClassifier(embedding_fn=None)
+        result = clf.classify([{
+            "path": "clean.md",
+            "content": "# Title\n\n## Section\n\nSome content here.\n",
+        }])
+        c = result["classifications"][0]
+        assert c["needs_rewrite"] is False
+
+    def test_signals_included(self):
+        clf = DocumentClassifier(embedding_fn=_fake_embedding_fn)
+        result = clf.classify([{
+            "path": "test.md",
+            "content": "Some test content for classification.",
+        }])
+        c = result["classifications"][0]
+        assert "signals" in c
+        assert "keyword" in c["signals"]
+        assert "embedding" in c["signals"]
+        assert "embedding_confidence" in c["signals"]
+
+    def test_consensus_path_hint(self):
+        clf = DocumentClassifier(embedding_fn=None)
+        result = clf.classify([{
+            "path": "bugfix-log/my-fix.md",
+            "content": "Random unrelated content.",
+        }])
+        c = result["classifications"][0]
+        assert c["category"] in ("bugfix-log", "bugfix")
+        assert c["confidence"] >= 0.9
+
+
+# ── Format Classification Report ─────────────────────
+
+
+class TestFormatClassificationReport:
+    def test_empty_result(self):
+        result = {"status": "empty", "message": "No files."}
+        text = format_classification_report(result)
+        assert "No files" in text
+
+    def test_full_report(self):
+        result = {
+            "status": "ok",
+            "total_files": 3,
+            "categories_found": 2,
+            "files_needing_rewrite": 1,
+            "duplicate_clusters": 1,
+            "classifications": [
+                {
+                    "path": "auth.md",
+                    "category": "api",
+                    "confidence": 0.85,
+                    "target_directory": "api",
+                    "write_tool": "write_api_doc",
+                    "word_count": 200,
+                    "has_headings": True,
+                    "needs_rewrite": False,
+                    "signals": {"keyword": "api", "embedding": "api", "embedding_confidence": 0.8},
+                },
+                {
+                    "path": "notes.md",
+                    "category": "docs",
+                    "confidence": 0.3,
+                    "target_directory": "docs",
+                    "write_tool": "",
+                    "word_count": 150,
+                    "has_headings": False,
+                    "needs_rewrite": True,
+                    "signals": {"keyword": "docs", "embedding": "docs", "embedding_confidence": 0.1},
+                },
+            ],
+            "duplicates": [
+                {"files": ["a.md", "b.md"], "similarity": 0.95, "suggestion": "Merge into api/"},
+            ],
+        }
+        text = format_classification_report(result)
+        assert "This is the Way" in text
+        assert "Migration Plan" in text
+        assert "auth.md" in text
+        assert "write_api_doc" in text
+        assert "Duplicate" in text
+        assert "42" in text
+        assert "reindex()" in text

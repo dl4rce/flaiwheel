@@ -218,20 +218,29 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `reindex()` | Re-index all documentation |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
-| `analyze_knowledge_repo()` | Analyse repo structure, classify files, detect duplicates |
+| `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+| `classify_documents(files)` | Classify project docs for migration into knowledge base |
 
 ## "This is the Way" — Knowledge Bootstrap
 
-Got a messy repo? Tell your AI agent **"This is the Way"** (or just **"42"**) and it will:
+Got a messy project with docs scattered everywhere? Tell your AI agent **"This is the Way"** (or just **"42"**) and it will:
 
-1. `analyze_knowledge_repo()` — full read-only scan (classify, detect duplicates, score quality)
+### For NEW projects (docs in project repo, not yet in knowledge):
+1. Scan the project directory locally for documentation files (.md, .txt, .pdf, .html, .rst, .docx)
+2. Read the first ~2000 chars of each file
+3. `classify_documents(files=JSON)` — Flaiwheel classifies using its embedding model
+4. Review the migration plan with you (categories, duplicates, rewrite needs)
+5. For each approved file: read it, restructure if needed, use the suggested `write_*` tool
+6. `reindex()` — finalize
+
+### For EXISTING knowledge repos (files already inside, but messy):
+1. `analyze_knowledge_repo()` — full read-only scan of the knowledge repo
 2. Review the report with you
 3. `execute_cleanup(actions)` — execute only the actions you approve
-4. For files flagged as `needs_ai_rewrite` — rewrite using `write_*` tools
-5. `reindex()` — finalize
+4. `reindex()` — finalize
 
-**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — you decide.
+**Hard rule:** Flaiwheel never deletes files. It classifies, moves, and suggests — you decide.
 TOOLSEOF
         # Ensure all expected directories exist with proper placeholder READMEs
         for dir in architecture api bugfix-log best-practices setup changelog tests; do
@@ -311,20 +320,29 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `reindex()` | Re-index all documentation |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
-| `analyze_knowledge_repo()` | Analyse repo structure, classify files, detect duplicates |
+| `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+| `classify_documents(files)` | Classify project docs for migration into knowledge base |
 
 ## "This is the Way" — Knowledge Bootstrap
 
-Got a messy repo? Tell your AI agent **"This is the Way"** (or just **"42"**) and it will:
+Got a messy project with docs scattered everywhere? Tell your AI agent **"This is the Way"** (or just **"42"**) and it will:
 
-1. `analyze_knowledge_repo()` — full read-only scan (classify, detect duplicates, score quality)
+### For NEW projects (docs in project repo, not yet in knowledge):
+1. Scan the project directory locally for documentation files (.md, .txt, .pdf, .html, .rst, .docx)
+2. Read the first ~2000 chars of each file
+3. `classify_documents(files=JSON)` — Flaiwheel classifies using its embedding model
+4. Review the migration plan with you (categories, duplicates, rewrite needs)
+5. For each approved file: read it, restructure if needed, use the suggested `write_*` tool
+6. `reindex()` — finalize
+
+### For EXISTING knowledge repos (files already inside, but messy):
+1. `analyze_knowledge_repo()` — full read-only scan of the knowledge repo
 2. Review the report with you
 3. `execute_cleanup(actions)` — execute only the actions you approve
-4. For files flagged as `needs_ai_rewrite` — rewrite using `write_*` tools
-5. `reindex()` — finalize
+4. `reindex()` — finalize
 
-**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — you decide.
+**Hard rule:** Flaiwheel never deletes files. It classifies, moves, and suggests — you decide.
 TOOLSEOF
 
     # Placeholder READMEs so folders are tracked
@@ -658,12 +676,21 @@ For freeform docs: call \`validate_doc(content, category)\` before committing.
 2. Fix critical issues immediately
 
 ### "This is the Way" — Knowledge Bootstrap
-When the user says **"This is the Way"** or **"42"**, trigger the full bootstrap workflow:
-1. \`analyze_knowledge_repo()\` — full read-only analysis (classify, detect duplicates, score quality)
-2. Review the report **with the user** — never auto-execute
-3. \`execute_cleanup(actions)\` — execute only the actions the user approves
-4. For files flagged as \`needs_ai_rewrite\` — read the file and rewrite using \`write_*\` tools
-5. \`reindex()\` — finalize
+When the user says **"This is the Way"** or **"42"**, trigger the bootstrap:
+
+**For NEW projects** (docs in project repo, not yet in knowledge):
+1. Scan the project directory locally for doc files (.md, .txt, .pdf, .html, .rst, .docx)
+2. Read the first ~2000 chars of each file
+3. \`classify_documents(files=JSON)\` — send content previews, get Flaiwheel's classification
+4. Present the migration plan to the user — never auto-execute
+5. For each approved file: read it, restructure if needed, use the suggested \`write_*\` tool
+6. \`reindex()\` — finalize
+
+**For EXISTING knowledge repos** (files already inside, but messy):
+1. \`analyze_knowledge_repo()\` — read-only scan of knowledge repo
+2. Review the report with the user
+3. \`execute_cleanup(actions)\` — execute approved actions only
+4. \`reindex()\` — finalize
 **Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — the user decides.
 
 ## The flywheel effect
@@ -705,8 +732,9 @@ All tools accept an optional \`project\` parameter as explicit override. When om
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base consistency |
 | \`check_update()\` | Check if a newer Flaiwheel version is available |
-| \`analyze_knowledge_repo()\` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| \`analyze_knowledge_repo()\` | Analyse knowledge repo structure and quality |
 | \`execute_cleanup(actions)\` | Execute approved cleanup actions (never deletes files) |
+| \`classify_documents(files)\` | **"This is the Way"** — classify project docs for knowledge migration |
 RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
@@ -760,7 +788,9 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
    - After writing tests: \`write_test_case()\` — document scenario, steps, expected result, status, tags
 5. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\`
 6. **Periodically:** \`check_knowledge_quality()\` and fix issues
-7. **"This is the Way"** — for messy repos, the user says this phrase (or "42"). Run \`analyze_knowledge_repo()\`, review the plan together, then \`execute_cleanup(actions)\` with approved IDs. Rewrite flagged files with \`write_*\` tools. Finalize with \`reindex()\`
+7. **"This is the Way"** — for messy repos, the user says this phrase (or "42"):
+   - **New project:** scan local project for docs → \`classify_documents(files=JSON)\` → review plan → \`write_*\` tools → \`reindex()\`
+   - **Existing knowledge repo:** \`analyze_knowledge_repo()\` → review plan → \`execute_cleanup(actions)\` → \`reindex()\`
 
 **Important:** Files with critical quality issues are skipped during indexing. Flaiwheel NEVER deletes or modifies user files.
 
@@ -812,8 +842,9 @@ All tools accept an optional \`project\` parameter as explicit override.
 | \`reindex()\` | Re-index all documentation |
 | \`check_knowledge_quality()\` | Validate knowledge base |
 | \`check_update()\` | Check for newer Flaiwheel version |
-| \`analyze_knowledge_repo()\` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| \`analyze_knowledge_repo()\` | Analyse knowledge repo structure and quality |
 | \`execute_cleanup(actions)\` | Execute approved cleanup actions (never deletes files) |
+| \`classify_documents(files)\` | **"This is the Way"** — classify project docs for knowledge migration |
 BLOCKEOF
 )
 

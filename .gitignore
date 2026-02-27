@@ -50,3 +50,6 @@ htmlcov/
 # Misc
 node_modules/
 *.log
+
+# Flaiwheel (local MCP config — token may differ per developer)
+.cursor/mcp.json

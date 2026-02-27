@@ -3,12 +3,21 @@
 # Use of this software is governed by the Business Source License 1.1. See LICENSE.md.
 
 """
-Knowledge Base Bootstrap & Cleanup – analyses a messy docs repo,
-classifies documents, detects duplicates, and proposes a cleanup plan.
+Knowledge Base Bootstrap & Cleanup.
 
-All analysis is READ-ONLY.  Execution requires explicit user approval
-and NEVER deletes files – only mkdir + git mv.
+Two modes of operation:
+
+1. **Knowledge-repo cleanup** (`KnowledgeBootstrap.analyze` / `.execute`):
+   Scans files *inside* the knowledge repo, proposes re-organisation.
+   All analysis is READ-ONLY.  Execution NEVER deletes files.
+
+2. **Remote classification** (`DocumentClassifier.classify`):
+   The AI agent sends document content from the *project repo* (which
+   lives outside Docker).  Flaiwheel classifies each document, detects
+   duplicates, and returns a migration plan.  The agent then uses
+   ``write_*`` tools to push approved docs into the knowledge repo.
 """
+import json
 import math
 import re
 import subprocess
@@ -109,6 +118,16 @@ CAT_TO_DIR: dict[str, str] = {
     "test": "tests",
 }
 
+WRITE_TOOL_MAP: dict[str, str] = {
+    "architecture": "write_architecture_doc",
+    "api": "write_api_doc",
+    "bugfix-log": "write_bugfix_summary",
+    "best-practices": "write_best_practice",
+    "setup": "write_setup_doc",
+    "changelog": "write_changelog_entry",
+    "tests": "write_test_case",
+}
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
@@ -117,6 +136,23 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+def _classify_by_keywords(text: str) -> tuple[str, float]:
+    """Keyword-based classification. Returns (category, score)."""
+    text_lower = text[:EMBED_PREVIEW_CHARS].lower()
+    best_cat = "docs"
+    best_score = 0.0
+
+    for category, patterns in CATEGORY_KEYWORDS.items():
+        for keyword_group in patterns:
+            if all(kw in text_lower for kw in keyword_group):
+                score = len(keyword_group) * 0.25
+                if score > best_score:
+                    best_score = min(score, 0.9)
+                    best_cat = category
+
+    return best_cat, best_score
 
 
 @dataclass
@@ -138,8 +174,235 @@ class FileInfo:
     quality_issues: list[str] = field(default_factory=list)
 
 
+# ══════════════════════════════════════════════════════════
+#  DocumentClassifier — remote classification for the AI agent
+# ══════════════════════════════════════════════════════════
+
+
+class DocumentClassifier:
+    """Classify documents sent by the AI agent from the project repo.
+
+    The agent reads files locally, sends content previews here, and gets
+    back a migration plan.  Flaiwheel uses its embedding model for
+    semantic classification and duplicate detection — no LLM needed.
+    """
+
+    def __init__(self, embedding_fn=None):
+        self.ef = embedding_fn
+        self._category_embeddings: Optional[dict[str, list[float]]] = None
+
+    def _ensure_category_embeddings(self):
+        if self._category_embeddings is not None:
+            return
+        if self.ef is None:
+            self._category_embeddings = {}
+            return
+        cats = list(CATEGORY_TEMPLATES.keys())
+        texts = [CATEGORY_TEMPLATES[c] for c in cats]
+        try:
+            embeddings = self.ef(texts)
+            self._category_embeddings = dict(zip(cats, embeddings))
+        except Exception:
+            self._category_embeddings = {}
+
+    def _classify_by_embedding(self, embedding: list[float]) -> tuple[str, float]:
+        if not self._category_embeddings:
+            return "docs", 0.0
+        best_cat = "docs"
+        best_sim = 0.0
+        for cat, cat_emb in self._category_embeddings.items():
+            sim = _cosine_similarity(embedding, cat_emb)
+            if sim > best_sim:
+                best_sim = sim
+                best_cat = cat
+        return best_cat, round(best_sim, 3)
+
+    @staticmethod
+    def _consensus(
+        kw_cat: str, emb_cat: str, emb_conf: float, path_hint: str,
+    ) -> tuple[str, float]:
+        """Three-signal consensus: path hint > keyword+embedding agree > keyword > embedding."""
+        path_cat = _detect_category(path_hint) if path_hint else "docs"
+
+        if path_cat != "docs":
+            return path_cat, 0.95
+
+        if kw_cat != "docs" and kw_cat == emb_cat:
+            return kw_cat, min(0.85 + emb_conf * 0.1, 0.95)
+
+        if kw_cat != "docs":
+            return kw_cat, 0.65
+
+        if emb_cat != "docs" and emb_conf > 0.4:
+            return emb_cat, round(emb_conf * 0.7, 2)
+
+        return "docs", 0.3
+
+    def classify(self, files: list[dict]) -> dict:
+        """Classify a batch of documents sent by the AI agent.
+
+        Args:
+            files: List of dicts with keys:
+                - path (str): relative file path in the project
+                - content (str): first ~2000 chars of file content
+
+        Returns:
+            Migration plan with per-file categories, duplicates, and
+            suggested write tools.
+        """
+        if not files:
+            return {
+                "status": "empty",
+                "message": "No files provided.",
+                "classifications": [],
+                "duplicates": [],
+            }
+
+        self._ensure_category_embeddings()
+
+        previews = [f.get("content", "")[:EMBED_PREVIEW_CHARS] for f in files]
+        paths = [f.get("path", f"file_{i}") for i, f in enumerate(files)]
+
+        file_embeddings: dict[str, list[float]] = {}
+        emb_results: list[tuple[str, float]] = []
+        if self.ef:
+            try:
+                all_emb = self.ef(previews)
+                for path, emb in zip(paths, all_emb):
+                    file_embeddings[path] = emb
+                    emb_results.append(self._classify_by_embedding(emb))
+            except Exception:
+                emb_results = [("docs", 0.0)] * len(files)
+        else:
+            emb_results = [("docs", 0.0)] * len(files)
+
+        classifications = []
+        for i, f in enumerate(files):
+            content = f.get("content", "")
+            path = paths[i]
+            headings = re.findall(r"^#{1,6}\s+", content, re.MULTILINE)
+            word_count = len(content.split())
+
+            kw_cat, kw_score = _classify_by_keywords(content)
+            emb_cat, emb_conf = emb_results[i]
+            final_cat, final_conf = self._consensus(kw_cat, emb_cat, emb_conf, path)
+
+            target_dir = CAT_TO_DIR.get(final_cat, "docs")
+            write_tool = WRITE_TOOL_MAP.get(final_cat, "")
+
+            needs_rewrite = (
+                not headings
+                and word_count > 50
+                and path.lower().endswith(".md")
+            )
+
+            classifications.append({
+                "path": path,
+                "category": final_cat,
+                "confidence": round(final_conf, 2),
+                "target_directory": target_dir,
+                "write_tool": write_tool,
+                "word_count": word_count,
+                "has_headings": bool(headings),
+                "needs_rewrite": needs_rewrite,
+                "signals": {
+                    "keyword": kw_cat,
+                    "embedding": emb_cat,
+                    "embedding_confidence": emb_conf,
+                },
+            })
+
+        dup_paths = [p for p in paths if p in file_embeddings]
+        duplicates = []
+        used: set[str] = set()
+        for i in range(len(dup_paths)):
+            if dup_paths[i] in used:
+                continue
+            cluster = [dup_paths[i]]
+            sims: list[float] = []
+            for j in range(i + 1, len(dup_paths)):
+                if dup_paths[j] in used:
+                    continue
+                sim = _cosine_similarity(
+                    file_embeddings[dup_paths[i]], file_embeddings[dup_paths[j]],
+                )
+                if sim >= DUPLICATE_THRESHOLD:
+                    cluster.append(dup_paths[j])
+                    sims.append(round(sim, 3))
+            if len(cluster) > 1:
+                for p in cluster:
+                    used.add(p)
+                duplicates.append({
+                    "files": cluster,
+                    "similarity": round(sum(sims) / len(sims), 3),
+                    "suggestion": f"Merge content into one file in {CAT_TO_DIR.get(classifications[paths.index(cluster[0])]['category'], 'docs')}/",
+                })
+
+        return {
+            "status": "ok",
+            "total_files": len(files),
+            "categories_found": len({c["category"] for c in classifications}),
+            "files_needing_rewrite": sum(1 for c in classifications if c["needs_rewrite"]),
+            "duplicate_clusters": len(duplicates),
+            "classifications": classifications,
+            "duplicates": duplicates,
+        }
+
+
+def format_classification_report(result: dict) -> str:
+    """Format a classification result as readable text for MCP tool output."""
+    if result.get("status") == "empty":
+        return result.get("message", "No files to classify.")
+
+    lines = [
+        '## "This is the Way" — Project Document Classification\n',
+        f"**Files analysed:** {result['total_files']}",
+        f"**Categories found:** {result['categories_found']}",
+        f"**Files needing rewrite:** {result['files_needing_rewrite']}",
+        f"**Duplicate clusters:** {result['duplicate_clusters']}\n",
+        "### Migration Plan\n",
+        "| File | Category | Confidence | Target Dir | Write Tool | Rewrite? |",
+        "|------|----------|------------|------------|------------|----------|",
+    ]
+
+    for c in result.get("classifications", []):
+        rewrite = "yes" if c["needs_rewrite"] else "—"
+        tool = f"`{c['write_tool']}`" if c["write_tool"] else "manual"
+        lines.append(
+            f"| `{c['path']}` | {c['category']} | {c['confidence']:.0%} "
+            f"| `{c['target_directory']}/` | {tool} | {rewrite} |"
+        )
+
+    dups = result.get("duplicates", [])
+    if dups:
+        lines.append("\n### Near-Duplicate Clusters\n")
+        for d in dups:
+            files_str = ", ".join(f"`{f}`" for f in d["files"])
+            lines.append(f"- **{d['similarity']:.0%}** similarity: {files_str}")
+            lines.append(f"  → {d['suggestion']}")
+
+    lines.append("\n### Next Steps — I have spoken\n")
+    lines.append("For each file in the plan above:")
+    lines.append("1. Read the file locally")
+    lines.append("2. If **Rewrite = yes**: restructure with proper headings, then use the write tool")
+    lines.append("3. If **Rewrite = —**: use the write tool directly to push into the knowledge repo")
+    lines.append("4. For duplicates: merge content first, then write once")
+    lines.append("5. After all files are migrated: call `reindex()` to rebuild the search index\n")
+    lines.append("*The answer is 42. The question was: how do you bootstrap a messy repo?*")
+
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════
+#  KnowledgeBootstrap — in-repo cleanup (existing functionality)
+# ══════════════════════════════════════════════════════════
+
+
 class KnowledgeBootstrap:
-    """Analyse and bootstrap a messy knowledge repository.
+    """Analyse and clean up the knowledge repository (inside Docker).
+
+    Use this for re-organising files *already in* the knowledge repo.
+    For classifying files from the project repo, use DocumentClassifier.
 
     HARD SAFEGUARDS:
     - analyze() is completely read-only
@@ -203,19 +466,7 @@ class KnowledgeBootstrap:
 
     @staticmethod
     def _classify_by_content(fi: FileInfo) -> tuple[str, float]:
-        text_lower = fi.content_preview.lower()
-        best_cat = "docs"
-        best_score = 0.0
-
-        for category, patterns in CATEGORY_KEYWORDS.items():
-            for keyword_group in patterns:
-                if all(kw in text_lower for kw in keyword_group):
-                    score = len(keyword_group) * 0.25
-                    if score > best_score:
-                        best_score = min(score, 0.9)
-                        best_cat = category
-
-        return best_cat, best_score
+        return _classify_by_keywords(fi.content_preview)
 
     def _compute_category_embeddings(self):
         if self._category_embeddings is not None:

@@ -9,13 +9,19 @@ that share the ProjectRegistry from the main process.
 All tools accept an optional ``project`` parameter.
 Resolution order: explicit project > sticky _active_project > first project.
 """
+import json
 import re
 import threading
 from datetime import date
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from . import __version__
-from .bootstrap import KnowledgeBootstrap, format_report
+from .bootstrap import (
+    DocumentClassifier,
+    KnowledgeBootstrap,
+    format_classification_report,
+    format_report,
+)
 from .config import Config
 from .project import ProjectConfig, ProjectRegistry, ProjectContext
 
@@ -48,7 +54,14 @@ def create_mcp_server(
             "8. Every tool accepts project='name' as an explicit override\n"
             "9. 'This is the Way' (or '42'): user says this to bootstrap a messy repo.\n"
             "   Call analyze_knowledge_repo(), review the plan, execute_cleanup() with\n"
-            "   approved IDs, rewrite flagged files with write_* tools, finalize with reindex()"
+            "   approved IDs, rewrite flagged files with write_* tools, finalize with reindex()\n"
+            "10. For NEW projects with messy docs in the project repo (not yet in knowledge):\n"
+            "   a. Scan the project directory locally for .md/.txt/.pdf/.html/.rst/.docx files\n"
+            "   b. Read first ~2000 chars of each file\n"
+            "   c. Call classify_documents(files=JSON) to get Flaiwheel's classification\n"
+            "   d. Present the migration plan to the user\n"
+            "   e. For each approved file: read it, use the suggested write_* tool to push\n"
+            "   f. Call reindex() when done"
         ),
     )
 
@@ -841,16 +854,15 @@ def create_mcp_server(
 
     @mcp.tool()
     def analyze_knowledge_repo(project: str = "") -> str:
-        """"This is the Way" — Analyse the knowledge repository for structure,
-        quality, duplicates, and misplaced files.  Returns a detailed report
-        with proposed actions.
+        """Analyse the KNOWLEDGE REPOSITORY for structure, quality,
+        duplicates, and misplaced files.  Returns a report with proposed
+        cleanup actions for files already inside the knowledge repo.
 
-        Trigger: user says "This is the Way" or "42".
+        NOTE: This scans files inside the knowledge repo (inside Docker),
+        NOT the project repo.  To classify files from the project repo,
+        use classify_documents() instead.
 
         This is READ-ONLY — no files are modified.
-
-        Use this when a project has an existing, potentially messy documentation
-        structure and you want to understand what cleanup is needed.
 
         Args:
             project: Target project name (optional)
@@ -934,6 +946,59 @@ def create_mcp_server(
         )
 
         return "\n".join(lines)
+
+    # ── Remote Classification (for project repo docs) ────
+
+    _classifier_cache: Optional[DocumentClassifier] = None
+
+    @mcp.tool()
+    def classify_documents(files: str, project: str = "") -> str:
+        '''"This is the Way" — Classify documents from the project repo for
+        migration into the knowledge base.
+
+        The AI agent scans the project directory locally, reads the first
+        ~2000 characters of each documentation file, and sends them here.
+        Flaiwheel classifies each file using its embedding model and
+        returns a migration plan with target directories and write tools.
+
+        IMPORTANT: This tool does NOT read files from disk — the agent
+        must send the content.  This is by design: the project repo lives
+        outside Docker and only the agent can read it.
+
+        Trigger: user says "This is the Way" or "42" on a new project.
+
+        Args:
+            files: JSON array of objects with "path" and "content" keys.
+                   Example: [{"path": "docs/auth.md", "content": "# Auth..."}, ...]
+                   Send the first ~2000 characters of each file as content.
+            project: Target project name (optional)
+
+        Returns:
+            Migration plan with per-file categories, write tools, and
+            duplicate detection
+        '''
+        nonlocal _classifier_cache
+
+        ctx, err = _ctx(project or None)
+        if not ctx:
+            return err
+
+        try:
+            file_list = json.loads(files)
+        except (json.JSONDecodeError, TypeError) as e:
+            return (
+                f"Invalid JSON in 'files' parameter: {e}\n\n"
+                "Expected format: [{\"path\": \"file.md\", \"content\": \"first 2000 chars...\"}]"
+            )
+
+        if not isinstance(file_list, list):
+            return "The 'files' parameter must be a JSON array of objects."
+
+        if _classifier_cache is None:
+            _classifier_cache = DocumentClassifier(embedding_fn=registry.embedding_fn)
+
+        result = _classifier_cache.classify(file_list)
+        return format_classification_report(result)
 
     @mcp.tool()
     def check_update() -> str:

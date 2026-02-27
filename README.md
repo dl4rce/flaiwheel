@@ -149,8 +149,9 @@ Your AI agent now has access to 21 MCP tools:
 - `reindex` — manual re-index after bulk changes
 - `check_knowledge_quality` — validate knowledge base consistency
 - `check_update` — check if a newer Flaiwheel version is available
-- `analyze_knowledge_repo` — **"This is the Way"** — analyse repo structure, classify files, detect duplicates
+- `analyze_knowledge_repo` — analyse knowledge repo structure and quality
 - `execute_cleanup` — execute approved cleanup actions (never deletes files)
+- `classify_documents` — **"This is the Way"** — classify project docs for migration into the knowledge base
 
 ---
 
@@ -258,22 +259,39 @@ All tools accept an optional `project` parameter as explicit override. When omit
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
-| `analyze_knowledge_repo()` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+| `classify_documents(files)` | **"This is the Way"** — classify project docs for knowledge migration |
 
 ---
 
 ## "This is the Way" — Knowledge Bootstrap
 
-Got a messy existing repo with scattered docs? Tell your AI agent **"This is the Way"** (or just **"42"**) and the full bootstrap workflow kicks in:
+Got a messy project with docs scattered everywhere? Tell your AI agent **"This is the Way"** (or just **"42"**) and the bootstrap kicks in:
 
-1. **`analyze_knowledge_repo()`** — read-only scan: classifies files, detects duplicates, scores quality, proposes a cleanup plan
+### For NEW projects (docs in the project repo, not yet in knowledge):
+
+The AI agent scans your project locally and sends document previews to Flaiwheel for classification using its embedding model. Flaiwheel returns a migration plan — the agent then pushes approved files into the knowledge repo.
+
+1. Agent scans the project directory for documentation files (`.md`, `.txt`, `.pdf`, `.html`, `.rst`, `.docx`)
+2. Agent reads the first ~2000 chars of each file
+3. **`classify_documents(files=JSON)`** — Flaiwheel classifies each file, detects duplicates, suggests target directories and write tools
+4. **Review** — the agent presents the migration plan; you decide what to approve
+5. Agent reads each approved file, restructures if needed, uses the suggested `write_*` tool
+6. **`reindex()`** — finalize the knowledge base
+
+### For EXISTING knowledge repos (files already inside, but messy):
+
+1. **`analyze_knowledge_repo()`** — read-only scan of the knowledge repo
 2. **Review** — the agent presents the report; you decide what to approve
 3. **`execute_cleanup(actions)`** — executes only the actions you approved (creates directories, moves files via `git mv`)
-4. **AI rewrite** — for files flagged as low quality, the agent rewrites them using `write_*` tools
-5. **`reindex()`** — finalize the clean knowledge base
+4. **`reindex()`** — finalize
 
-**Hard rule:** Flaiwheel never deletes files. It moves, copies, and suggests — you decide.
+### How it works under the hood
+
+The AI agent does the heavy lifting (local I/O, creative rewriting). Flaiwheel provides the **classification engine** — it embeds document content against category templates using cosine similarity, runs keyword-based classification as a second signal, and combines both with a three-way consensus (path hint + keywords + embedding). No LLM needed for classification.
+
+**Hard rule:** Flaiwheel never deletes files. It classifies, moves, and suggests — you decide.
 
 ---
 
