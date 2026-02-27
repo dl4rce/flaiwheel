@@ -158,6 +158,23 @@
             font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-card);
         }
 
+        .migration-bar {
+            margin-top: 16px; padding: 16px; background: var(--bg-input);
+            border: 1px solid var(--border); border-radius: 8px; display: none;
+        }
+        .migration-bar .progress-track {
+            height: 8px; background: var(--bg); border-radius: 4px; margin: 10px 0 8px; overflow: hidden;
+        }
+        .migration-bar .progress-fill {
+            height: 100%; background: var(--accent); border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        .migration-bar .migration-text {
+            font-size: 13px; color: var(--text-dim); display: flex;
+            justify-content: space-between; align-items: center;
+        }
+        .migration-bar .migration-text .label { font-weight: 600; color: var(--text); }
+
         .toast-container {
             position: fixed; top: 24px; right: 24px; z-index: 1000;
             display: flex; flex-direction: column; gap: 8px;
@@ -300,9 +317,20 @@
                         </select>
                     </div>
                 </div>
-                <button class="btn btn-primary" onclick="saveEmbeddingConfig()" style="margin-top:12px; width:100%;">
+                <button class="btn btn-primary" id="btn-save-model" onclick="saveEmbeddingConfig()" style="margin-top:12px; width:100%;">
                     Save &amp; Re-Index
                 </button>
+                <div class="migration-bar" id="migration-bar">
+                    <div class="migration-text">
+                        <span class="label" id="migration-label">Migrating...</span>
+                        <span id="migration-percent">0%</span>
+                    </div>
+                    <div class="progress-track"><div class="progress-fill" id="migration-fill" style="width:0%"></div></div>
+                    <div class="migration-text">
+                        <span id="migration-detail">0 / 0 files</span>
+                        <button class="btn btn-danger" onclick="cancelMigration()" style="padding:4px 12px; font-size:12px;">Cancel</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Chunking & Docs -->
@@ -604,6 +632,11 @@
             document.getElementById('health-skipped').innerHTML =
                 skDot + ' ' + skCount;
 
+            if (h.migration_status && h.migration_status.status === 'running') {
+                showMigrationProgress(h.migration_status);
+                if (!migrationPollTimer) startMigrationPolling();
+            }
+
             document.querySelector('.container header .logo').innerHTML =
                 h.status === 'ok' ? '&#128994;' : '&#128308;';
         } catch (e) {
@@ -642,6 +675,8 @@
         document.getElementById('openai-section').style.display = provider === 'openai' ? 'block' : 'none';
     }
 
+    let migrationPollTimer = null;
+
     async function saveEmbeddingConfig() {
         var provider = document.getElementById('cfg-provider').value;
         var body = { embedding_provider: provider };
@@ -651,15 +686,77 @@
             body.openai_api_key = document.getElementById('cfg-openai-key').value;
             body.openai_embedding_model = document.getElementById('cfg-openai-model').value;
         }
-        toast('info', 'Saving & reindexing...');
+        toast('info', 'Saving...');
         var result = await api('POST', '/config', body);
         if (!result) return;
-        if (result.model_changed) {
-            toast('success', 'Model changed! ' + (result.reindex_result?.chunks_upserted ?? result.reindex_result?.chunks_created ?? 0) + ' chunks reindexed');
-        } else {
-            toast('success', 'Saved');
+        if (result.model_changed && result.migration) {
+            toast('info', 'Model migration started in background — search stays available');
+            showMigrationProgress(result.migration);
+            startMigrationPolling();
+        } else if (!result.model_changed) {
+            toast('success', 'Saved (model unchanged)');
         }
         loadStats();
+    }
+
+    function showMigrationProgress(m) {
+        var bar = document.getElementById('migration-bar');
+        bar.style.display = 'block';
+        document.getElementById('btn-save-model').disabled = true;
+        updateMigrationUI(m);
+    }
+
+    function updateMigrationUI(m) {
+        if (!m) return;
+        document.getElementById('migration-label').textContent = 'Migrating to ' + m.new_model + '...';
+        document.getElementById('migration-percent').textContent = m.percent + '%';
+        document.getElementById('migration-fill').style.width = m.percent + '%';
+        document.getElementById('migration-detail').textContent = m.files_done + ' / ' + m.total_files + ' files · ' + m.chunks_created + ' chunks';
+    }
+
+    function hideMigrationBar() {
+        document.getElementById('migration-bar').style.display = 'none';
+        document.getElementById('btn-save-model').disabled = false;
+    }
+
+    function startMigrationPolling() {
+        if (migrationPollTimer) clearInterval(migrationPollTimer);
+        migrationPollTimer = setInterval(async function() {
+            var data = await api('GET', '/migration/status');
+            if (!data || !data.migration) {
+                clearInterval(migrationPollTimer);
+                migrationPollTimer = null;
+                hideMigrationBar();
+                return;
+            }
+            var m = data.migration;
+            updateMigrationUI(m);
+            if (m.status === 'complete') {
+                clearInterval(migrationPollTimer);
+                migrationPollTimer = null;
+                toast('success', 'Migration complete! ' + m.chunks_created + ' chunks re-embedded with ' + m.new_model);
+                hideMigrationBar();
+                await refreshAll();
+            } else if (m.status === 'failed') {
+                clearInterval(migrationPollTimer);
+                migrationPollTimer = null;
+                toast('error', 'Migration failed: ' + (m.error || 'unknown error'));
+                hideMigrationBar();
+            } else if (m.status === 'cancelled') {
+                clearInterval(migrationPollTimer);
+                migrationPollTimer = null;
+                toast('info', 'Migration cancelled');
+                hideMigrationBar();
+            }
+        }, 2000);
+    }
+
+    async function cancelMigration() {
+        if (!confirm('Cancel the embedding model migration?')) return;
+        var result = await api('POST', '/migration/cancel');
+        if (result && result.status === 'cancelled') {
+            toast('info', 'Migration cancelled');
+        }
     }
 
     async function saveGeneralConfig() {

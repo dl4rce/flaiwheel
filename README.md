@@ -280,6 +280,12 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_SSE_PORT` | `8081` | MCP SSE endpoint port |
 | `MCP_WEB_PORT` | `8080` | Web UI port |
 
+### Embedding Model Hot-Swap
+
+When you change the embedding model via the Web UI, Flaiwheel re-embeds all documents in the background using a shadow collection. Search remains fully available on the old model while the migration runs. Once complete, the new index atomically replaces the old one — zero downtime.
+
+The Web UI shows a live progress bar with file count and percentage. You can cancel at any time.
+
 ### Embedding Models (local, free)
 
 | Model | RAM | Quality | Best for |
@@ -384,7 +390,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (88 tests covering quality checker, indexer, health tracker, MCP tools)
+# Run tests (98 tests covering quality checker, indexer, health tracker, MCP tools, model migration)
 pytest
 
 # Run locally (needs /docs and /data directories)

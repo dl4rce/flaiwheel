@@ -16,11 +16,47 @@ stable across reindexing regardless of section ordering.
 import hashlib
 import json
 import re
+import threading
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import chromadb
 from chromadb.utils import embedding_functions
 from .config import Config
+
+SHADOW_COLLECTION = "project_docs_migration"
+
+
+@dataclass
+class ModelMigration:
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    status: str = "running"
+    old_model: str = ""
+    new_model: str = ""
+    total_files: int = 0
+    files_done: int = 0
+    chunks_created: int = 0
+    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+    thread: Optional[threading.Thread] = field(default=None, repr=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "status": self.status,
+            "old_model": self.old_model,
+            "new_model": self.new_model,
+            "total_files": self.total_files,
+            "files_done": self.files_done,
+            "chunks_created": self.chunks_created,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "error": self.error,
+            "percent": round(self.files_done / self.total_files * 100) if self.total_files > 0 else 0,
+        }
 
 DOC_TYPES = [
     "docs", "bugfix", "best-practice", "api",
@@ -31,7 +67,20 @@ DOC_TYPES = [
 class DocsIndexer:
     def __init__(self, config: Config):
         self.config = config
+        self._migration: Optional[ModelMigration] = None
+        self._migration_lock = threading.Lock()
         self._init_vectorstore()
+        self._cleanup_orphaned_shadow()
+
+    def _cleanup_orphaned_shadow(self):
+        """Remove leftover shadow collection from interrupted migrations."""
+        try:
+            existing = [c.name for c in self.chroma.list_collections()]
+            if SHADOW_COLLECTION in existing:
+                self.chroma.delete_collection(SHADOW_COLLECTION)
+                print(f"Cleaned up orphaned shadow collection '{SHADOW_COLLECTION}'")
+        except Exception:
+            pass
 
     def _init_vectorstore(self):
         self.chroma = chromadb.PersistentClient(path=self.config.vectorstore_path)
@@ -64,6 +113,182 @@ class DocsIndexer:
         except Exception:
             pass
         self._init_vectorstore()
+
+    # ── Model Hot-Swap (background migration) ────────────
+
+    def start_model_swap(
+        self, new_config: Config, index_lock: threading.Lock,
+        quality_checker=None, health=None,
+    ) -> dict:
+        """Start a background migration to a new embedding model.
+
+        The old collection keeps serving searches until the new one is ready,
+        then they are atomically swapped.
+        """
+        with self._migration_lock:
+            if self._migration and self._migration.status == "running":
+                return {"status": "error", "message": "Migration already in progress", "migration": self._migration.to_dict()}
+
+            old_model = (
+                self.config.embedding_model
+                if self.config.embedding_provider == "local"
+                else self.config.openai_embedding_model
+            )
+            new_model = (
+                new_config.embedding_model
+                if new_config.embedding_provider == "local"
+                else new_config.openai_embedding_model
+            )
+            if old_model == new_model and self.config.embedding_provider == new_config.embedding_provider:
+                return {"status": "skipped", "message": "Same model selected, nothing to do"}
+
+            docs_path = Path(new_config.docs_path)
+            md_files = sorted(docs_path.rglob("*.md")) if docs_path.exists() else []
+
+            migration = ModelMigration(
+                old_model=old_model,
+                new_model=new_model,
+                total_files=len(md_files),
+            )
+            self._migration = migration
+
+        def _worker():
+            try:
+                if new_config.embedding_provider == "local":
+                    new_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                        model_name=new_config.embedding_model
+                    )
+                else:
+                    new_ef = embedding_functions.OpenAIEmbeddingFunction(
+                        api_key=new_config.openai_api_key,
+                        model_name=new_config.openai_embedding_model,
+                    )
+
+                try:
+                    self.chroma.delete_collection(SHADOW_COLLECTION)
+                except Exception:
+                    pass
+
+                shadow = self.chroma.get_or_create_collection(
+                    SHADOW_COLLECTION,
+                    embedding_function=new_ef,
+                    metadata={"hnsw:space": "cosine"},
+                )
+
+                for md_file in md_files:
+                    if migration.status == "cancelled":
+                        break
+                    try:
+                        content = md_file.read_text(encoding="utf-8", errors="ignore")
+                        rel_path = str(md_file.relative_to(docs_path))
+
+                        if quality_checker:
+                            issues = quality_checker.check_file(md_file, rel_path)
+                            critical = [i for i in issues if i["severity"] == "critical"]
+                            if critical:
+                                migration.files_done += 1
+                                continue
+
+                        chunks = self.chunk_markdown(content, rel_path)
+                        if chunks:
+                            shadow.upsert(
+                                ids=[c["id"] for c in chunks],
+                                documents=[c["text"] for c in chunks],
+                                metadatas=[c["metadata"] for c in chunks],
+                            )
+                            migration.chunks_created += len(chunks)
+                    except Exception as e:
+                        print(f"Migration: error processing {md_file}: {e}")
+                    migration.files_done += 1
+
+                if migration.status == "cancelled":
+                    try:
+                        self.chroma.delete_collection(SHADOW_COLLECTION)
+                    except Exception:
+                        pass
+                    migration.finished_at = datetime.now(timezone.utc).isoformat()
+                    if health:
+                        health.record_migration(migration.to_dict())
+                    return
+
+                with index_lock:
+                    try:
+                        self.chroma.delete_collection("project_docs")
+                    except Exception:
+                        pass
+
+                    self.config = new_config
+                    self.ef = new_ef
+
+                    # ChromaDB doesn't support rename, so re-create with correct name
+                    # and copy data from shadow
+                    self.collection = self.chroma.get_or_create_collection(
+                        "project_docs",
+                        embedding_function=new_ef,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+
+                    shadow_data = shadow.get(include=["documents", "metadatas"])
+                    if shadow_data["ids"]:
+                        batch_size = 5000
+                        for i in range(0, len(shadow_data["ids"]), batch_size):
+                            end = i + batch_size
+                            self.collection.upsert(
+                                ids=shadow_data["ids"][i:end],
+                                documents=shadow_data["documents"][i:end],
+                                metadatas=shadow_data["metadatas"][i:end],
+                            )
+
+                    try:
+                        self.chroma.delete_collection(SHADOW_COLLECTION)
+                    except Exception:
+                        pass
+
+                    try:
+                        self._hashes_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+                migration.status = "complete"
+                migration.finished_at = datetime.now(timezone.utc).isoformat()
+
+                if health:
+                    health.record_migration(migration.to_dict())
+                    health.record_index(ok=True, chunks=migration.chunks_created, files=migration.files_done)
+
+            except Exception as e:
+                migration.status = "failed"
+                migration.error = str(e)
+                migration.finished_at = datetime.now(timezone.utc).isoformat()
+                try:
+                    self.chroma.delete_collection(SHADOW_COLLECTION)
+                except Exception:
+                    pass
+                if health:
+                    health.record_migration(migration.to_dict())
+                print(f"Migration failed: {e}")
+
+        t = threading.Thread(target=_worker, daemon=True, name="model-migration")
+        migration.thread = t
+        t.start()
+
+        if health:
+            health.record_migration(migration.to_dict())
+
+        return {"status": "started", "migration": migration.to_dict()}
+
+    def cancel_migration(self) -> dict:
+        with self._migration_lock:
+            if not self._migration or self._migration.status != "running":
+                return {"status": "error", "message": "No active migration to cancel"}
+            self._migration.status = "cancelled"
+            return {"status": "cancelled", "migration": self._migration.to_dict()}
+
+    @property
+    def migration_status(self) -> Optional[dict]:
+        if self._migration is None:
+            return None
+        return self._migration.to_dict()
 
     # ── Chunk ID (content-based, position-independent) ───
 

@@ -52,6 +52,8 @@ class HealthTracker:
             "quality_issues_info": 0,
 
             "skipped_files": [],
+
+            "migration_status": None,
         }
 
     def record_index(self, ok: bool, chunks: int = 0, files: int = 0, error: str | None = None):
@@ -97,6 +99,10 @@ class HealthTracker:
             self._data["quality_issues_critical"] = critical
             self._data["quality_issues_warnings"] = warnings
             self._data["quality_issues_info"] = info
+
+    def record_migration(self, status_dict: dict | None):
+        with self._lock:
+            self._data["migration_status"] = status_dict
 
     def record_git_info(self, git_dir: Path, repo_url: str = "", branch: str = ""):
         with self._lock:

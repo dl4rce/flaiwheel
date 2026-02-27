@@ -108,6 +108,7 @@ def create_web_app(
             "quality_score": status.get("quality_score"),
             "quality_issues_critical": status.get("quality_issues_critical", 0),
             "skipped_files_count": len(status.get("skipped_files", [])),
+            "migration_status": status.get("migration_status"),
         }
 
     @app.get("/api/health")
@@ -150,17 +151,32 @@ def create_web_app(
             )
 
         if model_changed:
-            with index_lock:
-                indexer.reinit(config)
-                result = indexer.index_all(quality_checker=quality_checker)
+            result = indexer.start_model_swap(
+                config, index_lock,
+                quality_checker=quality_checker,
+                health=health,
+            )
+            if result["status"] == "error":
+                raise HTTPException(status_code=409, detail=result["message"])
             return {
                 "status": "success",
-                "message": "Config saved + index rebuilt with new model",
-                "reindex_result": result,
+                "message": "Config saved — model migration started in background",
                 "model_changed": True,
+                "migration": result.get("migration"),
             }
 
         return {"status": "success", "message": "Config saved", "model_changed": False}
+
+    @app.get("/api/migration/status")
+    async def migration_status(_user: str = Depends(require_auth)):
+        return {"migration": indexer.migration_status}
+
+    @app.post("/api/migration/cancel")
+    async def cancel_migration(_user: str = Depends(require_auth)):
+        result = indexer.cancel_migration()
+        if result["status"] == "error":
+            raise HTTPException(status_code=400, detail=result["message"])
+        return result
 
     @app.get("/api/stats")
     async def get_stats(_user: str = Depends(require_auth)):
