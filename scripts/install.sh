@@ -203,10 +203,17 @@ if gh repo view "${OWNER}/${KNOWLEDGE_REPO}" &>/dev/null 2>&1; then
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
 TOOLSEOF
-        git add FLAIWHEEL_TOOLS.md
-        git diff --staged --quiet || { git commit -m "docs: add/update Flaiwheel tools reference" && git push origin main 2>/dev/null || git push origin master 2>/dev/null; }
+        # Ensure all expected directories exist (covers upgrades from older versions)
+        for dir in architecture api bugfix-log best-practices setup changelog tests; do
+            if [ ! -d "$dir" ]; then
+                mkdir -p "$dir"
+                echo "# ${dir}" > "${dir}/README.md"
+            fi
+        done
+        git add -A
+        git diff --staged --quiet || { git commit -m "docs: add/update Flaiwheel tools + ensure directory structure" && git push origin main 2>/dev/null || git push origin master 2>/dev/null; }
         popd > /dev/null
-        ok "FLAIWHEEL_TOOLS.md updated in knowledge repo"
+        ok "Knowledge repo updated (tools + directory structure)"
     fi
     rm -rf "$TMPDIR"
 else
