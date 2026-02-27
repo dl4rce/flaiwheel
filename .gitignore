@@ -1,15 +1,52 @@
+# Project workspace (plans, TODOs, interim docs — never committed)
+.project/
+
+# OS files
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+*.egg
 dist/
 build/
+venv/
+.venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
+
+# Data
 /data/
 *.sqlite
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.code-workspace
+
+# Editors
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.old
+
+# Misc
 node_modules/
-.pytest_cache/
-.ruff_cache/
+*.log
