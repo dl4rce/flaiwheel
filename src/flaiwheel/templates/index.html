@@ -416,6 +416,12 @@
                 <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
                     Copy the matching config into your client:
                 </p>
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:13px; color:var(--text-dim); display:block; margin-bottom:4px;">Host</label>
+                    <input id="config-host" type="text" placeholder="localhost"
+                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:14px; font-family:monospace;"
+                        oninput="updateConnectionConfigs()">
+                </div>
                 <div class="tab-row">
                     <button class="tab-btn active" onclick="showTab(this, 'tab-cursor')">Cursor</button>
                     <button class="tab-btn" onclick="showTab(this, 'tab-claude')">Claude Desktop</button>
@@ -783,7 +789,9 @@
     }
 
     function updateConnectionConfigs() {
-        var host = window.location.hostname;
+        var hostInput = document.getElementById('config-host');
+        var host = (hostInput && hostInput.value.trim()) || window.location.hostname;
+        hostInput.placeholder = window.location.hostname;
         var ssePort = currentConfig.sse_port || 8081;
 
         document.getElementById('config-cursor').textContent = JSON.stringify({
