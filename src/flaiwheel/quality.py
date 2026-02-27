@@ -321,13 +321,14 @@ class KnowledgeQualityChecker:
     def _check_orphans(self, docs: Path) -> list[dict]:
         """Check for .md files outside the expected structure."""
         issues = []
-        known_roots = set(EXPECTED_DIRS) | {"README.md"}
+        known_roots = set(EXPECTED_DIRS) | {"README.md", "FLAIWHEEL_TOOLS.md"}
+        root_whitelist = {"README.md", "FLAIWHEEL_TOOLS.md"}
 
         for md_file in docs.rglob("*.md"):
             rel = md_file.relative_to(docs)
             parts = rel.parts
 
-            if len(parts) == 1 and parts[0] != "README.md":
+            if len(parts) == 1 and parts[0] not in root_whitelist:
                 issues.append(_issue(
                     "info", str(rel),
                     f"File is in docs root instead of a category folder. "
