@@ -173,6 +173,11 @@ For every task, follow this order:
 4. Prefer 2-3 targeted searches over one vague query
 5. THEN use your native file search/code reading for source code details
 
+### Before writing or modifying tests:
+1. **ALWAYS** call `search_tests("what you're testing")` first — check for existing test cases, patterns, and coverage
+2. After writing/updating tests, **call `write_test_case()`** to document the test scenario as searchable knowledge
+3. Include: title, scenario (what & why), steps, expected result, preconditions, status (pass/fail/pending), tags
+
 ### Documenting knowledge (use structured write tools):
 Instead of writing raw markdown, use the built-in write tools — they enforce correct structure, place files in the right directory, index immediately, and auto-push:
 - `write_bugfix_summary()` — after every bugfix (**mandatory**)
@@ -181,8 +186,8 @@ Instead of writing raw markdown, use the built-in write tools — they enforce c
 - `write_best_practice()` — coding standards, patterns
 - `write_setup_doc()` — setup, deployment, infrastructure
 - `write_changelog_entry()` — release notes
-- `write_test_case()` — test scenarios, steps, expected results
-- `search_tests()` — find existing test cases and coverage
+- `write_test_case()` — after writing/modifying tests, document the scenario, steps, and expected result
+- `search_tests()` — **before** writing new tests, check what's already covered
 
 For freeform docs not covered by these tools: call `validate_doc(content, category)` before committing to catch quality issues early.
 

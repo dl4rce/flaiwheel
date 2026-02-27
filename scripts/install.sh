@@ -531,6 +531,11 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 2. Prefer 2-3 targeted searches over one vague query
 3. THEN use your native file search/code reading for source code details
 
+### Before writing or modifying tests:
+1. **ALWAYS call \`search_tests("what you're testing")\` first** — check for existing test cases, patterns, and coverage
+2. After writing/updating tests, **call \`write_test_case()\`** to document the test scenario as searchable knowledge
+3. Include: title, scenario (what & why), steps, expected result, preconditions, status (pass/fail/pending), tags
+
 ### Documenting knowledge (use structured write tools):
 Instead of writing raw markdown, use the built-in write tools — they enforce correct structure, place files in the right directory, index immediately, and auto-push:
 - \`write_bugfix_summary()\` — after every bugfix (**mandatory**)
@@ -539,8 +544,8 @@ Instead of writing raw markdown, use the built-in write tools — they enforce c
 - \`write_best_practice()\` — coding standards, patterns
 - \`write_setup_doc()\` — setup, deployment, infrastructure
 - \`write_changelog_entry()\` — release notes
-- \`write_test_case()\` — test scenarios, steps, expected results
-- \`search_tests()\` — find existing test cases and coverage
+- \`write_test_case()\` — after writing/modifying tests, document the scenario, steps, and expected result
+- \`search_tests()\` — **before** writing new tests, check what's already covered
 
 For freeform docs: call \`validate_doc(content, category)\` before committing.
 
@@ -625,11 +630,12 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 3. **Document knowledge using structured write tools** (they enforce structure, auto-push, auto-index):
    - \`write_bugfix_summary()\` — after every bugfix (**mandatory**)
    - \`write_architecture_doc()\`, \`write_api_doc()\`, \`write_best_practice()\`, \`write_setup_doc()\`, \`write_changelog_entry()\`
-   - \`write_test_case()\` — test scenarios, steps, expected results
-   - \`search_tests()\` — find existing test cases and coverage
    - For freeform docs: \`validate_doc(content, category)\` before committing
-4. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\`
-5. **Periodically:** \`check_knowledge_quality()\` and fix issues
+4. **Before writing/modifying tests:**
+   - \`search_tests("what you're testing")\` — check existing test cases and coverage FIRST
+   - After writing tests: \`write_test_case()\` — document scenario, steps, expected result, status, tags
+5. **AFTER committing new/updated docs to the knowledge repo:** call \`git_pull_reindex()\`
+6. **Periodically:** \`check_knowledge_quality()\` and fix issues
 
 **Important:** Files with critical quality issues are skipped during indexing. Flaiwheel NEVER deletes or modifies user files.
 
