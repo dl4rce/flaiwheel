@@ -203,10 +203,10 @@ if gh repo view "${OWNER}/${KNOWLEDGE_REPO}" &>/dev/null 2>&1; then
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
 TOOLSEOF
-        # Ensure all expected directories exist (covers upgrades from older versions)
+        # Ensure all expected directories exist with proper placeholder READMEs
         for dir in architecture api bugfix-log best-practices setup changelog tests; do
-            if [ ! -d "$dir" ]; then
-                mkdir -p "$dir"
+            mkdir -p "$dir"
+            if [ ! -f "${dir}/README.md" ] || [ "$(wc -c < "${dir}/README.md")" -lt 30 ]; then
                 echo -e "# ${dir}\n\nThis directory contains ${dir} documentation managed by Flaiwheel.\nAdd .md files here or use the corresponding write tool." > "${dir}/README.md"
             fi
         done
