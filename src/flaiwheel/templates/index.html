@@ -484,31 +484,49 @@
         <!-- Knowledge Bootstrap -->
         <div class="card" style="margin-bottom: 24px;">
             <h2><span class="icon">&#127756;</span> "This is the Way" &mdash; Knowledge Bootstrap</h2>
-            <p style="color:var(--text-dim); font-size:14px; margin-bottom:16px;">
-                Analyse your knowledge repository for structure issues, misplaced files,
-                and duplicates. Review proposed actions, then execute with one click.
-                <strong>No files are ever deleted.</strong>
-                <br><span style="font-size:12px; opacity:0.7;">Or just tell your AI agent "This is the Way" (or "42") to trigger this via MCP.</span>
-            </p>
-            <div id="bootstrap-controls">
-                <button class="btn btn-primary" id="btn-analyze" onclick="runBootstrapAnalysis()" title="The answer to life, the universe, and messy repos">
-                    This is the Way
-                </button>
-            </div>
-            <div id="bootstrap-loading" style="display:none; text-align:center; padding:24px;">
-                <span class="spinner" style="width:24px; height:24px; border-width:3px;"></span>
-                <div style="margin-top:8px; color:var(--text-dim);">Analysing repository&hellip; <em>I have spoken.</em></div>
-            </div>
-            <div id="bootstrap-results" style="display:none; margin-top:20px;">
-                <div class="stat-grid" id="bootstrap-stats"></div>
-                <div id="bootstrap-actions" style="margin-top:16px;"></div>
-                <div id="bootstrap-duplicates" style="margin-top:16px;"></div>
-                <div id="bootstrap-rewrites" style="margin-top:16px;"></div>
-                <div class="btn-row" id="bootstrap-exec-row" style="display:none; margin-top:16px;">
-                    <button class="btn btn-primary" onclick="executeBootstrap('selected')">Execute Selected</button>
-                    <button class="btn btn-ghost" onclick="executeBootstrap('all')">Execute All &mdash; I have spoken</button>
+
+            <!-- Primary: MCP workflow for new projects -->
+            <div style="background:var(--bg-input); border-radius:8px; padding:16px; margin-bottom:16px;">
+                <div style="font-size:14px; font-weight:600; margin-bottom:8px;">Got a messy project?</div>
+                <p style="color:var(--text-dim); font-size:13px; margin:0 0 12px 0;">
+                    Tell your AI agent <strong>"This is the Way"</strong> (or <strong>"42"</strong>).
+                    The agent scans your project locally, sends doc previews to Flaiwheel for classification,
+                    and presents a migration plan. You approve, the agent pushes docs into the knowledge repo.
+                </p>
+                <div style="font-size:12px; color:var(--text-dim); font-family:monospace; background:var(--bg-card); padding:8px 12px; border-radius:4px;">
+                    Agent scans project &rarr; <code>classify_documents()</code> &rarr; review plan &rarr; <code>write_*</code> tools &rarr; <code>reindex()</code>
                 </div>
             </div>
+
+            <!-- Secondary: Knowledge repo cleanup -->
+            <details style="margin-bottom:8px;">
+                <summary style="cursor:pointer; font-size:13px; color:var(--text-dim); padding:8px 0;">
+                    <strong>Advanced:</strong> Scan knowledge repo for misplaced files &amp; duplicates
+                </summary>
+                <p style="color:var(--text-dim); font-size:13px; margin:8px 0;">
+                    This scans files <em>already inside</em> the knowledge repo. For new projects, use the AI agent workflow above instead.
+                    <strong>No files are ever deleted.</strong>
+                </p>
+                <div id="bootstrap-controls">
+                    <button class="btn btn-ghost" id="btn-analyze" onclick="runBootstrapAnalysis()" title="Scan knowledge repo for cleanup">
+                        Scan Knowledge Repo
+                    </button>
+                </div>
+                <div id="bootstrap-loading" style="display:none; text-align:center; padding:24px;">
+                    <span class="spinner" style="width:24px; height:24px; border-width:3px;"></span>
+                    <div style="margin-top:8px; color:var(--text-dim);">Analysing repository&hellip; <em>I have spoken.</em></div>
+                </div>
+                <div id="bootstrap-results" style="display:none; margin-top:20px;">
+                    <div class="stat-grid" id="bootstrap-stats"></div>
+                    <div id="bootstrap-actions" style="margin-top:16px;"></div>
+                    <div id="bootstrap-duplicates" style="margin-top:16px;"></div>
+                    <div id="bootstrap-rewrites" style="margin-top:16px;"></div>
+                    <div class="btn-row" id="bootstrap-exec-row" style="display:none; margin-top:16px;">
+                        <button class="btn btn-primary" onclick="executeBootstrap('selected')">Execute Selected</button>
+                        <button class="btn btn-ghost" onclick="executeBootstrap('all')">Execute All &mdash; I have spoken</button>
+                    </div>
+                </div>
+            </details>
         </div>
 
         <div class="grid">
