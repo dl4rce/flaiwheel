@@ -7,33 +7,40 @@ import pytest
 from flaiwheel.config import Config
 from flaiwheel.health import HealthTracker
 from flaiwheel.indexer import DocsIndexer
+from flaiwheel.project import ProjectConfig, ProjectRegistry
 from flaiwheel.quality import KnowledgeQualityChecker
 from flaiwheel.server import create_mcp_server
 
 
 @pytest.fixture
 def server_env(tmp_docs, tmp_path):
-    """Full server environment with real indexer and quality checker."""
+    """Full server environment with a single-project registry."""
     cfg = Config(
         docs_path=str(tmp_docs),
         vectorstore_path=str(tmp_path / "vectorstore"),
         git_repo_url="",
         git_auto_push=False,
     )
-    indexer = DocsIndexer(cfg)
-    lock = threading.Lock()
-    watcher = MagicMock()
-    watcher.push_pending = MagicMock()
-    quality_checker = KnowledgeQualityChecker(cfg)
-    health = HealthTracker()
+    registry = ProjectRegistry(cfg)
+    pc = ProjectConfig(
+        name="test",
+        docs_path=str(tmp_docs),
+        collection_name="project_docs",
+    )
+    ctx = registry.add(pc, start_watcher=False)
 
-    mcp = create_mcp_server(cfg, indexer, lock, watcher, quality_checker, health)
+    # Replace watcher with a mock to avoid git operations
+    mock_watcher = MagicMock()
+    mock_watcher.push_pending = MagicMock()
+    ctx.watcher = mock_watcher
+
+    mcp = create_mcp_server(cfg, registry)
     return {
         "mcp": mcp,
         "config": cfg,
-        "indexer": indexer,
-        "health": health,
-        "watcher": watcher,
+        "indexer": ctx.indexer,
+        "health": ctx.health,
+        "watcher": mock_watcher,
         "tmp_docs": tmp_docs,
     }
 

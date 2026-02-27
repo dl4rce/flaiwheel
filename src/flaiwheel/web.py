@@ -6,30 +6,26 @@
 Web-UI Backend (FastAPI) – configuration, monitoring, test search.
 Runs in a background thread alongside the MCP server.
 
-All state (config, indexer, watcher, auth) is injected via create_web_app().
+All per-project endpoints accept an optional ?project=name query parameter.
+When omitted the default (first) project is used.
 """
 import hashlib
 import hmac
-import secrets
 import threading
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from .auth import AuthManager
 from .config import LOCAL_MODELS, Config
-from .health import HealthTracker
-from .indexer import DocsIndexer
-from .quality import KnowledgeQualityChecker
-from .watcher import GitWatcher
+from .project import ProjectConfig, ProjectContext, ProjectRegistry, merge_config
 
 
-class ConfigUpdate(BaseModel):
-    docs_path: Optional[str] = None
+class GlobalConfigUpdate(BaseModel):
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
     openai_api_key: Optional[str] = None
@@ -37,15 +33,27 @@ class ConfigUpdate(BaseModel):
     chunk_strategy: Optional[str] = None
     chunk_max_chars: Optional[int] = None
     chunk_overlap: Optional[int] = None
+
+
+class ProjectConfigUpdate(BaseModel):
     git_repo_url: Optional[str] = None
     git_branch: Optional[str] = None
     git_sync_interval: Optional[int] = None
     git_docs_subpath: Optional[str] = None
     git_token: Optional[str] = None
     git_auto_push: Optional[bool] = None
-    transport: Optional[str] = None
-    sse_port: Optional[int] = None
-    web_port: Optional[int] = None
+    display_name: Optional[str] = None
+
+
+class AddProjectRequest(BaseModel):
+    name: str
+    display_name: str = ""
+    git_repo_url: str = ""
+    git_branch: str = "main"
+    git_token: str = ""
+    git_docs_subpath: str = ""
+    git_auto_push: bool = True
+    git_sync_interval: int = 300
 
 
 class SearchRequest(BaseModel):
@@ -60,16 +68,12 @@ class PasswordChange(BaseModel):
 
 
 def create_web_app(
-    config: Config,
-    indexer: DocsIndexer,
-    watcher: GitWatcher,
-    index_lock: threading.Lock,
+    global_config: Config,
+    registry: ProjectRegistry,
     config_lock: threading.Lock,
     auth: AuthManager,
-    quality_checker: KnowledgeQualityChecker,
-    health: HealthTracker | None = None,
 ) -> FastAPI:
-    """Factory: returns a FastAPI app that shares state with the MCP server."""
+    """Factory: returns a FastAPI app backed by a ProjectRegistry."""
 
     app = FastAPI(
         title="Flaiwheel",
@@ -86,36 +90,88 @@ def create_web_app(
             )
         return credentials.username
 
-    # ── Health (no auth — used by Docker healthcheck) ──
+    def _resolve(project: str | None) -> ProjectContext:
+        ctx = registry.resolve(project)
+        if ctx is None:
+            names = registry.names()
+            if not names:
+                raise HTTPException(404, "No projects registered")
+            raise HTTPException(404, f"Project not found. Available: {', '.join(names)}")
+        return ctx
+
+    # ── Health (no auth — Docker healthcheck) ─────────
 
     @app.get("/health")
-    async def health_check():
+    async def health_check(project: Optional[str] = Query(None)):
         from . import __version__
-        status = health.status if health else {}
-        return {
-            "status": "ok" if (not health or health.is_healthy) else "degraded",
-            "version": __version__,
-            "chunks": indexer.collection.count(),
-            "last_index_at": status.get("last_index_at"),
-            "last_index_ok": status.get("last_index_ok"),
-            "last_pull_at": status.get("last_pull_at"),
-            "last_pull_ok": status.get("last_pull_ok"),
-            "git_commit": status.get("git_commit"),
-            "git_branch": status.get("git_branch"),
-            "searches_total": status.get("searches_total", 0),
-            "searches_hits": status.get("searches_hits", 0),
-            "searches_misses": status.get("searches_misses", 0),
-            "quality_score": status.get("quality_score"),
-            "quality_issues_critical": status.get("quality_issues_critical", 0),
-            "skipped_files_count": len(status.get("skipped_files", [])),
-            "migration_status": status.get("migration_status"),
-        }
+
+        if project:
+            ctx = registry.resolve(project)
+            if not ctx:
+                return {"status": "error", "message": f"Project '{project}' not found"}
+            status = ctx.health.status
+            return {
+                "status": "ok" if ctx.health.is_healthy else "degraded",
+                "version": __version__,
+                "project": ctx.name,
+                "chunks": ctx.indexer.collection.count(),
+                "last_index_at": status.get("last_index_at"),
+                "last_index_ok": status.get("last_index_ok"),
+                "last_pull_at": status.get("last_pull_at"),
+                "last_pull_ok": status.get("last_pull_ok"),
+                "git_commit": status.get("git_commit"),
+                "git_branch": status.get("git_branch"),
+                "searches_total": status.get("searches_total", 0),
+                "searches_hits": status.get("searches_hits", 0),
+                "searches_misses": status.get("searches_misses", 0),
+                "quality_score": status.get("quality_score"),
+                "quality_issues_critical": status.get("quality_issues_critical", 0),
+                "skipped_files_count": len(status.get("skipped_files", [])),
+                "migration_status": status.get("migration_status"),
+            }
+
+        all_healthy = True
+        for ctx in registry.all():
+            if not ctx.health.is_healthy:
+                all_healthy = False
+                break
+
+        default = registry.get_default()
+        if default:
+            status = default.health.status
+            return {
+                "status": "ok" if all_healthy else "degraded",
+                "version": __version__,
+                "project": default.name,
+                "project_count": len(registry),
+                "chunks": default.indexer.collection.count(),
+                "last_index_at": status.get("last_index_at"),
+                "last_index_ok": status.get("last_index_ok"),
+                "last_pull_at": status.get("last_pull_at"),
+                "last_pull_ok": status.get("last_pull_ok"),
+                "git_commit": status.get("git_commit"),
+                "git_branch": status.get("git_branch"),
+                "searches_total": status.get("searches_total", 0),
+                "searches_hits": status.get("searches_hits", 0),
+                "searches_misses": status.get("searches_misses", 0),
+                "quality_score": status.get("quality_score"),
+                "quality_issues_critical": status.get("quality_issues_critical", 0),
+                "skipped_files_count": len(status.get("skipped_files", [])),
+                "migration_status": status.get("migration_status"),
+            }
+
+        from . import __version__ as v
+        return {"status": "ok", "version": v, "project_count": 0}
 
     @app.get("/api/health")
-    async def health_detail(_user: str = Depends(require_auth)):
-        return health.status if health else {}
+    async def health_detail(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        return ctx.health.status
 
-    # ── Web Frontend ─────────────────────────────────
+    # ── Web Frontend ──────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)
     async def web_frontend(_user: str = Depends(require_auth)):
@@ -124,68 +180,185 @@ def create_web_app(
             return HTMLResponse(template_path.read_text(encoding="utf-8"))
         return HTMLResponse("<h1>Template not found</h1>", status_code=500)
 
-    # ── API Endpoints ────────────────────────────────
+    # ── Project CRUD ──────────────────────────────────
+
+    @app.get("/api/projects")
+    async def list_projects(_user: str = Depends(require_auth)):
+        projects = []
+        for ctx in registry.all():
+            stats = ctx.indexer.stats
+            h = ctx.health.status
+            projects.append({
+                "name": ctx.name,
+                "display_name": ctx.project_config.display_name,
+                "chunks": stats["total_chunks"],
+                "quality_score": h.get("quality_score"),
+                "git_repo_url": ctx.merged_config.git_repo_url,
+                "docs_path": ctx.merged_config.docs_path,
+                "config": ctx.project_config.to_safe_dict(),
+            })
+        return {"projects": projects, "count": len(projects)}
+
+    @app.post("/api/projects")
+    async def add_project(
+        req: AddProjectRequest,
+        _user: str = Depends(require_auth),
+    ):
+        pc = ProjectConfig(
+            name=req.name,
+            display_name=req.display_name or req.name,
+            git_repo_url=req.git_repo_url,
+            git_branch=req.git_branch,
+            git_token=req.git_token,
+            git_docs_subpath=req.git_docs_subpath,
+            git_auto_push=req.git_auto_push,
+            git_sync_interval=req.git_sync_interval,
+        )
+        try:
+            ctx = registry.setup_new_project(pc)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        except Exception as e:
+            raise HTTPException(500, f"Failed to add project: {e}")
+
+        return {
+            "status": "success",
+            "project": ctx.name,
+            "chunks": ctx.indexer.stats["total_chunks"],
+        }
+
+    @app.delete("/api/projects/{name}")
+    async def remove_project(name: str, _user: str = Depends(require_auth)):
+        if not registry.remove(name):
+            raise HTTPException(404, f"Project '{name}' not found")
+        registry.save()
+        return {"status": "success", "message": f"Project '{name}' removed"}
+
+    # ── Global Config ─────────────────────────────────
 
     @app.get("/api/config")
-    async def get_config(_user: str = Depends(require_auth)):
-        return {"config": config.to_safe_dict(), "available_models": LOCAL_MODELS}
+    async def get_config(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        base = global_config.to_safe_dict()
+        if project:
+            ctx = _resolve(project)
+            base["project"] = ctx.project_config.to_safe_dict()
+        return {"config": base, "available_models": LOCAL_MODELS}
 
     @app.post("/api/config")
-    async def update_config(
-        update: ConfigUpdate, _user: str = Depends(require_auth),
+    async def update_global_config_endpoint(
+        update: GlobalConfigUpdate,
+        _user: str = Depends(require_auth),
     ):
         with config_lock:
-            old_model = config.embedding_model
-            old_provider = config.embedding_provider
+            old_model = global_config.embedding_model
+            old_provider = global_config.embedding_provider
 
             update_dict = update.model_dump(exclude_none=True)
             for key, value in update_dict.items():
-                if hasattr(config, key):
-                    setattr(config, key, value)
+                if hasattr(global_config, key):
+                    setattr(global_config, key, value)
 
-            config.save()
+            global_config.save()
+            registry.update_global_config(global_config)
 
             model_changed = (
-                old_model != config.embedding_model
-                or old_provider != config.embedding_provider
+                old_model != global_config.embedding_model
+                or old_provider != global_config.embedding_provider
             )
 
         if model_changed:
-            result = indexer.start_model_swap(
-                config, index_lock,
-                quality_checker=quality_checker,
-                health=health,
-            )
-            if result["status"] == "error":
-                raise HTTPException(status_code=409, detail=result["message"])
+            from chromadb.utils import embedding_functions as ef_mod
+            if global_config.embedding_provider == "local":
+                new_ef = ef_mod.SentenceTransformerEmbeddingFunction(
+                    model_name=global_config.embedding_model
+                )
+            else:
+                new_ef = ef_mod.OpenAIEmbeddingFunction(
+                    api_key=global_config.openai_api_key,
+                    model_name=global_config.openai_embedding_model,
+                )
+            registry.embedding_fn = new_ef
+
+            migrations = []
+            for ctx in registry.all():
+                result = ctx.indexer.start_model_swap(
+                    ctx.merged_config, ctx.index_lock,
+                    quality_checker=ctx.quality_checker,
+                    health=ctx.health,
+                    new_ef=new_ef,
+                )
+                migrations.append({"project": ctx.name, **result})
+
             return {
                 "status": "success",
-                "message": "Config saved — model migration started in background",
+                "message": "Config saved — model migration started for all projects",
                 "model_changed": True,
-                "migration": result.get("migration"),
+                "migrations": migrations,
             }
 
         return {"status": "success", "message": "Config saved", "model_changed": False}
 
+    # ── Per-project Config ────────────────────────────
+
+    @app.post("/api/projects/{name}/config")
+    async def update_project_config(
+        name: str,
+        update: ProjectConfigUpdate,
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(name)
+        update_dict = update.model_dump(exclude_none=True)
+        for key, value in update_dict.items():
+            if hasattr(ctx.project_config, key):
+                setattr(ctx.project_config, key, value)
+
+        ctx.merged_config = merge_config(global_config, ctx.project_config)
+        ctx.indexer.config = ctx.merged_config
+        registry.save()
+
+        return {"status": "success", "message": f"Project '{name}' config saved"}
+
+    # ── Migration ─────────────────────────────────────
+
     @app.get("/api/migration/status")
-    async def migration_status(_user: str = Depends(require_auth)):
-        return {"migration": indexer.migration_status}
+    async def migration_status(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        return {"migration": ctx.indexer.migration_status}
 
     @app.post("/api/migration/cancel")
-    async def cancel_migration(_user: str = Depends(require_auth)):
-        result = indexer.cancel_migration()
+    async def cancel_migration(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        result = ctx.indexer.cancel_migration()
         if result["status"] == "error":
             raise HTTPException(status_code=400, detail=result["message"])
         return result
 
+    # ── Stats / Index ─────────────────────────────────
+
     @app.get("/api/stats")
-    async def get_stats(_user: str = Depends(require_auth)):
-        return indexer.stats
+    async def get_stats(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        return ctx.indexer.stats
 
     @app.post("/api/index-flaiwheel-docs")
-    async def index_flaiwheel_docs(_user: str = Depends(require_auth)):
-        """Index only README.md and FLAIWHEEL_TOOLS.md — fast, for post-install."""
-        docs_path = Path(config.docs_path)
+    async def index_flaiwheel_docs(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        docs_path = Path(ctx.merged_config.docs_path)
         total: int = 0
         files: list[str] = []
         for name in ("README.md", "FLAIWHEEL_TOOLS.md"):
@@ -193,8 +366,8 @@ def create_web_app(
             if filepath.exists():
                 try:
                     content = filepath.read_text(encoding="utf-8", errors="ignore")
-                    with index_lock:
-                        n = indexer.index_single(name, content)
+                    with ctx.index_lock:
+                        n = ctx.indexer.index_single(name, content)
                     total += n
                     files.append(name)
                 except Exception as e:
@@ -202,38 +375,47 @@ def create_web_app(
         return {"status": "success", "chunks": total, "files": files}
 
     @app.post("/api/reindex")
-    async def trigger_reindex(_user: str = Depends(require_auth)):
-        with index_lock:
-            result = indexer.index_all(quality_checker=quality_checker)
-        if health:
-            health.record_index(
-                ok=result.get("status") == "success",
-                chunks=result.get("chunks_upserted", 0),
-                files=result.get("files_indexed", 0),
+    async def trigger_reindex(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        with ctx.index_lock:
+            result = ctx.indexer.index_all(quality_checker=ctx.quality_checker)
+        ctx.health.record_index(
+            ok=result.get("status") == "success",
+            chunks=result.get("chunks_upserted", 0),
+            files=result.get("files_indexed", 0),
+        )
+        ctx.health.record_skipped_files(result.get("quality_skipped", []))
+        try:
+            qr = ctx.quality_checker.check_all()
+            ctx.health.record_quality(
+                qr["score"], qr.get("critical", 0),
+                qr.get("warnings", 0), qr.get("info", 0),
             )
-            health.record_skipped_files(result.get("quality_skipped", []))
-        if quality_checker and health:
-            try:
-                qr = quality_checker.check_all()
-                health.record_quality(
-                    qr["score"], qr.get("critical", 0),
-                    qr.get("warnings", 0), qr.get("info", 0),
-                )
-            except Exception:
-                pass
+        except Exception:
+            pass
         return result
 
     @app.post("/api/clear")
-    async def clear_index(_user: str = Depends(require_auth)):
-        with index_lock:
-            indexer.clear_index()
-        return {"status": "success", "message": "Index cleared"}
+    async def clear_index(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        with ctx.index_lock:
+            ctx.indexer.clear_index()
+        return {"status": "success", "message": f"Index cleared for project '{ctx.name}'"}
 
     @app.post("/api/search")
     async def test_search(
-        req: SearchRequest, _user: str = Depends(require_auth),
+        req: SearchRequest,
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
     ):
-        results = indexer.search(
+        ctx = _resolve(project)
+        results = ctx.indexer.search(
             query=req.query, top_k=req.top_k, type_filter=req.type_filter,
         )
         return {"query": req.query, "count": len(results), "results": results}
@@ -243,41 +425,43 @@ def create_web_app(
         return {
             "local_models": LOCAL_MODELS,
             "current": {
-                "provider": config.embedding_provider,
+                "provider": global_config.embedding_provider,
                 "model": (
-                    config.embedding_model
-                    if config.embedding_provider == "local"
-                    else config.openai_embedding_model
+                    global_config.embedding_model
+                    if global_config.embedding_provider == "local"
+                    else global_config.openai_embedding_model
                 ),
             },
         }
 
     @app.post("/api/git/pull")
-    async def trigger_git_pull(_user: str = Depends(require_auth)):
-        if not watcher or not config.git_repo_url:
-            return {"status": "error", "message": "No git repo configured"}
+    async def trigger_git_pull(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        if not ctx.merged_config.git_repo_url:
+            return {"status": "error", "message": "No git repo configured for this project"}
 
-        changed = watcher.pull_and_check()
+        changed = ctx.watcher.pull_and_check()
         result = None
         if changed:
-            with index_lock:
-                result = indexer.index_all(quality_checker=quality_checker)
-            if health:
-                health.record_index(
-                    ok=result.get("status") == "success",
-                    chunks=result.get("chunks_upserted", 0),
-                    files=result.get("files_indexed", 0),
+            with ctx.index_lock:
+                result = ctx.indexer.index_all(quality_checker=ctx.quality_checker)
+            ctx.health.record_index(
+                ok=result.get("status") == "success",
+                chunks=result.get("chunks_upserted", 0),
+                files=result.get("files_indexed", 0),
+            )
+            ctx.health.record_skipped_files(result.get("quality_skipped", []))
+            try:
+                qr = ctx.quality_checker.check_all()
+                ctx.health.record_quality(
+                    qr["score"], qr.get("critical", 0),
+                    qr.get("warnings", 0), qr.get("info", 0),
                 )
-                health.record_skipped_files(result.get("quality_skipped", []))
-            if quality_checker and health:
-                try:
-                    qr = quality_checker.check_all()
-                    health.record_quality(
-                        qr["score"], qr.get("critical", 0),
-                        qr.get("warnings", 0), qr.get("info", 0),
-                    )
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         return {
             "status": "success",
@@ -296,22 +480,38 @@ def create_web_app(
         return {"status": "success", "message": "Password changed"}
 
     @app.get("/api/quality")
-    async def get_quality(_user: str = Depends(require_auth)):
-        return quality_checker.check_all()
+    async def get_quality(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        ctx = _resolve(project)
+        return ctx.quality_checker.check_all()
 
-    # ── GitHub Webhook (no auth — uses HMAC signature) ──
+    # ── GitHub Webhook (HMAC auth) ────────────────────
 
     @app.post("/webhook/github")
     async def github_webhook(request: Request):
         body = await request.body()
 
-        if config.webhook_secret:
-            sig_header = request.headers.get("x-hub-signature-256", "")
-            expected = "sha256=" + hmac.new(
-                config.webhook_secret.encode(), body, hashlib.sha256,
-            ).hexdigest()
-            if not hmac.compare_digest(sig_header, expected):
-                raise HTTPException(status_code=403, detail="Invalid signature")
+        matched_ctx: ProjectContext | None = None
+        for ctx in registry.all():
+            secret = ctx.merged_config.webhook_secret
+            if secret:
+                sig_header = request.headers.get("x-hub-signature-256", "")
+                expected = "sha256=" + hmac.new(
+                    secret.encode(), body, hashlib.sha256,
+                ).hexdigest()
+                if hmac.compare_digest(sig_header, expected):
+                    matched_ctx = ctx
+                    break
+
+        if matched_ctx is None:
+            default = registry.get_default()
+            if default and not default.merged_config.webhook_secret:
+                matched_ctx = default
+
+        if matched_ctx is None:
+            raise HTTPException(status_code=403, detail="Invalid signature or no matching project")
 
         event = request.headers.get("x-github-event", "")
         if event == "ping":
@@ -320,14 +520,15 @@ def create_web_app(
         if event != "push":
             return {"status": "ignored", "event": event}
 
-        changed = watcher.pull_and_check()
+        changed = matched_ctx.watcher.pull_and_check()
         result = None
         if changed:
-            with index_lock:
-                result = indexer.index_all(quality_checker=quality_checker)
+            with matched_ctx.index_lock:
+                result = matched_ctx.indexer.index_all(quality_checker=matched_ctx.quality_checker)
 
         return {
             "status": "ok",
+            "project": matched_ctx.name,
             "changes_detected": changed,
             "reindex_result": result,
         }

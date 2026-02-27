@@ -222,6 +222,50 @@
             </div>
         </header>
 
+        <!-- Project Selector -->
+        <div class="card" style="margin-bottom: 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px; font-weight:600;">Project:</span>
+                <select id="project-selector" onchange="switchProject()" style="padding:8px 14px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; min-width:200px;"></select>
+            </div>
+            <button class="btn btn-ghost" onclick="showAddProjectModal()">+ Add Project</button>
+            <button class="btn btn-danger" onclick="removeCurrentProject()" id="btn-remove-project" style="margin-left:auto; padding:6px 14px; font-size:12px;">Remove</button>
+        </div>
+
+        <!-- Add Project Modal -->
+        <div id="add-project-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; display:none; align-items:center; justify-content:center;">
+            <div class="card" style="width:480px; max-width:90vw;">
+                <h2><span class="icon">&#128194;</span> Add Project</h2>
+                <div class="form-group">
+                    <label>Project name (slug)</label>
+                    <input type="text" id="add-proj-name" placeholder="my-project">
+                    <div class="hint">Lowercase, no spaces (e.g. "my-app", "backend")</div>
+                </div>
+                <div class="form-group">
+                    <label>Display name (optional)</label>
+                    <input type="text" id="add-proj-display" placeholder="My App">
+                </div>
+                <div class="form-group">
+                    <label>Knowledge repo URL (optional)</label>
+                    <input type="text" id="add-proj-git" placeholder="https://github.com/org/repo-knowledge.git">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Branch</label>
+                        <input type="text" id="add-proj-branch" value="main">
+                    </div>
+                    <div class="form-group">
+                        <label>Git token</label>
+                        <input type="password" id="add-proj-token" placeholder="ghp_...">
+                    </div>
+                </div>
+                <div class="btn-row" style="justify-content:flex-end;">
+                    <button class="btn btn-ghost" onclick="hideAddProjectModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="addProject()">Add Project</button>
+                </div>
+            </div>
+        </div>
+
         <!-- System Health -->
         <div class="card" style="margin-bottom: 24px;">
             <h2><span class="icon">&#128994;</span> System Health</h2>
@@ -504,14 +548,93 @@
     <script>
     let currentConfig = {};
     let selectedModel = 'all-MiniLM-L6-v2';
+    let currentProject = '';
+    let allProjects = [];
 
     document.addEventListener('DOMContentLoaded', () => {
-        loadConfig();
-        loadStats();
-        loadHealth();
+        loadProjects().then(() => {
+            loadConfig();
+            loadStats();
+            loadHealth();
+        });
         setInterval(loadStats, 30000);
         setInterval(loadHealth, 15000);
     });
+
+    function projectParam() {
+        return currentProject ? '?project=' + encodeURIComponent(currentProject) : '';
+    }
+
+    async function loadProjects() {
+        var data = await api('GET', '/projects');
+        if (!data) return;
+        allProjects = data.projects || [];
+        var sel = document.getElementById('project-selector');
+        sel.innerHTML = allProjects.map(function(p) {
+            return '<option value="' + p.name + '">' + (p.display_name || p.name) + '</option>';
+        }).join('');
+        if (allProjects.length > 0 && !currentProject) {
+            currentProject = allProjects[0].name;
+        }
+        if (currentProject) sel.value = currentProject;
+        document.getElementById('btn-remove-project').style.display = allProjects.length > 1 ? 'inline-flex' : 'none';
+    }
+
+    function switchProject() {
+        currentProject = document.getElementById('project-selector').value;
+        loadConfig();
+        loadStats();
+        loadHealth();
+        document.getElementById('btn-remove-project').style.display = allProjects.length > 1 ? 'inline-flex' : 'none';
+    }
+
+    function showAddProjectModal() {
+        var modal = document.getElementById('add-project-modal');
+        modal.style.display = 'flex';
+    }
+    function hideAddProjectModal() {
+        document.getElementById('add-project-modal').style.display = 'none';
+    }
+
+    async function addProject() {
+        var name = document.getElementById('add-proj-name').value.trim();
+        if (!name) { toast('error', 'Project name is required'); return; }
+        var body = {
+            name: name,
+            display_name: document.getElementById('add-proj-display').value.trim() || name,
+            git_repo_url: document.getElementById('add-proj-git').value.trim(),
+            git_branch: document.getElementById('add-proj-branch').value.trim() || 'main',
+            git_token: document.getElementById('add-proj-token').value.trim(),
+        };
+        toast('info', 'Adding project...');
+        var result = await api('POST', '/projects', body);
+        if (!result) return;
+        if (result.status === 'success') {
+            toast('success', 'Project "' + name + '" added (' + result.chunks + ' chunks)');
+            hideAddProjectModal();
+            currentProject = name;
+            await loadProjects();
+            loadConfig(); loadStats(); loadHealth();
+        } else {
+            toast('error', result.detail || 'Failed to add project');
+        }
+    }
+
+    async function removeCurrentProject() {
+        if (!currentProject) return;
+        if (!confirm('Remove project "' + currentProject + '"? This will delete its index.')) return;
+        var result = await fetch('/api/projects/' + encodeURIComponent(currentProject), {
+            method: 'DELETE', credentials: 'same-origin',
+        }).then(function(r) { return r.json(); });
+        if (result && result.status === 'success') {
+            toast('success', 'Project removed');
+            currentProject = '';
+            await loadProjects();
+            loadConfig(); loadStats(); loadHealth();
+        } else {
+            toast('error', result.detail || 'Failed');
+        }
+    }
 
     async function api(method, path, body = null) {
         const opts = {
@@ -529,7 +652,7 @@
     }
 
     async function loadConfig() {
-        const data = await api('GET', '/config');
+        const data = await api('GET', '/config' + projectParam());
         if (!data) return;
         currentConfig = data.config;
 
@@ -538,10 +661,12 @@
         document.getElementById('cfg-chunk-strategy').value = currentConfig.chunk_strategy;
         document.getElementById('cfg-chunk-max').value = currentConfig.chunk_max_chars;
         document.getElementById('cfg-chunk-overlap').value = currentConfig.chunk_overlap;
-        document.getElementById('cfg-git-url').value = currentConfig.git_repo_url || '';
-        document.getElementById('cfg-git-branch').value = currentConfig.git_branch;
-        document.getElementById('cfg-git-interval').value = currentConfig.git_sync_interval;
-        document.getElementById('cfg-git-auto-push').checked = currentConfig.git_auto_push !== false;
+
+        var pc = data.config.project || {};
+        document.getElementById('cfg-git-url').value = pc.git_repo_url || currentConfig.git_repo_url || '';
+        document.getElementById('cfg-git-branch').value = pc.git_branch || currentConfig.git_branch;
+        document.getElementById('cfg-git-interval').value = pc.git_sync_interval || currentConfig.git_sync_interval;
+        document.getElementById('cfg-git-auto-push').checked = (pc.git_auto_push !== undefined ? pc.git_auto_push : currentConfig.git_auto_push) !== false;
 
         selectedModel = currentConfig.embedding_model;
         renderModelList(data.available_models);
@@ -550,7 +675,7 @@
     }
 
     async function loadStats() {
-        const stats = await api('GET', '/stats');
+        const stats = await api('GET', '/stats' + projectParam());
         if (!stats) return;
 
         document.getElementById('stat-chunks').textContent = stats.total_chunks.toLocaleString();
@@ -566,7 +691,7 @@
 
     async function loadHealth() {
         try {
-            const res = await fetch('/health');
+            const res = await fetch('/health' + projectParam());
             const h = await res.json();
 
             function statusDot(ok) {
@@ -722,7 +847,7 @@
     function startMigrationPolling() {
         if (migrationPollTimer) clearInterval(migrationPollTimer);
         migrationPollTimer = setInterval(async function() {
-            var data = await api('GET', '/migration/status');
+            var data = await api('GET', '/migration/status' + projectParam());
             if (!data || !data.migration) {
                 clearInterval(migrationPollTimer);
                 migrationPollTimer = null;
@@ -753,26 +878,34 @@
 
     async function cancelMigration() {
         if (!confirm('Cancel the embedding model migration?')) return;
-        var result = await api('POST', '/migration/cancel');
+        var result = await api('POST', '/migration/cancel' + projectParam());
         if (result && result.status === 'cancelled') {
             toast('info', 'Migration cancelled');
         }
     }
 
     async function saveGeneralConfig() {
-        var body = {
-            docs_path: document.getElementById('cfg-docs-path').value,
+        var globalBody = {
             chunk_strategy: document.getElementById('cfg-chunk-strategy').value,
             chunk_max_chars: parseInt(document.getElementById('cfg-chunk-max').value),
             chunk_overlap: parseInt(document.getElementById('cfg-chunk-overlap').value),
-            git_repo_url: document.getElementById('cfg-git-url').value,
-            git_branch: document.getElementById('cfg-git-branch').value,
-            git_sync_interval: parseInt(document.getElementById('cfg-git-interval').value),
-            git_token: document.getElementById('cfg-git-token').value,
-            git_auto_push: document.getElementById('cfg-git-auto-push').checked,
         };
-        var result = await api('POST', '/config', body);
+        var result = await api('POST', '/config', globalBody);
         if (!result) return;
+
+        if (currentProject) {
+            var projBody = {
+                git_repo_url: document.getElementById('cfg-git-url').value,
+                git_branch: document.getElementById('cfg-git-branch').value,
+                git_sync_interval: parseInt(document.getElementById('cfg-git-interval').value),
+                git_token: document.getElementById('cfg-git-token').value || undefined,
+                git_auto_push: document.getElementById('cfg-git-auto-push').checked,
+            };
+            await fetch('/api/projects/' + encodeURIComponent(currentProject) + '/config', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin', body: JSON.stringify(projBody),
+            });
+        }
         toast('success', 'Configuration saved');
         loadStats();
     }
@@ -783,7 +916,7 @@
 
     async function triggerReindex() {
         toast('info', 'Re-indexing...');
-        var result = await api('POST', '/reindex');
+        var result = await api('POST', '/reindex' + projectParam());
         if (!result) return;
         var chunks = result.chunks_upserted ?? result.chunks_created ?? result.chunks_total ?? 0;
         var changed = result.files_changed ?? result.files_indexed ?? 0;
@@ -794,7 +927,7 @@
 
     async function triggerGitPull() {
         toast('info', 'Git pull...');
-        var result = await api('POST', '/git/pull');
+        var result = await api('POST', '/git/pull' + projectParam());
         if (!result) return;
         if (result.changes_detected) {
             toast('success', 'New commits! ' + (result.reindex_result?.chunks_upserted ?? result.reindex_result?.chunks_created ?? 0) + ' chunks reindexed');
@@ -806,7 +939,7 @@
 
     async function clearIndex() {
         if (!confirm('Really clear the entire index?')) return;
-        await api('POST', '/clear');
+        await api('POST', '/clear' + projectParam());
         toast('success', 'Index cleared');
         loadStats();
     }
@@ -818,7 +951,7 @@
         var container = document.getElementById('search-results');
         container.innerHTML = '<div style="text-align:center; padding:20px;"><span class="spinner"></span> Searching...</div>';
 
-        var data = await api('POST', '/search', { query: query, top_k: 5, type_filter: typeFilter });
+        var data = await api('POST', '/search' + projectParam(), { query: query, top_k: 5, type_filter: typeFilter });
         if (!data) { container.innerHTML = ''; return; }
 
         if (!data.results || data.results.length === 0) {
@@ -851,7 +984,7 @@
         document.getElementById('quality-score').textContent = '...';
         document.getElementById('quality-summary').textContent = 'Checking...';
 
-        var data = await api('GET', '/quality');
+        var data = await api('GET', '/quality' + projectParam());
         if (!data) return;
 
         var scoreEl = document.getElementById('quality-score');

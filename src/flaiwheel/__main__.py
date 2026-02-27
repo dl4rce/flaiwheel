@@ -7,24 +7,34 @@ Unified entry point: python -m flaiwheel
 
 Runs Web-UI + MCP Server in a single process with shared state.
 Web-UI in a background thread, MCP SSE server in the main thread.
+Supports multiple projects via ProjectRegistry.
 """
 import threading
 
 import uvicorn
+from chromadb.utils import embedding_functions
 
 from .auth import AuthManager
 from .config import Config
-from .health import HealthTracker
-from .indexer import DocsIndexer
-from .quality import KnowledgeQualityChecker
+from .project import ProjectRegistry
 from .server import create_mcp_server
-from .watcher import GitWatcher
 from .web import create_web_app
+
+
+def _create_embedding_fn(config: Config):
+    """Create a single embedding function to share across all projects."""
+    if config.embedding_provider == "local":
+        return embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=config.embedding_model
+        )
+    return embedding_functions.OpenAIEmbeddingFunction(
+        api_key=config.openai_api_key,
+        model_name=config.openai_embedding_model,
+    )
 
 
 def _run_mcp_sse(mcp_server, host: str, port: int):
     """Run MCP server via SSE, compatible with both old and new mcp SDK versions."""
-    # Try sse_app() first (mcp >= 1.20), fall back to run() for older versions
     try:
         sse_app = mcp_server.sse_app()
         uvicorn.run(sse_app, host=host, port=port, log_level="warning")
@@ -39,44 +49,22 @@ def _run_mcp_sse(mcp_server, host: str, port: int):
 
 def main():
     config = Config.load()
-
-    index_lock = threading.Lock()
     config_lock = threading.Lock()
-    health = HealthTracker()
 
-    indexer = DocsIndexer(config)
+    print("Creating shared embedding model...")
+    embedding_fn = _create_embedding_fn(config)
+
+    registry = ProjectRegistry(config, embedding_fn=embedding_fn)
+    registry.bootstrap()
+    registry.start_all_watchers()
+
+    n = len(registry)
+    print(f"Loaded {n} project{'s' if n != 1 else ''}: {', '.join(registry.names()) or '(none)'}")
+
     auth = AuthManager(config)
-    quality_checker = KnowledgeQualityChecker(config)
-    watcher = GitWatcher(config, indexer, index_lock, health, quality_checker=quality_checker)
 
-    print(f"Initial indexing {config.docs_path} ...")
-    result = indexer.index_all(quality_checker=quality_checker)
-    health.record_index(
-        ok=result.get("status") == "success",
-        chunks=result.get("chunks_upserted", 0),
-        files=result.get("files_indexed", 0),
-        error=result.get("message") if result.get("status") != "success" else None,
-    )
-    health.record_skipped_files(result.get("quality_skipped", []))
-    try:
-        qr = quality_checker.check_all()
-        health.record_quality(
-            qr["score"], qr.get("critical", 0),
-            qr.get("warnings", 0), qr.get("info", 0),
-        )
-        print(f"Quality score: {qr['score']}/100")
-    except Exception as e:
-        print(f"Warning: Initial quality check failed: {e}")
-    print(f"Done: {result}")
-
-    watcher.start()
-
-    web_app = create_web_app(
-        config, indexer, watcher, index_lock, config_lock, auth, quality_checker, health,
-    )
-    mcp_server = create_mcp_server(
-        config, indexer, index_lock, watcher, quality_checker, health,
-    )
+    web_app = create_web_app(config, registry, config_lock, auth)
+    mcp_server = create_mcp_server(config, registry)
 
     def run_web():
         uvicorn.run(

@@ -6,7 +6,7 @@ import pytest
 
 from flaiwheel.config import Config
 from flaiwheel.health import HealthTracker
-from flaiwheel.indexer import DocsIndexer, SHADOW_COLLECTION
+from flaiwheel.indexer import DocsIndexer, DEFAULT_COLLECTION
 
 
 def _make_docs(tmp_path, count=5):
@@ -210,13 +210,14 @@ class TestOrphanedShadowCleanup:
         )
         import chromadb
         client = chromadb.PersistentClient(path=cfg.vectorstore_path)
-        client.get_or_create_collection(SHADOW_COLLECTION)
+        shadow_name = f"{DEFAULT_COLLECTION}_migration"
+        client.get_or_create_collection(shadow_name)
         existing = [c.name for c in client.list_collections()]
-        assert SHADOW_COLLECTION in existing
+        assert shadow_name in existing
 
         indexer = DocsIndexer(cfg)
         existing_after = [c.name for c in indexer.chroma.list_collections()]
-        assert SHADOW_COLLECTION not in existing_after
+        assert shadow_name not in existing_after
 
 
 class TestMigrationStatus:

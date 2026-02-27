@@ -26,7 +26,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 from .config import Config
 
-SHADOW_COLLECTION = "project_docs_migration"
+DEFAULT_COLLECTION = "project_docs"
 
 
 @dataclass
@@ -65,8 +65,12 @@ DOC_TYPES = [
 
 
 class DocsIndexer:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, collection_name: str = DEFAULT_COLLECTION,
+                 embedding_fn=None):
         self.config = config
+        self._collection_name = collection_name
+        self._shadow_name = f"{collection_name}_migration"
+        self._external_ef = embedding_fn
         self._migration: Optional[ModelMigration] = None
         self._migration_lock = threading.Lock()
         self._init_vectorstore()
@@ -76,16 +80,18 @@ class DocsIndexer:
         """Remove leftover shadow collection from interrupted migrations."""
         try:
             existing = [c.name for c in self.chroma.list_collections()]
-            if SHADOW_COLLECTION in existing:
-                self.chroma.delete_collection(SHADOW_COLLECTION)
-                print(f"Cleaned up orphaned shadow collection '{SHADOW_COLLECTION}'")
+            if self._shadow_name in existing:
+                self.chroma.delete_collection(self._shadow_name)
+                print(f"Cleaned up orphaned shadow collection '{self._shadow_name}'")
         except Exception:
             pass
 
     def _init_vectorstore(self):
         self.chroma = chromadb.PersistentClient(path=self.config.vectorstore_path)
 
-        if self.config.embedding_provider == "local":
+        if self._external_ef:
+            self.ef = self._external_ef
+        elif self.config.embedding_provider == "local":
             self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name=self.config.embedding_model
             )
@@ -96,16 +102,18 @@ class DocsIndexer:
             )
 
         self.collection = self.chroma.get_or_create_collection(
-            "project_docs",
+            self._collection_name,
             embedding_function=self.ef,
             metadata={"hnsw:space": "cosine"},
         )
 
-    def reinit(self, config: Config):
+    def reinit(self, config: Config, embedding_fn=None):
         """Re-init with new config (e.g. after model change in Web UI)."""
         self.config = config
+        if embedding_fn is not None:
+            self._external_ef = embedding_fn
         try:
-            self.chroma.delete_collection("project_docs")
+            self.chroma.delete_collection(self._collection_name)
         except Exception:
             pass
         try:
@@ -118,12 +126,13 @@ class DocsIndexer:
 
     def start_model_swap(
         self, new_config: Config, index_lock: threading.Lock,
-        quality_checker=None, health=None,
+        quality_checker=None, health=None, new_ef=None,
     ) -> dict:
         """Start a background migration to a new embedding model.
 
         The old collection keeps serving searches until the new one is ready,
-        then they are atomically swapped.
+        then they are atomically swapped.  Pass new_ef to share an
+        already-loaded embedding function across multiple projects.
         """
         with self._migration_lock:
             if self._migration and self._migration.status == "running":
@@ -152,25 +161,30 @@ class DocsIndexer:
             )
             self._migration = migration
 
+        shadow_name = self._shadow_name
+        collection_name = self._collection_name
+
         def _worker():
             try:
-                if new_config.embedding_provider == "local":
-                    new_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-                        model_name=new_config.embedding_model
-                    )
-                else:
-                    new_ef = embedding_functions.OpenAIEmbeddingFunction(
-                        api_key=new_config.openai_api_key,
-                        model_name=new_config.openai_embedding_model,
-                    )
+                nonlocal new_ef
+                if new_ef is None:
+                    if new_config.embedding_provider == "local":
+                        new_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                            model_name=new_config.embedding_model
+                        )
+                    else:
+                        new_ef = embedding_functions.OpenAIEmbeddingFunction(
+                            api_key=new_config.openai_api_key,
+                            model_name=new_config.openai_embedding_model,
+                        )
 
                 try:
-                    self.chroma.delete_collection(SHADOW_COLLECTION)
+                    self.chroma.delete_collection(shadow_name)
                 except Exception:
                     pass
 
                 shadow = self.chroma.get_or_create_collection(
-                    SHADOW_COLLECTION,
+                    shadow_name,
                     embedding_function=new_ef,
                     metadata={"hnsw:space": "cosine"},
                 )
@@ -203,7 +217,7 @@ class DocsIndexer:
 
                 if migration.status == "cancelled":
                     try:
-                        self.chroma.delete_collection(SHADOW_COLLECTION)
+                        self.chroma.delete_collection(shadow_name)
                     except Exception:
                         pass
                     migration.finished_at = datetime.now(timezone.utc).isoformat()
@@ -213,17 +227,16 @@ class DocsIndexer:
 
                 with index_lock:
                     try:
-                        self.chroma.delete_collection("project_docs")
+                        self.chroma.delete_collection(collection_name)
                     except Exception:
                         pass
 
                     self.config = new_config
                     self.ef = new_ef
+                    self._external_ef = new_ef
 
-                    # ChromaDB doesn't support rename, so re-create with correct name
-                    # and copy data from shadow
                     self.collection = self.chroma.get_or_create_collection(
-                        "project_docs",
+                        collection_name,
                         embedding_function=new_ef,
                         metadata={"hnsw:space": "cosine"},
                     )
@@ -240,7 +253,7 @@ class DocsIndexer:
                             )
 
                     try:
-                        self.chroma.delete_collection(SHADOW_COLLECTION)
+                        self.chroma.delete_collection(shadow_name)
                     except Exception:
                         pass
 
@@ -261,14 +274,14 @@ class DocsIndexer:
                 migration.error = str(e)
                 migration.finished_at = datetime.now(timezone.utc).isoformat()
                 try:
-                    self.chroma.delete_collection(SHADOW_COLLECTION)
+                    self.chroma.delete_collection(shadow_name)
                 except Exception:
                     pass
                 if health:
                     health.record_migration(migration.to_dict())
                 print(f"Migration failed: {e}")
 
-        t = threading.Thread(target=_worker, daemon=True, name="model-migration")
+        t = threading.Thread(target=_worker, daemon=True, name=f"migration-{collection_name}")
         migration.thread = t
         t.start()
 
@@ -453,7 +466,8 @@ class DocsIndexer:
 
     @property
     def _hashes_path(self) -> Path:
-        return Path(self.config.vectorstore_path) / "file_hashes.json"
+        suffix = "" if self._collection_name == DEFAULT_COLLECTION else f"_{self._collection_name}"
+        return Path(self.config.vectorstore_path) / f"file_hashes{suffix}.json"
 
     def _load_file_hashes(self) -> dict[str, str]:
         try:
@@ -594,11 +608,11 @@ class DocsIndexer:
 
     def clear_index(self):
         try:
-            self.chroma.delete_collection("project_docs")
+            self.chroma.delete_collection(self._collection_name)
         except Exception:
             pass
         self.collection = self.chroma.get_or_create_collection(
-            "project_docs",
+            self._collection_name,
             embedding_function=self.ef,
             metadata={"hnsw:space": "cosine"},
         )

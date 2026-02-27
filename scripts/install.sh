@@ -371,16 +371,48 @@ if [ "$UPDATE_MODE" = true ]; then
     ok "Container recreated with latest version"
 
 else
-    # ── Fresh install path ──
-    if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
-        build_image
-    else
-        ok "Docker image ${IMAGE_NAME} already exists"
+    # ── Check for running Flaiwheel (multi-project: register via API) ──
+    RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-' | head -1 || true)
+
+    if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
+        info "Flaiwheel already running (${RUNNING_FW}). Registering project via API..."
+
+        # Extract admin password for API auth
+        REG_PASS=$(docker exec "$RUNNING_FW" cat /data/.admin_password 2>/dev/null || true)
+        if [ -z "$REG_PASS" ]; then
+            REG_PASS=$(docker logs "$RUNNING_FW" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
+        fi
+
+        if [ -n "$REG_PASS" ]; then
+            REG_RESULT=$(curl -sf -X POST -u "admin:${REG_PASS}" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
+                http://localhost:8080/api/projects 2>/dev/null || true)
+
+            if echo "$REG_RESULT" | grep -q '"status":\s*"success"'; then
+                ok "Project '${PROJECT}' registered with running Flaiwheel"
+                MULTI_PROJECT_REGISTERED=true
+            else
+                warn "API registration failed — will create a new container"
+                warn "Response: ${REG_RESULT}"
+            fi
+        else
+            warn "Could not extract credentials for API registration"
+        fi
     fi
 
-    info "Starting Flaiwheel container: ${CONTAINER_NAME}..."
-    start_container
-    ok "Flaiwheel container started"
+    if [ "${MULTI_PROJECT_REGISTERED:-false}" != true ]; then
+        # ── Fresh install path ──
+        if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+            build_image
+        else
+            ok "Docker image ${IMAGE_NAME} already exists"
+        fi
+
+        info "Starting Flaiwheel container: ${CONTAINER_NAME}..."
+        start_container
+        ok "Flaiwheel container started"
+    fi
 fi
 
 # Wait for container to be healthy and extract credentials

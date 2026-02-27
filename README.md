@@ -143,6 +143,7 @@ Your AI agent now has access to these MCP tools:
 - `reindex` — manual re-index after bulk changes
 - `check_knowledge_quality` — validate knowledge base consistency
 - `check_update` — check if a newer Flaiwheel version is available
+- `list_projects` — list all registered projects with statistics
 
 ---
 
@@ -240,6 +241,9 @@ You can also call `check_update()` to check if a newer version is available (wor
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
+| `list_projects()` | List all registered projects with stats |
+
+All search/write/admin tools accept an optional `project` parameter to target a specific project (defaults to the first registered project).
 
 ---
 
@@ -280,6 +284,26 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_SSE_PORT` | `8081` | MCP SSE endpoint port |
 | `MCP_WEB_PORT` | `8080` | Web UI port |
 
+### Multi-Repo Support
+
+A single Flaiwheel container can manage multiple knowledge repositories — one per project. Each project gets its own ChromaDB collection, git watcher, index lock, health tracker, and quality checker, while sharing one embedding model in RAM and one MCP/Web endpoint.
+
+**How it works:**
+- The first `install.sh` run creates the Flaiwheel container with project A
+- Subsequent `install.sh` runs from other project directories detect the running container and register the new project via the API — no additional containers
+- All MCP tools accept an optional `project` parameter (e.g., `search_docs("query", project="my-app")`)
+- Without a `project` parameter, tools operate on the default (first) project
+- The Web UI has a project selector dropdown to switch between projects
+- Use `list_projects()` via MCP to see all registered projects
+
+**Adding/removing projects:**
+- **Via install script:** run `install.sh` from a new project directory (auto-registers)
+- **Via Web UI:** click "Add Project" in the project selector bar
+- **Via API:** `POST /api/projects` with `{name, git_repo_url, git_branch, git_token}`
+- **Remove:** `DELETE /api/projects/{name}` or the "Remove" button in the Web UI
+
+**Backward compatibility:** existing single-project setups continue to work without changes. If no `projects.json` exists but `MCP_GIT_REPO_URL` is set, Flaiwheel auto-creates a single project from the env vars.
+
 ### Embedding Model Hot-Swap
 
 When you change the embedding model via the Web UI, Flaiwheel re-embeds all documents in the background using a shadow collection. Search remains fully available on the old model while the migration runs. Once complete, the new index atomically replaces the old one — zero downtime.
@@ -319,44 +343,38 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  Docker Container (single process)                    │
-│                                                       │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │  Web-UI (FastAPI)                   Port 8080   │ │
-│  │  Config, monitoring, test search, health panel   │ │
-│  └──────────────────┬──────────────────────────────┘ │
-│                      │ shared state                   │
-│  ┌──────────────────┴──────────────────────────────┐ │
-│  │  MCP Server (FastMCP)               Port 8081   │ │
-│  │  15 tools: search, write, validate, manage       │ │
-│  └──────────────────┬──────────────────────────────┘ │
-│                      │                                │
-│  ┌──────────────────┴──────────────────────────────┐ │
-│  │  Quality Checker + Ingest Gate                   │ │
-│  │  Validates docs, skips critical failures         │ │
-│  │  (never deletes or modifies user files)          │ │
-│  └──────────────────┬──────────────────────────────┘ │
-│                      │                                │
-│  ┌──────────────────┴──────────────────────────────┐ │
-│  │  Indexer + ChromaDB (embedded, persistent)       │ │
-│  │  Markdown chunking → vector embeddings           │ │
-│  │  Diff-aware: only re-embeds changed files        │ │
-│  └──────────────────┬──────────────────────────────┘ │
-│                      │                                │
-│  ┌──────────────────┴──────────────────────────────┐ │
-│  │  Git Watcher (background thread)                 │ │
-│  │  Auto pull + push, reindex on changes            │ │
-│  └──────────────────┬──────────────────────────────┘ │
-│                      │                                │
-│  ┌──────────────────┴──────────────────────────────┐ │
-│  │  Health Tracker (thread-safe)                    │ │
-│  │  Index, git, search metrics, quality, skipped    │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                       │
-│  /docs (volume) ← knowledge repo                     │
-│  /data (volume) ← vector index + config              │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Docker Container (single process, N projects)               │
+│                                                              │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Web-UI (FastAPI)                        Port 8080    │  │
+│  │  Project CRUD, config, monitoring, search, health     │  │
+│  └─────────────────────┬─────────────────────────────────┘  │
+│                         │ shared state (ProjectRegistry)     │
+│  ┌─────────────────────┴─────────────────────────────────┐  │
+│  │  MCP Server (FastMCP)                    Port 8081    │  │
+│  │  18 tools (search, write, validate, manage, projects) │  │
+│  └─────────────────────┬─────────────────────────────────┘  │
+│                         │                                    │
+│  ┌─────────────────────┴─────────────────────────────────┐  │
+│  │  Shared Embedding Model (1× in RAM)                   │  │
+│  └─────────────────────┬─────────────────────────────────┘  │
+│                         │                                    │
+│  ┌──────────────────────┴────────────────────────────────┐  │
+│  │  Per-Project Contexts (isolated)                      │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │  │
+│  │  │  Project A  │  │  Project B  │  │  Project C  │   │  │
+│  │  │  collection │  │  collection │  │  collection │   │  │
+│  │  │  watcher    │  │  watcher    │  │  watcher    │   │  │
+│  │  │  lock       │  │  lock       │  │  lock       │   │  │
+│  │  │  health     │  │  health     │  │  health     │   │  │
+│  │  │  quality    │  │  quality    │  │  quality    │   │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘   │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                              │
+│  /docs/{project}/  ← per-project knowledge repos             │
+│  /data/            ← shared vectorstore + config + projects  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -390,7 +408,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (98 tests covering quality checker, indexer, health tracker, MCP tools, model migration)
+# Run tests (126 tests covering quality checker, indexer, health tracker, MCP tools, model migration, multi-project)
 pytest
 
 # Run locally (needs /docs and /data directories)
