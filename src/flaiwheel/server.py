@@ -7,7 +7,7 @@ MCP Server factory – creates a FastMCP instance with tools
 that share the ProjectRegistry from the main process.
 
 All tools accept an optional ``project`` parameter.
-When omitted the default (first) project is used.
+Resolution order: explicit project > sticky _active_project > first project.
 """
 import re
 import threading
@@ -16,7 +16,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from . import __version__
 from .config import Config
-from .project import ProjectRegistry, ProjectContext
+from .project import ProjectConfig, ProjectRegistry, ProjectContext
 
 GITHUB_REPO = "dl4rce/flaiwheel"
 
@@ -27,29 +27,48 @@ def create_mcp_server(
 ) -> FastMCP:
     """Factory: returns a configured FastMCP server backed by a ProjectRegistry."""
 
+    _active_project: str = ""
+    _active_lock = threading.Lock()
+
     mcp = FastMCP(
         "flaiwheel",
         instructions=(
             "Semantic search over project documentation.\n\n"
             "WORKFLOW for the agent:\n"
-            "1. ALWAYS search_docs() before changing code\n"
-            "2. search_bugfixes() to learn from past bugs\n"
-            "3. Prefer 2-3 targeted searches over one vague query\n"
-            "4. AFTER every bugfix: call write_bugfix_summary()\n"
-            "5. If one chunk isn't enough, search more specifically\n"
-            "6. Periodically call check_knowledge_quality() to maintain docs\n"
-            "7. Use list_projects() to see available projects\n"
-            "8. Pass project='name' to target a specific project"
+            "1. Call set_project('name') at the START of every session to bind\n"
+            "   all subsequent calls to the correct project. If the project\n"
+            "   is not registered yet, call setup_project() first.\n"
+            "2. ALWAYS search_docs() before changing code\n"
+            "3. search_bugfixes() to learn from past bugs\n"
+            "4. Prefer 2-3 targeted searches over one vague query\n"
+            "5. AFTER every bugfix: call write_bugfix_summary()\n"
+            "6. If one chunk isn't enough, search more specifically\n"
+            "7. Periodically call check_knowledge_quality() to maintain docs\n"
+            "8. Every tool accepts project='name' as an explicit override"
         ),
     )
 
     def _ctx(project: str | None) -> tuple[ProjectContext | None, str]:
-        ctx = registry.resolve(project)
+        nonlocal _active_project
+        effective = project or _active_project or None
+        ctx = registry.resolve(effective)
         if ctx is None:
             names = registry.names()
             if not names:
-                return None, "No projects registered. Add a project via the Web UI first."
-            return None, f"Project '{project}' not found. Available: {', '.join(names)}"
+                return None, (
+                    "No projects registered. "
+                    "Call setup_project() to register this project first."
+                )
+            if effective:
+                return None, (
+                    f"Project '{effective}' not found. "
+                    f"Available: {', '.join(names)}"
+                )
+            return None, (
+                f"Multiple projects registered but none selected. "
+                f"Call set_project('name') first. "
+                f"Available: {', '.join(names)}"
+            )
         return ctx, ""
 
     # ── Search tools ──────────────────────────────────
@@ -651,11 +670,14 @@ def create_mcp_server(
         """List all registered projects with basic statistics.
 
         Returns:
-            Table of projects with name, chunks, docs path, and git repo
+            Table of projects with name, chunks, docs path, and active marker
         """
         projects = registry.all()
         if not projects:
-            return "No projects registered. Add a project via the Web UI."
+            return (
+                "No projects registered. "
+                "Call setup_project(name='...') to create one."
+            )
 
         lines = [f"**{len(projects)} project(s) registered:**\n"]
         for ctx in projects:
@@ -663,14 +685,151 @@ def create_mcp_server(
             health = ctx.health.status
             qs = health.get("quality_score")
             qs_str = f"{qs}/100" if qs is not None else "–"
+            active = " ← **active**" if ctx.name == _active_project else ""
             lines.append(
-                f"- **{ctx.name}** — {stats['total_chunks']} chunks, "
+                f"- **{ctx.name}**{active} — {stats['total_chunks']} chunks, "
                 f"quality {qs_str}, "
                 f"path: `{stats['docs_path']}`"
             )
             if ctx.merged_config.git_repo_url:
                 lines.append(f"  git: `{ctx.merged_config.git_repo_url}`")
         return "\n".join(lines)
+
+    # ── Project management tools ────────────────────────
+
+    @mcp.tool()
+    def setup_project(
+        name: str,
+        git_repo_url: str = "",
+        git_branch: str = "main",
+        display_name: str = "",
+        git_auto_push: bool = True,
+        git_sync_interval: int = 300,
+    ) -> str:
+        """Register and initialise a NEW project in Flaiwheel.
+
+        Call this when the current project is not yet tracked by Flaiwheel.
+        It creates the knowledge-base directory structure, clones the
+        knowledge repo (if provided), runs an initial index, and
+        automatically binds all subsequent tool calls to this project.
+
+        Args:
+            name: Project name (short, no spaces — e.g. "my-app")
+            git_repo_url: HTTPS URL of the knowledge repo (optional, can be added later via Web UI)
+            git_branch: Branch to track (default: main)
+            display_name: Human-friendly name (optional, defaults to name)
+            git_auto_push: Auto-push writes to remote (default: True)
+            git_sync_interval: Seconds between git sync checks (default: 300)
+
+        Returns:
+            Confirmation with project name, chunk count, and active-project binding
+        """
+        nonlocal _active_project
+
+        if registry.get(name):
+            with _active_lock:
+                _active_project = name
+            ctx = registry.get(name)
+            return (
+                f"Project '{name}' already exists "
+                f"({ctx.indexer.stats['total_chunks']} chunks). "
+                f"Active project set to **{name}**."
+            )
+
+        pc = ProjectConfig(
+            name=name,
+            display_name=display_name or name,
+            git_repo_url=git_repo_url,
+            git_branch=git_branch,
+            git_auto_push=git_auto_push,
+            git_sync_interval=git_sync_interval,
+        )
+        try:
+            ctx = registry.setup_new_project(pc)
+        except Exception as e:
+            return f"Failed to set up project: {e}"
+
+        with _active_lock:
+            _active_project = name
+
+        return (
+            f"Project **{name}** created and indexed "
+            f"({ctx.indexer.stats['total_chunks']} chunks).\n"
+            f"Active project set to **{name}** — all subsequent calls target this project.\n\n"
+            f"Next steps:\n"
+            f"- `search_docs('...')` to query the knowledge base\n"
+            f"- `write_bugfix_summary(...)` after every bugfix\n"
+            f"- `git_pull_reindex()` after pushing docs to the knowledge repo"
+        )
+
+    @mcp.tool()
+    def set_project(name: str) -> str:
+        """Bind all subsequent MCP calls to a specific project.
+
+        Call this at the START of every conversation / session so all
+        tools automatically target the correct project. The project=
+        parameter on each tool still works as an explicit override.
+
+        Args:
+            name: Name of a registered project
+
+        Returns:
+            Confirmation of the active project binding
+        """
+        nonlocal _active_project
+        ctx = registry.get(name)
+        if ctx is None:
+            names = registry.names()
+            if not names:
+                return (
+                    f"Project '{name}' not found and no projects registered. "
+                    f"Call setup_project(name='{name}') to create it."
+                )
+            return (
+                f"Project '{name}' not found. "
+                f"Available: {', '.join(names)}.\n"
+                f"Call setup_project(name='{name}') to create it, "
+                f"or set_project('one-of-the-above') to switch."
+            )
+
+        with _active_lock:
+            _active_project = name
+
+        stats = ctx.indexer.stats
+        return (
+            f"Active project set to **{name}** "
+            f"({stats['total_chunks']} chunks, "
+            f"path: `{stats['docs_path']}`).\n"
+            f"All subsequent tool calls will target this project."
+        )
+
+    @mcp.tool()
+    def get_active_project() -> str:
+        """Show which project is currently bound as the active project.
+
+        Returns:
+            Name of the active project or instructions to set one
+        """
+        if _active_project and registry.get(_active_project):
+            ctx = registry.get(_active_project)
+            stats = ctx.indexer.stats
+            return (
+                f"Active project: **{_active_project}** "
+                f"({stats['total_chunks']} chunks, "
+                f"path: `{stats['docs_path']}`)"
+            )
+        names = registry.names()
+        if not names:
+            return "No active project. No projects registered. Call setup_project() first."
+        if len(names) == 1:
+            return (
+                f"No active project set (auto-using '{names[0]}' as the only project). "
+                f"Call set_project('{names[0]}') to make it explicit."
+            )
+        return (
+            f"No active project set. {len(names)} projects available: "
+            f"{', '.join(names)}. Call set_project('name') to bind one."
+        )
 
     @mcp.tool()
     def check_update() -> str:

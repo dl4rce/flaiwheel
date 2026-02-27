@@ -125,7 +125,11 @@ Add to `.cursor/mcp.json` (or `claude_desktop_config.json`):
 
 </details>
 
-Your AI agent now has access to these MCP tools:
+Your AI agent now has access to 21 MCP tools:
+- `set_project` — **bind this session to a project** (call first!)
+- `setup_project` — register + index a new project from the agent (auto-binds)
+- `get_active_project` — show which project is currently bound
+- `list_projects` — list all registered projects with statistics
 - `search_docs` — semantic search across all documentation
 - `search_bugfixes` — search bugfix summaries for past issues
 - `search_by_type` — search filtered by category (architecture, api, bugfix, best-practice, setup, changelog, test)
@@ -143,7 +147,6 @@ Your AI agent now has access to these MCP tools:
 - `reindex` — manual re-index after bulk changes
 - `check_knowledge_quality` — validate knowledge base consistency
 - `check_update` — check if a newer Flaiwheel version is available
-- `list_projects` — list all registered projects with statistics
 
 ---
 
@@ -221,9 +224,16 @@ You can also call `check_update()` to check if a newer version is available (wor
 | `test` | `search_tests("q")` | Test cases, scenarios, regression patterns |
 | _everything_ | `search_docs("q")` | Semantic search across all docs |
 
-### All MCP tools:
+### All 21 MCP Tools
+
+All tools accept an optional `project` parameter as explicit override. When omitted, the active project (set via `set_project`) is used automatically.
+
 | Tool | Purpose |
 |------|---------|
+| `set_project(name)` | **Bind session to a project** (call at start of conversation!) |
+| `setup_project(name, git_repo_url, ...)` | Register + index a new project from the agent (auto-binds) |
+| `get_active_project()` | Show which project is currently bound |
+| `list_projects()` | List all registered projects with stats + active marker |
 | `search_docs(query, top_k)` | Semantic search across all documentation |
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
 | `search_by_type(query, doc_type, top_k)` | Filter by type |
@@ -241,9 +251,6 @@ You can also call `check_update()` to check if a newer version is available (wor
 | `reindex(force=False)` | Re-index docs (diff-aware; force=True for full rebuild) |
 | `check_knowledge_quality()` | Validate knowledge base consistency |
 | `check_update()` | Check if a newer Flaiwheel version is available |
-| `list_projects()` | List all registered projects with stats |
-
-All search/write/admin tools accept an optional `project` parameter to target a specific project (defaults to the first registered project).
 
 ---
 
@@ -292,11 +299,13 @@ A single Flaiwheel container can manage multiple knowledge repositories — one 
 - The first `install.sh` run creates the Flaiwheel container with project A
 - Subsequent `install.sh` runs from other project directories detect the running container and register the new project via the API — no additional containers
 - All MCP tools accept an optional `project` parameter (e.g., `search_docs("query", project="my-app")`)
-- Without a `project` parameter, tools operate on the default (first) project
+- Call `set_project("my-app")` at the start of every conversation to bind all subsequent calls to that project (sticky session)
+- Without an explicit `project` parameter, the active project (set via `set_project`) is used; if none is set, the first project is used
 - The Web UI has a project selector dropdown to switch between projects
-- Use `list_projects()` via MCP to see all registered projects
+- Use `list_projects()` via MCP to see all registered projects (shows active marker)
 
 **Adding/removing projects:**
+- **Via AI agent:** call `setup_project(name="my-app", git_repo_url="...")` — registers, clones, indexes, and auto-binds
 - **Via install script:** run `install.sh` from a new project directory (auto-registers)
 - **Via Web UI:** click "Add Project" in the project selector bar
 - **Via API:** `POST /api/projects` with `{name, git_repo_url, git_branch, git_token}`

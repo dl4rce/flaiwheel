@@ -183,8 +183,14 @@ if gh repo view "${OWNER}/${KNOWLEDGE_REPO}" &>/dev/null 2>&1; then
         cat > FLAIWHEEL_TOOLS.md << 'TOOLSEOF'
 # Flaiwheel MCP Tools
 
+All tools accept an optional `project` parameter. When omitted, the active project (set via `set_project`) is used.
+
 | Tool | Purpose |
 |------|---------|
+| `set_project(name)` | **Bind session to a project** (call at start of every conversation!) |
+| `setup_project(name, git_repo_url, ...)` | Register + index a new project (auto-binds) |
+| `get_active_project()` | Show which project is currently bound |
+| `list_projects()` | List all registered projects with stats |
 | `search_docs(query, top_k)` | Semantic search across all documentation |
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
 | `search_by_type(query, doc_type, top_k)` | Filter by type |
@@ -256,8 +262,14 @@ READMEEOF
     cat > FLAIWHEEL_TOOLS.md << 'TOOLSEOF'
 # Flaiwheel MCP Tools
 
+All tools accept an optional `project` parameter. When omitted, the active project (set via `set_project`) is used.
+
 | Tool | Purpose |
 |------|---------|
+| `set_project(name)` | **Bind session to a project** (call at start of every conversation!) |
+| `setup_project(name, git_repo_url, ...)` | Register + index a new project (auto-binds) |
+| `get_active_project()` | Show which project is currently bound |
+| `list_projects()` | List all registered projects with stats |
 | `search_docs(query, top_k)` | Semantic search across all documentation |
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
 | `search_by_type(query, doc_type, top_k)` | Filter by type |
@@ -531,6 +543,15 @@ It is cloned and served by Flaiwheel inside a Docker container.
 - Use \`write_bugfix_summary()\` to **add** bugfix entries (auto-pushed to the repo)
 - To add/update other docs: commit and push to the knowledge repo directly, then call \`git_pull_reindex()\`
 
+## Session Setup — ALWAYS DO THIS FIRST
+
+At the **start of every conversation**, call:
+\`\`\`
+set_project("${PROJECT}")
+\`\`\`
+This binds all subsequent Flaiwheel calls to **this project** so nothing goes to the wrong repo.
+If the project is not registered, call \`setup_project(name="${PROJECT}", git_repo_url="${KNOWLEDGE_REPO_URL}")\` first.
+
 ## Step 1: Flaiwheel — Step 2: Native tools
 
 **For every task, follow this order:**
@@ -605,8 +626,14 @@ You can also call \`check_update()\` to check if a newer version is available.
 
 ## All MCP Tools
 
+All tools accept an optional \`project\` parameter as explicit override. When omitted, the active project (set via \`set_project\`) is used.
+
 | Tool | Purpose |
 |------|---------|
+| \`set_project(name)\` | **Bind session to a project** (call first!) |
+| \`setup_project(name, git_repo_url, ...)\` | Register + index a new project (auto-binds) |
+| \`get_active_project()\` | Show which project is currently bound |
+| \`list_projects()\` | List all registered projects with stats |
 | \`search_docs(query, top_k)\` | Semantic search across all documentation |
 | \`search_bugfixes(query, top_k)\` | Search only bugfix summaries |
 | \`search_by_type(query, doc_type, top_k)\` | Filter by type |
@@ -646,6 +673,15 @@ The knowledge base lives in a **separate Git repo**: \`${KNOWLEDGE_REPO_URL}\`
 
 **DO NOT** access, read, or modify files inside the Flaiwheel Docker container.
 Use the MCP tools to search, and commit/push to the knowledge repo to add docs.
+
+### Session Setup — ALWAYS DO THIS FIRST
+
+At the **start of every conversation**, call:
+\`\`\`
+set_project("${PROJECT}")
+\`\`\`
+This binds all subsequent Flaiwheel calls to **this project**.
+If the project is not registered, call \`setup_project(name="${PROJECT}", git_repo_url="${KNOWLEDGE_REPO_URL}")\` first.
 
 ### Step 1: Flaiwheel — Step 2: Native tools
 
@@ -694,8 +730,14 @@ You can also call \`check_update()\` to check if a newer version is available.
 
 ### All tools
 
+All tools accept an optional \`project\` parameter as explicit override.
+
 | Tool | Purpose |
 |------|---------|
+| \`set_project(name)\` | **Bind session to a project** (call first!) |
+| \`setup_project(name, git_repo_url, ...)\` | Register + index a new project (auto-binds) |
+| \`get_active_project()\` | Show which project is currently bound |
+| \`list_projects()\` | List all registered projects with stats |
 | \`search_docs(query, top_k)\` | Semantic search across all documentation |
 | \`search_bugfixes(query, top_k)\` | Search bugfix summaries only |
 | \`search_by_type(query, doc_type, top_k)\` | Filter by type |
