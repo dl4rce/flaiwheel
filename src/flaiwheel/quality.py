@@ -218,6 +218,8 @@ class KnowledgeQualityChecker:
         """Check for near-empty or suspiciously short files."""
         issues = []
         for md_file in docs.rglob("*.md"):
+            if md_file.name == "README.md" and md_file.parent != docs:
+                continue
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 text = _strip_markdown_overhead(content)
@@ -253,6 +255,8 @@ class KnowledgeQualityChecker:
             return issues
 
         for md_file in bugfix_dir.rglob("*.md"):
+            if md_file.name == "README.md":
+                continue
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 rel = str(md_file.relative_to(docs))
@@ -283,6 +287,8 @@ class KnowledgeQualityChecker:
         """Check for markdown structural issues."""
         issues = []
         for md_file in docs.rglob("*.md"):
+            if md_file.name == "README.md" and md_file.parent != docs:
+                continue
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 rel = str(md_file.relative_to(docs))
