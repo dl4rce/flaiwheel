@@ -7,14 +7,15 @@ MCP Server factory – creates a FastMCP instance with tools
 that share the ProjectRegistry from the main process.
 
 All tools accept an optional ``project`` parameter.
-Resolution order: explicit project > sticky _active_project > first project.
+Resolution order: explicit project > per-session active project > first project.
 """
 import json
+import os
 import re
 import threading
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 from . import __version__
 from .bootstrap import (
     DocumentClassifier,
@@ -28,14 +29,64 @@ from .project import ProjectConfig, ProjectRegistry, ProjectContext
 GITHUB_REPO = "dl4rce/flaiwheel"
 
 
+def _sessions_dir() -> Path:
+    return Path(os.environ.get("MCP_VECTORSTORE_PATH", "/data")) / "sessions"
+
+
+def _sessions_path(project_name: str) -> Path:
+    _sessions_dir().mkdir(parents=True, exist_ok=True)
+    return _sessions_dir() / f"{project_name}.json"
+
+
+def _load_sessions(project_name: str) -> list[dict]:
+    p = _sessions_path(project_name)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            return []
+    return []
+
+
+def _save_sessions(project_name: str, sessions: list[dict], max_sessions: int = 50):
+    sessions = sessions[-max_sessions:]
+    _sessions_path(project_name).write_text(json.dumps(sessions, indent=2))
+
+
 def create_mcp_server(
     config: Config,
     registry: ProjectRegistry,
 ) -> FastMCP:
     """Factory: returns a configured FastMCP server backed by a ProjectRegistry."""
 
-    _active_project: str = ""
+    _active_projects: dict[int, str] = {}
     _active_lock = threading.Lock()
+
+    def _session_key(ctx: Context | None) -> int:
+        """Return a per-connection key from an MCP Context.
+
+        Each SSE client gets its own ServerSession object, so id(session)
+        is stable and unique for the lifetime of that connection.  When
+        Context is unavailable (e.g. unit tests) we fall back to 0.
+        """
+        if ctx is None:
+            return 0
+        try:
+            return id(ctx.request_context.session)
+        except (ValueError, AttributeError):
+            return 0
+
+    def _get_active(ctx: Context | None) -> str:
+        """Read the active project for this session."""
+        key = _session_key(ctx)
+        with _active_lock:
+            return _active_projects.get(key, "")
+
+    def _set_active(ctx: Context | None, name: str) -> None:
+        """Set the active project for this session only."""
+        key = _session_key(ctx)
+        with _active_lock:
+            _active_projects[key] = name
 
     mcp = FastMCP(
         "flaiwheel",
@@ -61,13 +112,17 @@ def create_mcp_server(
             "   c. Call classify_documents(files=JSON) to get Flaiwheel's classification\n"
             "   d. Present the migration plan to the user\n"
             "   e. For each approved file: read it, use the suggested write_* tool to push\n"
-            "   f. Call reindex() when done"
+            "   f. Call reindex() when done\n\n"
+            "DOCUMENTATION TRIGGERS — when to document:\n"
+            "MANDATORY: After fixing ANY bug → write_bugfix_summary() (no exceptions)\n"
+            "RECOMMENDED: Architecture decision → write_architecture_doc() | API change → write_api_doc() | "
+            "New pattern → write_best_practice() | Deployment change → write_setup_doc() | Tests written → write_test_case()\n"
+            "SESSION: At END of session → save_session_summary() | At START of session → get_recent_sessions()"
         ),
     )
 
-    def _ctx(project: str | None) -> tuple[ProjectContext | None, str]:
-        nonlocal _active_project
-        effective = project or _active_project or None
+    def _ctx(project: str | None, mcp_ctx: Context | None = None) -> tuple[ProjectContext | None, str]:
+        effective = project or _get_active(mcp_ctx) or None
         ctx = registry.resolve(effective)
         if ctx is None:
             names = registry.names()
@@ -91,7 +146,7 @@ def create_mcp_server(
     # ── Search tools ──────────────────────────────────
 
     @mcp.tool()
-    def search_docs(query: str, top_k: int = 5, project: str = "") -> str:
+    def search_docs(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
         """Semantic search over the ENTIRE project documentation.
         Returns only the most relevant chunks (token-efficient!).
 
@@ -105,7 +160,7 @@ def create_mcp_server(
         Returns:
             Relevant doc chunks with source reference and relevance score
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -129,7 +184,7 @@ def create_mcp_server(
         return "\n".join(output)
 
     @mcp.tool()
-    def search_bugfixes(query: str, top_k: int = 5, project: str = "") -> str:
+    def search_bugfixes(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
         """Search ONLY bugfix summaries for similar past problems.
         Use this to learn from earlier bugs and avoid repetition.
 
@@ -141,7 +196,7 @@ def create_mcp_server(
         Returns:
             Similar bugfix summaries with root cause, solution and lessons learned
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -164,7 +219,7 @@ def create_mcp_server(
         return "\n".join(output)
 
     @mcp.tool()
-    def search_by_type(query: str, doc_type: str, top_k: int = 5, project: str = "") -> str:
+    def search_by_type(query: str, doc_type: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
         """Search filtered by document type.
 
         Args:
@@ -174,7 +229,7 @@ def create_mcp_server(
             top_k: Number of results
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -194,7 +249,7 @@ def create_mcp_server(
         return "\n".join(output)
 
     @mcp.tool()
-    def search_tests(query: str, top_k: int = 5, project: str = "") -> str:
+    def search_tests(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
         """Search test cases in the knowledge base.
 
         Find existing test scenarios, regression patterns, and test strategies.
@@ -205,7 +260,7 @@ def create_mcp_server(
             top_k: Number of results to return
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -259,6 +314,7 @@ def create_mcp_server(
         affected_files: str = "",
         tags: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write a bugfix summary as .md file and index it IMMEDIATELY.
 
@@ -274,7 +330,7 @@ def create_mcp_server(
             tags: Categories (e.g. "payment,race-condition,critical")
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -299,6 +355,7 @@ def create_mcp_server(
         components: str = "",
         diagrams: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write an architecture decision/design document.
 
@@ -311,7 +368,7 @@ def create_mcp_server(
             diagrams: Optional ASCII/mermaid diagrams
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -340,6 +397,7 @@ def create_mcp_server(
         auth: str = "",
         examples: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write an API endpoint document.
 
@@ -353,7 +411,7 @@ def create_mcp_server(
             examples: Optional request/response examples
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -379,6 +437,7 @@ def create_mcp_server(
         rationale: str,
         examples: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write a best practice / coding standard document.
 
@@ -390,7 +449,7 @@ def create_mcp_server(
             examples: Optional code examples showing correct usage
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -414,6 +473,7 @@ def create_mcp_server(
         verification: str,
         troubleshooting: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write a setup/deployment/infrastructure document.
 
@@ -425,7 +485,7 @@ def create_mcp_server(
             troubleshooting: Optional common issues and solutions
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -450,6 +510,7 @@ def create_mcp_server(
         fixed: str = "",
         breaking: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write a changelog / release notes entry.
 
@@ -462,7 +523,7 @@ def create_mcp_server(
             breaking: Breaking changes (optional)
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -493,6 +554,7 @@ def create_mcp_server(
         status: str = "",
         tags: str = "",
         project: str = "",
+        mcp_ctx: Context = None,
     ) -> str:
         """Write a test case document and index it IMMEDIATELY.
 
@@ -507,7 +569,7 @@ def create_mcp_server(
             tags: Optional categories (e.g. "auth,regression,critical")
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -533,7 +595,7 @@ def create_mcp_server(
     # ── Admin / utility tools ─────────────────────────
 
     @mcp.tool()
-    def validate_doc(content: str, category: str = "docs", project: str = "") -> str:
+    def validate_doc(content: str, category: str = "docs", project: str = "", mcp_ctx: Context = None) -> str:
         """Validate a markdown document BEFORE committing it to the knowledge repo.
 
         Args:
@@ -545,7 +607,7 @@ def create_mcp_server(
         Returns:
             "OK" if valid, or a list of issues to fix
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -559,13 +621,13 @@ def create_mcp_server(
         return "\n".join(lines)
 
     @mcp.tool()
-    def get_index_stats(project: str = "") -> str:
+    def get_index_stats(project: str = "", mcp_ctx: Context = None) -> str:
         """Show statistics about the current vector index.
 
         Args:
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -584,7 +646,7 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    def reindex(force: bool = False, project: str = "") -> str:
+    def reindex(force: bool = False, project: str = "", mcp_ctx: Context = None) -> str:
         """Re-index documentation. Diff-aware by default (only changed files).
         Set force=True to rebuild all embeddings from scratch.
 
@@ -592,7 +654,7 @@ def create_mcp_server(
             force: If True, re-embed all files regardless of changes (default: False)
             project: Target project name (optional)
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -607,7 +669,7 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    def git_pull_reindex(project: str = "") -> str:
+    def git_pull_reindex(project: str = "", mcp_ctx: Context = None) -> str:
         """Pull latest changes from the knowledge repo and re-index.
 
         Call this AFTER you have committed and pushed new or updated .md files
@@ -619,7 +681,7 @@ def create_mcp_server(
         Returns:
             Summary of pull result and reindex statistics
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -647,7 +709,7 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    def check_knowledge_quality(project: str = "") -> str:
+    def check_knowledge_quality(project: str = "", mcp_ctx: Context = None) -> str:
         """Validate the knowledge base for consistency, completeness
         and structural correctness.
 
@@ -657,7 +719,7 @@ def create_mcp_server(
         Returns:
             Quality score (0-100) and list of issues
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -683,7 +745,7 @@ def create_mcp_server(
         return "\n".join(lines)
 
     @mcp.tool()
-    def list_projects() -> str:
+    def list_projects(mcp_ctx: Context = None) -> str:
         """List all registered projects with basic statistics.
 
         Returns:
@@ -696,13 +758,14 @@ def create_mcp_server(
                 "Call setup_project(name='...') to create one."
             )
 
+        current_active = _get_active(mcp_ctx)
         lines = [f"**{len(projects)} project(s) registered:**\n"]
         for ctx in projects:
             stats = ctx.indexer.stats
             health = ctx.health.status
             qs = health.get("quality_score")
             qs_str = f"{qs}/100" if qs is not None else "–"
-            active = " ← **active**" if ctx.name == _active_project else ""
+            active = " ← **active**" if ctx.name == current_active else ""
             lines.append(
                 f"- **{ctx.name}**{active} — {stats['total_chunks']} chunks, "
                 f"quality {qs_str}, "
@@ -722,6 +785,7 @@ def create_mcp_server(
         display_name: str = "",
         git_auto_push: bool = True,
         git_sync_interval: int = 300,
+        mcp_ctx: Context = None,
     ) -> str:
         """Register and initialise a NEW project in Flaiwheel.
 
@@ -741,11 +805,8 @@ def create_mcp_server(
         Returns:
             Confirmation with project name, chunk count, and active-project binding
         """
-        nonlocal _active_project
-
         if registry.get(name):
-            with _active_lock:
-                _active_project = name
+            _set_active(mcp_ctx, name)
             ctx = registry.get(name)
             return (
                 f"Project '{name}' already exists "
@@ -766,8 +827,7 @@ def create_mcp_server(
         except Exception as e:
             return f"Failed to set up project: {e}"
 
-        with _active_lock:
-            _active_project = name
+        _set_active(mcp_ctx, name)
 
         return (
             f"Project **{name}** created and indexed "
@@ -780,12 +840,15 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    def set_project(name: str) -> str:
-        """Bind all subsequent MCP calls to a specific project.
+    def set_project(name: str, mcp_ctx: Context = None) -> str:
+        """Bind all subsequent MCP calls in THIS session to a specific project.
 
         Call this at the START of every conversation / session so all
         tools automatically target the correct project. The project=
         parameter on each tool still works as an explicit override.
+
+        Each Cursor workspace / MCP connection has its own binding —
+        setting project A in workspace-1 does NOT affect workspace-2.
 
         Args:
             name: Name of a registered project
@@ -793,7 +856,6 @@ def create_mcp_server(
         Returns:
             Confirmation of the active project binding
         """
-        nonlocal _active_project
         ctx = registry.get(name)
         if ctx is None:
             names = registry.names()
@@ -809,8 +871,7 @@ def create_mcp_server(
                 f"or set_project('one-of-the-above') to switch."
             )
 
-        with _active_lock:
-            _active_project = name
+        _set_active(mcp_ctx, name)
 
         stats = ctx.indexer.stats
         return (
@@ -821,17 +882,19 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    def get_active_project() -> str:
-        """Show which project is currently bound as the active project.
+    def get_active_project(mcp_ctx: Context = None) -> str:
+        """Show which project is currently bound as the active project
+        for THIS session / connection.
 
         Returns:
             Name of the active project or instructions to set one
         """
-        if _active_project and registry.get(_active_project):
-            ctx = registry.get(_active_project)
+        current = _get_active(mcp_ctx)
+        if current and registry.get(current):
+            ctx = registry.get(current)
             stats = ctx.indexer.stats
             return (
-                f"Active project: **{_active_project}** "
+                f"Active project: **{current}** "
                 f"({stats['total_chunks']} chunks, "
                 f"path: `{stats['docs_path']}`)"
             )
@@ -853,7 +916,7 @@ def create_mcp_server(
     _bootstrap_cache: dict[str, KnowledgeBootstrap] = {}
 
     @mcp.tool()
-    def analyze_knowledge_repo(project: str = "") -> str:
+    def analyze_knowledge_repo(project: str = "", mcp_ctx: Context = None) -> str:
         """Analyse the KNOWLEDGE REPOSITORY for structure, quality,
         duplicates, and misplaced files.  Returns a report with proposed
         cleanup actions for files already inside the knowledge repo.
@@ -870,7 +933,7 @@ def create_mcp_server(
         Returns:
             Structured analysis report with proposed cleanup actions
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -885,7 +948,7 @@ def create_mcp_server(
         return format_report(report)
 
     @mcp.tool()
-    def execute_cleanup(actions: str, project: str = "") -> str:
+    def execute_cleanup(actions: str, project: str = "", mcp_ctx: Context = None) -> str:
         """Execute approved cleanup actions from analyze_knowledge_repo().
 
         SAFETY: This tool NEVER deletes any file. It only creates directories
@@ -898,7 +961,7 @@ def create_mcp_server(
         Returns:
             Execution results with rollback instructions
         """
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -952,7 +1015,7 @@ def create_mcp_server(
     _classifier_cache: Optional[DocumentClassifier] = None
 
     @mcp.tool()
-    def classify_documents(files: str, project: str = "") -> str:
+    def classify_documents(files: str, project: str = "", mcp_ctx: Context = None) -> str:
         '''"This is the Way" — Classify documents from the project repo for
         migration into the knowledge base.
 
@@ -979,7 +1042,7 @@ def create_mcp_server(
         '''
         nonlocal _classifier_cache
 
-        ctx, err = _ctx(project or None)
+        ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
 
@@ -1064,5 +1127,89 @@ def create_mcp_server(
             f"This will rebuild the Docker image and recreate the container with the latest code. "
             f"Data and configuration are preserved."
         )
+
+    # ── Session memory tools ─────────────────────────────
+
+    @mcp.tool()
+    def save_session_summary(
+        summary: str,
+        decisions: str = "",
+        open_questions: str = "",
+        files_modified: str = "",
+        project: str = "",
+        mcp_ctx: Context = None,
+    ) -> str:
+        """Save a session summary for future context retrieval.
+
+        Call at the END of every coding session to preserve context for the next session.
+        This ensures continuity — the next agent picks up where you left off.
+
+        Args:
+            summary: Brief summary of what was accomplished (1-3 sentences)
+            decisions: Key decisions made (comma-separated)
+            open_questions: Unresolved questions or next steps (comma-separated)
+            files_modified: Files changed during this session (comma-separated, optional)
+            project: Target project (optional, uses active project)
+        """
+        ctx, err = _ctx(project or None, mcp_ctx)
+        if not ctx:
+            return err
+
+        session = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "summary": summary.strip(),
+            "decisions": [d.strip() for d in decisions.split(",") if d.strip()] if decisions else [],
+            "open_questions": [q.strip() for q in open_questions.split(",") if q.strip()] if open_questions else [],
+            "files_modified": [f.strip() for f in files_modified.split(",") if f.strip()] if files_modified else [],
+        }
+
+        sessions = _load_sessions(ctx.name)
+        sessions.append(session)
+        _save_sessions(ctx.name, sessions)
+
+        return f"Session summary saved for project '{ctx.name}'. Total sessions: {len(sessions)}."
+
+    @mcp.tool()
+    def get_recent_sessions(
+        limit: int = 5,
+        project: str = "",
+        mcp_ctx: Context = None,
+    ) -> str:
+        """Retrieve recent session summaries for context continuity.
+
+        Call at the START of every coding session to understand what was done previously.
+        Returns the most recent session summaries with decisions and open questions.
+
+        Args:
+            limit: Number of recent sessions to return (default: 5, max: 20)
+            project: Target project (optional, uses active project)
+        """
+        ctx, err = _ctx(project or None, mcp_ctx)
+        if not ctx:
+            return err
+
+        limit = min(max(1, limit), 20)
+        sessions = _load_sessions(ctx.name)
+
+        if not sessions:
+            return f"No session history for project '{ctx.name}'. Start documenting sessions with save_session_summary()."
+
+        recent = sessions[-limit:]
+        recent.reverse()
+
+        lines = [f"## Recent Sessions for '{ctx.name}' ({len(recent)} of {len(sessions)} total)\n"]
+        for i, s in enumerate(recent, 1):
+            ts = s.get("timestamp", "unknown")
+            lines.append(f"### Session {i} — {ts}")
+            lines.append(f"**Summary:** {s.get('summary', '–')}")
+            if s.get("decisions"):
+                lines.append("**Decisions:** " + " | ".join(s["decisions"]))
+            if s.get("open_questions"):
+                lines.append("**Open questions:** " + " | ".join(s["open_questions"]))
+            if s.get("files_modified"):
+                lines.append("**Files modified:** " + ", ".join(s["files_modified"]))
+            lines.append("")
+
+        return "\n".join(lines)
 
     return mcp

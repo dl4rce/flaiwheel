@@ -221,6 +221,8 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
 | `classify_documents(files)` | Classify project docs for migration into knowledge base |
+| `save_session_summary(...)` | Save session context for continuity (call at end of session) |
+| `get_recent_sessions(limit)` | Retrieve recent session summaries (call at start of session) |
 
 ## "This is the Way" — Knowledge Bootstrap
 
@@ -323,6 +325,8 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
 | `classify_documents(files)` | Classify project docs for migration into knowledge base |
+| `save_session_summary(...)` | Save session context for continuity (call at end of session) |
+| `get_recent_sessions(limit)` | Retrieve recent session summaries (call at start of session) |
 
 ## "This is the Way" — Knowledge Bootstrap
 
@@ -697,6 +701,21 @@ When the user says **"This is the Way"** or **"42"**, trigger the bootstrap:
 
 Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed to the repo and automatically reindexed. The next search finds it. **Every task you document makes the next task faster.** You are part of this cycle — always close the loop.
 
+## Documentation Triggers
+
+**MANDATORY:** After fixing ANY bug → \`write_bugfix_summary()\` (no exceptions)
+
+**RECOMMENDED:**
+- Architecture decision → \`write_architecture_doc()\`
+- API change → \`write_api_doc()\`
+- New coding pattern → \`write_best_practice()\`
+- Deployment/infra change → \`write_setup_doc()\`
+- Tests written/modified → \`write_test_case()\`
+
+**SESSION CONTINUITY:**
+- At START of session → \`get_recent_sessions()\` (see what was done before)
+- At END of session → \`save_session_summary()\` (preserve context for next time)
+
 ## Updating Flaiwheel
 
 To update Flaiwheel, tell the user to run this in their project directory:
@@ -735,6 +754,8 @@ All tools accept an optional \`project\` parameter as explicit override. When om
 | \`analyze_knowledge_repo()\` | Analyse knowledge repo structure and quality |
 | \`execute_cleanup(actions)\` | Execute approved cleanup actions (never deletes files) |
 | \`classify_documents(files)\` | **"This is the Way"** — classify project docs for knowledge migration |
+| \`save_session_summary(...)\` | Save session context for continuity (call at end of session) |
+| \`get_recent_sessions(limit)\` | Retrieve recent session summaries (call at start of session) |
 RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
@@ -794,6 +815,21 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 **Important:** Files with critical quality issues are skipped during indexing. Flaiwheel NEVER deletes or modifies user files.
 
+### Documentation Triggers
+
+**MANDATORY:** After fixing ANY bug → \`write_bugfix_summary()\` (no exceptions)
+
+**RECOMMENDED:**
+- Architecture decision → \`write_architecture_doc()\`
+- API change → \`write_api_doc()\`
+- New coding pattern → \`write_best_practice()\`
+- Deployment/infra change → \`write_setup_doc()\`
+- Tests written/modified → \`write_test_case()\`
+
+**SESSION CONTINUITY:**
+- At START of session → \`get_recent_sessions()\` (see what was done before)
+- At END of session → \`save_session_summary()\` (preserve context for next time)
+
 ### What the knowledge base contains
 
 | Category | Search with | What you'll find |
@@ -845,6 +881,8 @@ All tools accept an optional \`project\` parameter as explicit override.
 | \`analyze_knowledge_repo()\` | Analyse knowledge repo structure and quality |
 | \`execute_cleanup(actions)\` | Execute approved cleanup actions (never deletes files) |
 | \`classify_documents(files)\` | **"This is the Way"** — classify project docs for knowledge migration |
+| \`save_session_summary(...)\` | Save session context for continuity (call at end of session) |
+| \`get_recent_sessions(limit)\` | Retrieve recent session summaries (call at start of session) |
 BLOCKEOF
 )
 

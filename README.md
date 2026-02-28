@@ -127,7 +127,7 @@ Add to `.cursor/mcp.json` (or `claude_desktop_config.json`):
 
 </details>
 
-Your AI agent now has access to 21 MCP tools:
+Your AI agent now has access to 26 MCP tools:
 - `set_project` — **bind this session to a project** (call first!)
 - `setup_project` — register + index a new project from the agent (auto-binds)
 - `get_active_project` — show which project is currently bound
@@ -152,6 +152,8 @@ Your AI agent now has access to 21 MCP tools:
 - `analyze_knowledge_repo` — analyse knowledge repo structure and quality
 - `execute_cleanup` — execute approved cleanup actions (never deletes files)
 - `classify_documents` — **"This is the Way"** — classify project docs for migration into the knowledge base
+- `save_session_summary` — save session context for continuity (call at end of session)
+- `get_recent_sessions` — retrieve recent session summaries (call at start of session)
 
 ---
 
@@ -232,7 +234,7 @@ Tell your agent **"This is the Way"** (or **"42"**) to trigger bootstrap analysi
 | `test` | `search_tests("q")` | Test cases, scenarios, regression patterns |
 | _everything_ | `search_docs("q")` | Semantic search across all docs |
 
-### All 21 MCP Tools
+### All 26 MCP Tools
 
 All tools accept an optional `project` parameter as explicit override. When omitted, the active project (set via `set_project`) is used automatically.
 
@@ -262,6 +264,8 @@ All tools accept an optional `project` parameter as explicit override. When omit
 | `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
 | `classify_documents(files)` | **"This is the Way"** — classify project docs for knowledge migration |
+| `save_session_summary(summary, decisions, open_questions, files_modified)` | Save session context for next session continuity |
+| `get_recent_sessions(limit)` | Retrieve recent session summaries (newest first) |
 
 ---
 
@@ -423,7 +427,7 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 │                         │ shared state (ProjectRegistry)     │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
 │  │  MCP Server (FastMCP)                    Port 8081    │  │
-│  │  18 tools (search, write, validate, manage, projects) │  │
+│  │  26 tools (search, write, classify, manage, projects) │  │
 │  └─────────────────────┬─────────────────────────────────┘  │
 │                         │                                    │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
@@ -463,7 +467,7 @@ Features:
 - Knowledge quality checker (also runs automatically after every reindex)
 - Search metrics (hits/total, miss rate, per-tool breakdown)
 - Skipped files indicator (files excluded from indexing due to critical quality issues)
-- **"This is the Way" — Knowledge Bootstrap**: analyse, classify, detect duplicates, execute cleanup — all from the Web UI
+- **"This is the Way" — Knowledge Bootstrap**: agent-driven project classification + in-repo cleanup (Web UI shows guidance + advanced scan)
 - Multi-project switcher (manage multiple repos from one instance)
 - Client configuration snippets (Cursor, Claude Desktop, Docker)
 - Password management
@@ -480,7 +484,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (155 tests covering readers, quality checker, indexer, health tracker, MCP tools, model migration, multi-project)
+# Run tests (220 tests covering readers, quality checker, indexer, health tracker, MCP tools, model migration, multi-project, bootstrap, classification)
 pytest
 
 # Run locally (needs /docs and /data directories)

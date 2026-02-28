@@ -363,14 +363,27 @@ def _strip_code_blocks(text: str) -> str:
 
 
 def _strip_markdown_overhead(text: str) -> str:
-    """Measure meaningful content: remove headings but keep code, tables, lists."""
+    """Measure meaningful content: strip markdown syntax, keep actual text."""
     cleaned = _strip_code_blocks(text)
     lines = []
     for line in cleaned.splitlines():
         if re.match(r"^#{1,6}\s+", line):
             continue
+        if re.match(r"^\s*(?:---+|\*\*\*+|___+)\s*$", line):
+            continue
+        line = re.sub(r"^\s*[-*+]\s+", "", line)
+        line = re.sub(r"^\s*\d+\.\s+", "", line)
+        line = re.sub(r"^(?:\s*>\s*)+", "", line)
         lines.append(line)
-    return "\n".join(lines).strip()
+    joined = "\n".join(lines)
+    joined = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", joined)
+    joined = re.sub(r"`([^`]*)`", r"\1", joined)
+    joined = re.sub(r"\*\*([^*]*)\*\*", r"\1", joined)
+    joined = re.sub(r"\*([^*]*)\*", r"\1", joined)
+    joined = re.sub(r"__([^_]*)__", r"\1", joined)
+    joined = re.sub(r"_([^_]*)_", r"\1", joined)
+    joined = re.sub(r"\n{2,}", "\n", joined)
+    return joined.strip()
 
 
 def _split_h2_sections(text: str) -> list[tuple[str, str]]:

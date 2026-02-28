@@ -19,12 +19,14 @@ stable across reindexing regardless of section ordering.
 import hashlib
 import json
 import re
+import shutil
 import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import bm25s
 import chromadb
 from chromadb.utils import embedding_functions
 from .config import Config
@@ -89,6 +91,9 @@ class DocsIndexer:
         self._migration_lock = threading.Lock()
         self._init_vectorstore()
         self._cleanup_orphaned_shadow()
+        self._bm25_index = None
+        self._bm25_corpus_ids: list[str] = []
+        self._load_bm25_index()
 
     def _cleanup_orphaned_shadow(self):
         """Remove leftover shadow collection from interrupted migrations."""
@@ -134,6 +139,11 @@ class DocsIndexer:
             self._hashes_path.unlink(missing_ok=True)
         except Exception:
             pass
+        self._bm25_index = None
+        self._bm25_corpus_ids = []
+        bm25_dir = self._bm25_index_path()
+        if bm25_dir.exists():
+            shutil.rmtree(bm25_dir)
         self._init_vectorstore()
 
     # ── Model Hot-Swap (background migration) ────────────
@@ -596,6 +606,8 @@ class DocsIndexer:
             print(f"Warning: ChromaDB count={actual_count} but expected ~{expected_count}, "
                   f"not saving hash cache (will re-embed on next run)")
 
+        self._build_bm25_index(list(deduped_all.values()))
+
         result = {
             "status": "success",
             "files_indexed": file_count,
@@ -640,34 +652,143 @@ class DocsIndexer:
             self._hashes_path.unlink(missing_ok=True)
         except Exception:
             pass
+        self._bm25_index = None
+        self._bm25_corpus_ids = []
+        bm25_dir = self._bm25_index_path()
+        if bm25_dir.exists():
+            shutil.rmtree(bm25_dir)
+
+    # ── BM25 (keyword search) ────────────────────────────
+
+    def _bm25_index_path(self) -> Path:
+        return Path(self.config.vectorstore_path) / f"{self._collection_name}_bm25"
+
+    def _load_bm25_index(self):
+        """Load persisted BM25 index if it exists."""
+        idx_dir = self._bm25_index_path()
+        ids_path = idx_dir / "corpus_ids.json"
+        if idx_dir.exists() and ids_path.exists():
+            try:
+                self._bm25_index = bm25s.BM25.load(idx_dir, load_corpus=False)
+                with open(ids_path) as f:
+                    self._bm25_corpus_ids = json.load(f)
+            except Exception:
+                self._bm25_index = None
+                self._bm25_corpus_ids = []
+
+    def _build_bm25_index(self, chunks: list[dict]):
+        """Build BM25 index from chunks and persist."""
+        if not chunks:
+            return
+        corpus = [c["text"] for c in chunks]
+        ids = [c["id"] for c in chunks]
+        corpus_tokens = bm25s.tokenize(corpus, stopwords="en")
+        retriever = bm25s.BM25()
+        retriever.index(corpus_tokens)
+        idx_dir = self._bm25_index_path()
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        retriever.save(idx_dir)
+        with open(idx_dir / "corpus_ids.json", "w") as f:
+            json.dump(ids, f)
+        self._bm25_index = retriever
+        self._bm25_corpus_ids = ids
+
+    def _bm25_search(self, query: str, top_k: int, type_filter: Optional[str] = None) -> list[dict]:
+        """BM25 keyword search. Returns list of {id, text, metadata, score}."""
+        if self._bm25_index is None or not self._bm25_corpus_ids:
+            return []
+        query_tokens = bm25s.tokenize([query], stopwords="en")
+        fetch_k = min(top_k * 3, len(self._bm25_corpus_ids))
+        results, scores = self._bm25_index.retrieve(query_tokens, k=fetch_k)
+        hits: list[dict] = []
+        for i in range(results.shape[1]):
+            idx = int(results[0, i])
+            score = float(scores[0, i])
+            if idx < 0 or idx >= len(self._bm25_corpus_ids) or score <= 0:
+                continue
+            chunk_id = self._bm25_corpus_ids[idx]
+            try:
+                doc = self.collection.get(ids=[chunk_id], include=["documents", "metadatas"])
+                if not doc["ids"]:
+                    continue
+                meta = doc["metadatas"][0] if doc["metadatas"] else {}
+                text = doc["documents"][0] if doc["documents"] else ""
+            except Exception:
+                continue
+            if type_filter and meta.get("type", "") != type_filter:
+                continue
+            hits.append({"id": chunk_id, "text": text, "metadata": meta, "score": score, "_from": "bm25"})
+            if len(hits) >= top_k:
+                break
+        return hits
+
+    def _rrf_fuse(self, vector_hits: list[dict], bm25_hits: list[dict], top_k: int, k: int = 60) -> list[dict]:
+        """Reciprocal Rank Fusion: merge two ranked lists."""
+        scores: dict[str, float] = {}
+        docs: dict[str, dict] = {}
+        for rank, hit in enumerate(vector_hits, 1):
+            cid = hit["id"]
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+            docs[cid] = hit
+        for rank, hit in enumerate(bm25_hits, 1):
+            cid = hit["id"]
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+            if cid not in docs:
+                docs[cid] = hit
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        return [docs[cid] for cid, _ in ranked]
 
     # ── Search ───────────────────────────────────────────
 
-    def search(
-        self, query: str, top_k: int = 5, type_filter: Optional[str] = None,
-    ) -> list[dict]:
+    def _vector_search(self, query: str, top_k: int, type_filter: Optional[str] = None) -> list[dict]:
+        """ChromaDB vector search. Returns list of {id, text, metadata, score, _from}."""
         if self.collection.count() == 0:
             return []
-
         kwargs: dict = {
             "query_texts": [query],
             "n_results": min(top_k, self.collection.count()),
         }
         if type_filter:
             kwargs["where"] = {"type": type_filter}
-
         try:
             results = self.collection.query(**kwargs)
         except Exception as e:
-            print(f"Search error: {e}")
+            print(f"Vector search error: {e}")
             return []
-
         if not results["documents"] or not results["documents"][0]:
             return []
-
         return [
-            {
-                "text": doc,
+            {"id": cid, "text": doc, "metadata": meta, "score": dist, "_from": "vector"}
+            for cid, doc, meta, dist in zip(
+                results["ids"][0],
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0],
+            )
+        ]
+
+    def search(
+        self, query: str, top_k: int = 5, type_filter: Optional[str] = None,
+    ) -> list[dict]:
+        vector_hits = self._vector_search(query, top_k, type_filter)
+
+        if self.config.hybrid_search and self._bm25_index is not None and self._bm25_corpus_ids:
+            bm25_hits = self._bm25_search(query, top_k, type_filter)
+            merged = self._rrf_fuse(vector_hits, bm25_hits, top_k)
+        else:
+            merged = vector_hits
+
+        out: list[dict] = []
+        for hit in merged:
+            meta = hit["metadata"]
+            dist = hit.get("score", 0)
+            if hit.get("_from") == "vector":
+                relevance = round((1 - dist) * 100, 1)
+            else:
+                relevance = 0.0
+                dist = 0.0
+            out.append({
+                "text": hit["text"],
                 "source": meta["source"],
                 "heading": meta["heading"],
                 "heading_path": meta.get("heading_path", ""),
@@ -676,14 +797,9 @@ class DocsIndexer:
                 "line_start": meta.get("line_start", 0),
                 "line_end": meta.get("line_end", 0),
                 "distance": dist,
-                "relevance": round((1 - dist) * 100, 1),
-            }
-            for doc, meta, dist in zip(
-                results["documents"][0],
-                results["metadatas"][0],
-                results["distances"][0],
-            )
-        ]
+                "relevance": relevance,
+            })
+        return out
 
     # ── Stats (efficient: queries by type, no bulk load) ─
 

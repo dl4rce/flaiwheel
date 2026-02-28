@@ -45,6 +45,9 @@ class Config(BaseSettings):
     git_commit_prefix: str = "knowledge"
     webhook_secret: str = ""
 
+    # ── Search ───────────────────────────────────
+    hybrid_search: bool = True
+
     # ── Server / Transport ───────────────────────
     transport: Literal["stdio", "sse"] = "sse"
     sse_port: int = 8081

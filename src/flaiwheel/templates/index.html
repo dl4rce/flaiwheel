@@ -481,54 +481,6 @@
             </div>
         </div>
 
-        <!-- Knowledge Bootstrap -->
-        <div class="card" style="margin-bottom: 24px;">
-            <h2><span class="icon">&#127756;</span> "This is the Way" &mdash; Knowledge Bootstrap</h2>
-
-            <!-- Primary: MCP workflow for new projects -->
-            <div style="background:var(--bg-input); border-radius:8px; padding:16px; margin-bottom:16px;">
-                <div style="font-size:14px; font-weight:600; margin-bottom:8px;">Got a messy project?</div>
-                <p style="color:var(--text-dim); font-size:13px; margin:0 0 12px 0;">
-                    Tell your AI agent <strong>"This is the Way"</strong> (or <strong>"42"</strong>).
-                    The agent scans your project locally, sends doc previews to Flaiwheel for classification,
-                    and presents a migration plan. You approve, the agent pushes docs into the knowledge repo.
-                </p>
-                <div style="font-size:12px; color:var(--text-dim); font-family:monospace; background:var(--bg-card); padding:8px 12px; border-radius:4px;">
-                    Agent scans project &rarr; <code>classify_documents()</code> &rarr; review plan &rarr; <code>write_*</code> tools &rarr; <code>reindex()</code>
-                </div>
-            </div>
-
-            <!-- Secondary: Knowledge repo cleanup -->
-            <details style="margin-bottom:8px;">
-                <summary style="cursor:pointer; font-size:13px; color:var(--text-dim); padding:8px 0;">
-                    <strong>Advanced:</strong> Scan knowledge repo for misplaced files &amp; duplicates
-                </summary>
-                <p style="color:var(--text-dim); font-size:13px; margin:8px 0;">
-                    This scans files <em>already inside</em> the knowledge repo. For new projects, use the AI agent workflow above instead.
-                    <strong>No files are ever deleted.</strong>
-                </p>
-                <div id="bootstrap-controls">
-                    <button class="btn btn-ghost" id="btn-analyze" onclick="runBootstrapAnalysis()" title="Scan knowledge repo for cleanup">
-                        Scan Knowledge Repo
-                    </button>
-                </div>
-                <div id="bootstrap-loading" style="display:none; text-align:center; padding:24px;">
-                    <span class="spinner" style="width:24px; height:24px; border-width:3px;"></span>
-                    <div style="margin-top:8px; color:var(--text-dim);">Analysing repository&hellip; <em>I have spoken.</em></div>
-                </div>
-                <div id="bootstrap-results" style="display:none; margin-top:20px;">
-                    <div class="stat-grid" id="bootstrap-stats"></div>
-                    <div id="bootstrap-actions" style="margin-top:16px;"></div>
-                    <div id="bootstrap-duplicates" style="margin-top:16px;"></div>
-                    <div id="bootstrap-rewrites" style="margin-top:16px;"></div>
-                    <div class="btn-row" id="bootstrap-exec-row" style="display:none; margin-top:16px;">
-                        <button class="btn btn-primary" onclick="executeBootstrap('selected')">Execute Selected</button>
-                        <button class="btn btn-ghost" onclick="executeBootstrap('all')">Execute All &mdash; I have spoken</button>
-                    </div>
-                </div>
-            </details>
-        </div>
-
         <div class="grid">
             <!-- Connection Config -->
             <div class="card">
@@ -750,13 +702,13 @@
             function timeAgo(iso) {
                 if (!iso) return '–';
                 var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+                if (diff < 0) return 'just now';
                 if (diff < 60) return diff + 's ago';
                 var mins = Math.floor(diff / 60);
                 if (diff < 3600) return mins + 'm ago';
                 var hrs = Math.floor(diff / 3600);
                 var rm = Math.floor((diff % 3600) / 60);
-                var pad = rm < 10 ? '0' + rm : '' + rm;
-                if (diff < 86400) return hrs + ':' + pad + 'h ago';
+                if (diff < 86400) return rm === 0 ? hrs + 'h ago' : hrs + 'h ' + rm + 'm ago';
                 var days = Math.floor(diff / 86400);
                 var rh = Math.floor((diff % 86400) / 3600);
                 return days + 'd ' + rh + 'h ago';
@@ -1156,124 +1108,6 @@
 
     /* ── Bootstrap / Cleanup ─────────────────── */
 
-    let bootstrapReport = null;
-
-    async function runBootstrapAnalysis() {
-        document.getElementById('btn-analyze').disabled = true;
-        document.getElementById('bootstrap-loading').style.display = 'block';
-        document.getElementById('bootstrap-results').style.display = 'none';
-
-        var data = await api('POST', '/bootstrap/analyze' + projectParam());
-        document.getElementById('bootstrap-loading').style.display = 'none';
-        document.getElementById('btn-analyze').disabled = false;
-
-        if (!data || data.summary.error) {
-            toast('error', (data && data.summary.error) || 'Analysis failed');
-            return;
-        }
-        bootstrapReport = data;
-        renderBootstrapResults(data);
-    }
-
-    function renderBootstrapResults(data) {
-        var s = data.summary;
-        document.getElementById('bootstrap-results').style.display = 'block';
-
-        var scoreColor = s.quality_score_before >= 80 ? 'var(--success)' :
-                         s.quality_score_before >= 50 ? 'var(--warning)' : 'var(--danger)';
-        var projColor = s.quality_score_projected >= 80 ? 'var(--success)' :
-                        s.quality_score_projected >= 50 ? 'var(--warning)' : 'var(--danger)';
-
-        document.getElementById('bootstrap-stats').innerHTML =
-            '<div class="stat-item"><div class="value">' + s.total_files + '</div><div class="label">Files</div></div>'
-            + '<div class="stat-item"><div class="value">' + s.categories_detected + '</div><div class="label">Categories</div></div>'
-            + '<div class="stat-item"><div class="value" style="color:' + scoreColor + '">' + s.quality_score_before + '</div><div class="label">Quality Now</div></div>'
-            + '<div class="stat-item"><div class="value" style="color:' + projColor + '">' + s.quality_score_projected + '</div><div class="label">Projected</div></div>'
-            + '<div class="stat-item"><div class="value">' + s.files_misplaced + '</div><div class="label">Misplaced</div></div>'
-            + '<div class="stat-item"><div class="value">' + s.duplicate_clusters + '</div><div class="label">Duplicates</div></div>';
-
-        var actionsDiv = document.getElementById('bootstrap-actions');
-        var actions = data.proposed_actions || [];
-        if (actions.length > 0) {
-            var html = '<div style="font-size:14px; font-weight:600; margin-bottom:8px;">Proposed Actions</div>';
-            actions.forEach(function(a) {
-                var desc = '';
-                if (a.type === 'create_dir') desc = 'Create <code>' + escapeHtml(a.path) + '</code>';
-                else if (a.type === 'move') desc = 'Move <code>' + escapeHtml(a.from) + '</code> → <code>' + escapeHtml(a.to) + '</code>';
-                else if (a.type === 'flag_review') desc = 'Review: ' + (a.files || []).map(function(f) { return '<code>' + escapeHtml(f) + '</code>'; }).join(', ');
-                html += '<label style="display:flex; align-items:flex-start; gap:8px; padding:8px 12px; margin-bottom:4px;'
-                    + 'background:var(--bg-input); border-radius:6px; cursor:pointer; font-size:13px;">'
-                    + '<input type="checkbox" class="bootstrap-action-cb" value="' + a.id + '" checked '
-                    + 'style="margin-top:3px; width:16px; height:16px; accent-color:var(--accent);">'
-                    + '<div><strong>' + a.id + '</strong> ' + desc
-                    + '<div style="color:var(--text-dim); font-size:12px; margin-top:2px;">' + escapeHtml(a.reason) + '</div>'
-                    + '</div></label>';
-            });
-            actionsDiv.innerHTML = html;
-            document.getElementById('bootstrap-exec-row').style.display = 'flex';
-        } else {
-            actionsDiv.innerHTML = '<p style="color:var(--success); font-size:14px;">No cleanup actions needed — repository looks good!</p>';
-            document.getElementById('bootstrap-exec-row').style.display = 'none';
-        }
-
-        var dupsDiv = document.getElementById('bootstrap-duplicates');
-        var dups = data.duplicate_clusters || [];
-        if (dups.length > 0) {
-            var dhtml = '<div style="font-size:14px; font-weight:600; margin-bottom:8px;">Near-Duplicate Clusters</div>';
-            dups.forEach(function(d) {
-                dhtml += '<div style="padding:8px 12px; margin-bottom:4px; background:var(--bg-input); border-radius:6px; font-size:13px; border-left:3px solid var(--warning);">'
-                    + '<strong>' + Math.round(d.similarity * 100) + '% similar:</strong> '
-                    + d.files.map(function(f) { return '<code>' + escapeHtml(f) + '</code>'; }).join(', ')
-                    + '</div>';
-            });
-            dupsDiv.innerHTML = dhtml;
-        } else {
-            dupsDiv.innerHTML = '';
-        }
-
-        var rwDiv = document.getElementById('bootstrap-rewrites');
-        var rws = data.needs_ai_rewrite || [];
-        if (rws.length > 0) {
-            var rhtml = '<div style="font-size:14px; font-weight:600; margin-bottom:8px;">Files Needing AI Rewrite</div>';
-            rws.forEach(function(r) {
-                rhtml += '<div style="padding:8px 12px; margin-bottom:4px; background:var(--bg-input); border-radius:6px; font-size:13px; border-left:3px solid var(--accent);">'
-                    + '<code>' + escapeHtml(r.file) + '</code> — ' + escapeHtml(r.reason)
-                    + ' <span class="badge">' + escapeHtml(r.detected_category) + '</span>'
-                    + '</div>';
-            });
-            rwDiv.innerHTML = rhtml;
-        } else {
-            rwDiv.innerHTML = '';
-        }
-    }
-
-    async function executeBootstrap(mode) {
-        var actionIds = [];
-        if (mode === 'all') {
-            actionIds = (bootstrapReport.proposed_actions || []).map(function(a) { return a.id; });
-        } else {
-            document.querySelectorAll('.bootstrap-action-cb:checked').forEach(function(cb) {
-                actionIds.push(cb.value);
-            });
-        }
-        if (actionIds.length === 0) {
-            toast('error', 'No actions selected');
-            return;
-        }
-        if (!confirm('Execute ' + actionIds.length + ' action(s)? Files will be moved (never deleted).')) return;
-        toast('info', 'Executing cleanup...');
-        var result = await api('POST', '/bootstrap/execute' + projectParam(), { actions: actionIds });
-        if (!result) return;
-        if (result.status === 'ok' || result.status === 'partial') {
-            toast('success', result.executed + ' action(s) executed');
-            if (result.rollback_command) {
-                console.log('Rollback command:', result.rollback_command);
-            }
-            await refreshAll();
-        } else {
-            toast('error', result.message || 'Execution failed');
-        }
-    }
     </script>
 </body>
 </html>
