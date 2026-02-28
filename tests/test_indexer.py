@@ -115,3 +115,56 @@ class TestIndexSingle:
     def test_search_empty_index(self, indexer):
         results = indexer.search("anything")
         assert results == []
+
+
+class TestRerankerConfig:
+    @pytest.fixture
+    def indexer(self, config):
+        return DocsIndexer(config)
+
+    def test_reranker_off_by_default(self, config):
+        assert config.reranker_enabled is False
+
+    def test_rrf_k_configurable(self, config, indexer):
+        config.rrf_k = 30
+        config.rrf_vector_weight = 0.4
+        config.rrf_bm25_weight = 0.6
+        indexer.config = config
+        indexer.index_single("architecture/auth.md",
+            "# Auth\n\n## Overview\nJWT-based authentication system design.\n")
+        results = indexer.search("JWT authentication", top_k=3)
+        assert isinstance(results, list)
+
+    def test_min_relevance_filters(self, config, indexer):
+        config.min_relevance = 99.9
+        indexer.config = config
+        indexer.index_single("architecture/auth.md",
+            "# Auth\n\n## Overview\nJWT-based authentication system design.\n")
+        results = indexer.search("unrelated random banana query", top_k=3)
+        assert len(results) == 0
+
+    def test_bm25_relevance_normalization(self, indexer):
+        hits = [
+            {"id": "a", "score": 10.0, "_from": "bm25"},
+            {"id": "b", "score": 5.0, "_from": "bm25"},
+            {"id": "c", "score": 0.0, "_from": "bm25"},
+        ]
+        DocsIndexer._normalize_bm25_relevance(hits)
+        assert hits[0]["bm25_relevance"] == 100.0
+        assert hits[1]["bm25_relevance"] == 50.0
+        assert hits[2]["bm25_relevance"] == 0.0
+
+    def test_normalize_empty(self):
+        DocsIndexer._normalize_bm25_relevance([])
+
+    def test_rrf_fuse_with_weights(self, config, indexer):
+        vector_hits = [
+            {"id": "a", "text": "x", "metadata": {"source": "a.md", "heading": "h", "type": "docs"}, "score": 0.1, "_from": "vector"},
+            {"id": "b", "text": "y", "metadata": {"source": "b.md", "heading": "h", "type": "docs"}, "score": 0.2, "_from": "vector"},
+        ]
+        bm25_hits = [
+            {"id": "b", "text": "y", "metadata": {"source": "b.md", "heading": "h", "type": "docs"}, "score": 5.0, "_from": "bm25"},
+            {"id": "c", "text": "z", "metadata": {"source": "c.md", "heading": "h", "type": "docs"}, "score": 3.0, "_from": "bm25"},
+        ]
+        result = indexer._rrf_fuse(vector_hits, bm25_hits, top_k=3, vector_weight=0.5, bm25_weight=1.5)
+        assert result[0]["id"] == "b"

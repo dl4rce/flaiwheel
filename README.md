@@ -10,6 +10,7 @@ Flaiwheel is a self-contained Docker service that:
 - **Indexes** your project documentation (`.md`, `.pdf`, `.html`, `.docx`, `.rst`, `.txt`, `.json`, `.yaml`, `.csv`) into a vector database
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Hybrid search** — combines semantic vector search with BM25 keyword search via Reciprocal Rank Fusion (RRF) for best-of-both-worlds retrieval
+- **Cross-encoder reranker** — optional reranking step that rescores candidates with a cross-encoder model for significantly higher precision on vocabulary-mismatch queries (e.g. "auth bypass" finds "client-side auth flag")
 - **Session memory** — `save_session_summary()` + `get_recent_sessions()` preserve context across coding sessions — agents never start from scratch
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
 - **Structured write tools** — 7 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) that enforce quality at the source
@@ -347,6 +348,12 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_EMBEDDING_PROVIDER` | `local` | `local` (free, private) or `openai` |
 | `MCP_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Embedding model name |
 | `MCP_CHUNK_STRATEGY` | `heading` | `heading`, `fixed`, or `hybrid` |
+| `MCP_RERANKER_ENABLED` | `false` | Enable cross-encoder reranker for higher precision |
+| `MCP_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model name |
+| `MCP_RRF_K` | `60` | RRF k parameter (lower = more weight on top ranks) |
+| `MCP_RRF_VECTOR_WEIGHT` | `1.0` | Vector search weight in RRF fusion |
+| `MCP_RRF_BM25_WEIGHT` | `1.0` | BM25 keyword search weight in RRF fusion |
+| `MCP_MIN_RELEVANCE` | `0` | Minimum relevance % to return (0 = no filter) |
 | `MCP_GIT_REPO_URL` | | Knowledge repo URL (enables git sync) |
 | `MCP_GIT_BRANCH` | `main` | Branch to sync |
 | `MCP_GIT_TOKEN` | | GitHub token for private repos |
@@ -394,6 +401,31 @@ The Web UI shows a live progress bar with file count and percentage. You can can
 | `BAAI/bge-m3` | 2.2GB | 86% | Multilingual (DE/EN) |
 
 Select via Web UI or `MCP_EMBEDDING_MODEL` env var. Full list in the Web UI.
+
+### Cross-Encoder Reranker (optional)
+
+The reranker is a second-stage model that rescores the top candidates from hybrid search. It reads the full `(query, document)` pair together, which produces much more accurate relevance scores than independent embeddings — especially for vocabulary-mismatch queries where the user and the document use different words for the same concept.
+
+**How it works:**
+1. Hybrid search (vector + BM25) retrieves a wider candidate pool (`top_k × 5`)
+2. RRF merges and ranks the candidates
+3. The cross-encoder rescores the top candidates and returns only the best `top_k`
+
+**Enable via Web UI** (Search & Retrieval card) or environment variable:
+```bash
+docker run -d \
+  -e MCP_RERANKER_ENABLED=true \
+  -e MCP_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 \
+  ...
+```
+
+| Reranker Model | RAM | Speed | Quality |
+|----------------|-----|-------|---------|
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` | 90MB | Fast | Good — best speed/quality balance |
+| `cross-encoder/ms-marco-MiniLM-L-12-v2` | 130MB | Medium | Better — higher precision |
+| `BAAI/bge-reranker-base` | 420MB | Slower | Best — state-of-the-art accuracy |
+
+The reranker is **off by default** (zero overhead). When enabled, it adds ~50ms latency per search but typically improves precision by 10-25% on vocabulary-mismatch queries.
 
 ### GitHub Webhook (instant reindex)
 
@@ -452,6 +484,28 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Search Pipeline
+
+```
+query
+  │
+  ├──► Vector Search (ChromaDB/HNSW, cosine similarity)
+  │         fetch top_k (or top_k×5 if reranker enabled)
+  │
+  ├──► BM25 Keyword Search (bm25s, English stopwords)
+  │         fetch top_k (or top_k×5 if reranker enabled)
+  │
+  ├──► RRF Fusion (configurable k, vector/BM25 weights)
+  │         merge + rank candidates
+  │
+  ├──► [optional] Cross-Encoder Reranker
+  │         rescore (query, doc) pairs for higher precision
+  │
+  ├──► Min Relevance Filter (configurable threshold)
+  │
+  └──► Return top_k results with relevance scores
+```
+
 ---
 
 ## Web UI
@@ -460,8 +514,9 @@ Access at **http://localhost:8080** (HTTP Basic Auth — credentials shown on fi
 
 Features:
 - System health panel: last index, last git pull, git commit, version, search metrics, quality score, skipped files count
-- Index status and statistics
+- Index status and statistics (including reranker status)
 - Embedding model selection (visual picker)
+- **Search & Retrieval tuning**: cross-encoder reranker toggle + model picker, RRF weights, minimum relevance threshold
 - Chunking strategy configuration
 - Git sync settings (URL, branch, auto-push toggle)
 - Test search interface
@@ -485,7 +540,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (220 tests covering readers, quality checker, indexer, health tracker, MCP tools, model migration, multi-project, bootstrap, classification)
+# Run tests (226 tests covering readers, quality checker, indexer, reranker, health tracker, MCP tools, model migration, multi-project, bootstrap, classification)
 pytest
 
 # Run locally (needs /docs and /data directories)

@@ -32,6 +32,25 @@ from chromadb.utils import embedding_functions
 from .config import Config
 from .readers import extract_text, SUPPORTED_EXTENSIONS
 
+_reranker_cache: dict[str, object] = {}
+_reranker_lock = threading.Lock()
+
+
+def _get_reranker(model_name: str):
+    """Lazy-load and cache a cross-encoder reranker model."""
+    with _reranker_lock:
+        if model_name in _reranker_cache:
+            return _reranker_cache[model_name]
+    try:
+        from sentence_transformers import CrossEncoder
+        model = CrossEncoder(model_name)
+        with _reranker_lock:
+            _reranker_cache[model_name] = model
+        return model
+    except Exception as e:
+        print(f"Warning: Failed to load reranker model '{model_name}': {e}")
+        return None
+
 DEFAULT_COLLECTION = "project_docs"
 
 
@@ -715,7 +734,7 @@ class DocsIndexer:
         if self._bm25_index is None or not self._bm25_corpus_ids:
             return []
         query_tokens = bm25s.tokenize([query], stopwords="en")
-        fetch_k = min(top_k * 3, len(self._bm25_corpus_ids))
+        fetch_k = min(top_k * 5, len(self._bm25_corpus_ids))
         results, scores = self._bm25_index.retrieve(query_tokens, k=fetch_k)
         hits: list[dict] = []
         for i in range(results.shape[1]):
@@ -739,17 +758,25 @@ class DocsIndexer:
                 break
         return hits
 
-    def _rrf_fuse(self, vector_hits: list[dict], bm25_hits: list[dict], top_k: int, k: int = 60) -> list[dict]:
-        """Reciprocal Rank Fusion: merge two ranked lists."""
+    def _rrf_fuse(
+        self, vector_hits: list[dict], bm25_hits: list[dict], top_k: int,
+        k: int | None = None,
+        vector_weight: float | None = None,
+        bm25_weight: float | None = None,
+    ) -> list[dict]:
+        """Reciprocal Rank Fusion: merge two ranked lists with configurable weights."""
+        k = k if k is not None else self.config.rrf_k
+        vw = vector_weight if vector_weight is not None else self.config.rrf_vector_weight
+        bw = bm25_weight if bm25_weight is not None else self.config.rrf_bm25_weight
         scores: dict[str, float] = {}
         docs: dict[str, dict] = {}
         for rank, hit in enumerate(vector_hits, 1):
             cid = hit["id"]
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+            scores[cid] = scores.get(cid, 0.0) + vw / (k + rank)
             docs[cid] = hit
         for rank, hit in enumerate(bm25_hits, 1):
             cid = hit["id"]
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+            scores[cid] = scores.get(cid, 0.0) + bw / (k + rank)
             if cid not in docs:
                 docs[cid] = hit
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
@@ -784,26 +811,80 @@ class DocsIndexer:
             )
         ]
 
+    def _rerank(self, query: str, hits: list[dict], top_k: int) -> list[dict]:
+        """Re-score hits with a cross-encoder reranker for higher precision."""
+        if not hits:
+            return hits
+        reranker = _get_reranker(self.config.reranker_model)
+        if reranker is None:
+            return hits[:top_k]
+        pairs = [(query, hit["text"]) for hit in hits]
+        try:
+            scores = reranker.predict(pairs)
+            for hit, score in zip(hits, scores):
+                hit["rerank_score"] = float(score)
+            hits.sort(key=lambda h: h.get("rerank_score", 0), reverse=True)
+        except Exception as e:
+            print(f"Reranker error: {e}")
+        return hits[:top_k]
+
+    @staticmethod
+    def _normalize_bm25_relevance(hits: list[dict]) -> None:
+        """Normalize BM25 scores to 0-100 relevance, in-place."""
+        if not hits:
+            return
+        scores = [h["score"] for h in hits if h.get("score", 0) > 0]
+        if not scores:
+            return
+        max_score = max(scores)
+        if max_score <= 0:
+            return
+        for hit in hits:
+            raw = hit.get("score", 0)
+            hit["bm25_relevance"] = round((raw / max_score) * 100, 1) if raw > 0 else 0.0
+
     def search(
         self, query: str, top_k: int = 5, type_filter: Optional[str] = None,
     ) -> list[dict]:
-        vector_hits = self._vector_search(query, top_k, type_filter)
+        use_reranker = self.config.reranker_enabled
+        fetch_k = top_k * 5 if use_reranker else top_k
+
+        vector_hits = self._vector_search(query, fetch_k, type_filter)
 
         if self.config.hybrid_search and self._bm25_index is not None and self._bm25_corpus_ids:
-            bm25_hits = self._bm25_search(query, top_k, type_filter)
-            merged = self._rrf_fuse(vector_hits, bm25_hits, top_k)
+            bm25_hits = self._bm25_search(query, fetch_k, type_filter)
+            self._normalize_bm25_relevance(bm25_hits)
+            rerank_pool = top_k * 4 if use_reranker else top_k
+            merged = self._rrf_fuse(vector_hits, bm25_hits, rerank_pool)
         else:
+            self._normalize_bm25_relevance([])
             merged = vector_hits
 
+        if use_reranker and len(merged) > 1:
+            merged = self._rerank(query, merged, top_k)
+        else:
+            merged = merged[:top_k]
+
+        min_rel = self.config.min_relevance
         out: list[dict] = []
         for hit in merged:
             meta = hit["metadata"]
             dist = hit.get("score", 0)
             if hit.get("_from") == "vector":
                 relevance = round((1 - dist) * 100, 1)
+            elif hit.get("bm25_relevance") is not None:
+                relevance = hit["bm25_relevance"]
+                dist = 0.0
             else:
                 relevance = 0.0
                 dist = 0.0
+
+            if hit.get("rerank_score") is not None:
+                relevance = round(max(0, min(100, hit["rerank_score"] * 100)), 1)
+
+            if min_rel > 0 and relevance < min_rel:
+                continue
+
             out.append({
                 "text": hit["text"],
                 "source": meta["source"],

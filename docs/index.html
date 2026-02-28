@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flaiwheel — Self-improving knowledge base for AI coding agents</title>
+    <meta name="description" content="Flywheel with AI, for AI. A self-hosted Docker service that makes AI coding agents smarter with every bug fixed and every decision documented.">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #0a0b10;
+            --bg-card: #13151d;
+            --bg-card-alt: #191c28;
+            --border: #252840;
+            --text: #e8e8ec;
+            --text-dim: #8b8fa8;
+            --accent: #6366f1;
+            --accent-light: #818cf8;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+        /* ── Hero ─────────────────────────── */
+        .hero {
+            padding: 100px 0 80px;
+            text-align: center;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -200px; left: 50%; transform: translateX(-50%);
+            width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .hero-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent-light);
+            background: rgba(99,102,241,0.12);
+            border: 1px solid rgba(99,102,241,0.25);
+            margin-bottom: 24px;
+        }
+        .hero h1 {
+            font-size: clamp(40px, 6vw, 64px);
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -0.03em;
+            margin-bottom: 20px;
+        }
+        .hero h1 span {
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero .subtitle {
+            font-size: 20px;
+            color: var(--text-dim);
+            max-width: 640px;
+            margin: 0 auto 40px;
+        }
+        .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .btn {
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-light); transform: translateY(-1px); }
+        .btn-ghost {
+            background: rgba(255,255,255,0.06);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { border-color: var(--accent); }
+
+        .install-cmd {
+            margin: 40px auto 0;
+            max-width: 640px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 24px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 14px;
+            color: var(--accent-light);
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .install-cmd .prompt { color: var(--text-dim); user-select: none; }
+        .install-cmd code { flex: 1; word-break: break-all; }
+
+        /* ── Section ──────────────────────── */
+        section { padding: 80px 0; }
+        section h2 {
+            font-size: 36px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+        section .section-sub {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 17px;
+            max-width: 600px;
+            margin: 0 auto 48px;
+        }
+
+        /* ── Features ─────────────────────── */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 28px;
+            transition: border-color 0.3s, transform 0.2s;
+        }
+        .feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+        .feature-icon {
+            width: 44px; height: 44px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px;
+            margin-bottom: 16px;
+            background: rgba(99,102,241,0.1);
+        }
+        .feature-card h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+        .feature-card p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+
+        /* ── Pipeline ─────────────────────── */
+        .pipeline-bg { background: var(--bg-card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+        .pipeline-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            position: relative;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .pipeline-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            position: relative;
+            padding-bottom: 32px;
+        }
+        .pipeline-step:last-child { padding-bottom: 0; }
+        .pipeline-step::before {
+            content: '';
+            position: absolute;
+            left: 21px;
+            top: 44px;
+            bottom: 0;
+            width: 2px;
+            background: var(--border);
+        }
+        .pipeline-step:last-child::before { display: none; }
+        .step-num {
+            flex-shrink: 0;
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+        .step-content h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+        .step-content p { font-size: 14px; color: var(--text-dim); }
+        .step-tag {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+        .tag-fast { background: rgba(34,197,94,0.15); color: var(--success); }
+        .tag-optional { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .tag-core { background: rgba(99,102,241,0.15); color: var(--accent-light); }
+
+        /* ── Models ───────────────────────── */
+        .model-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+        .model-table th, .model-table td {
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        .model-table th {
+            color: var(--text-dim);
+            font-weight: 500;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .model-table td:first-child { font-weight: 600; color: var(--accent-light); font-family: monospace; }
+        .table-wrapper {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 32px;
+        }
+        .table-wrapper h3 {
+            padding: 20px 20px 0;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        /* ── Footer ───────────────────────── */
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        footer a { color: var(--accent-light); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 640px) {
+            .hero { padding: 60px 0 40px; }
+            section { padding: 48px 0; }
+            .features-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hero -->
+    <div class="hero">
+        <div class="container">
+            <div class="hero-badge">v2.8.0 — Now with cross-encoder reranking</div>
+            <h1>Knowledge that<br><span>compounds</span></h1>
+            <p class="subtitle">
+                Self-hosted knowledge base for AI coding agents. Every bug fixed, every decision documented makes the next one faster.
+            </p>
+            <div class="hero-actions">
+                <a href="https://github.com/dl4rce/flaiwheel" class="btn btn-primary">
+                    View on GitHub
+                </a>
+                <a href="https://github.com/dl4rce/flaiwheel#quick-start--one-command-recommended" class="btn btn-ghost">
+                    Quick Start
+                </a>
+            </div>
+            <div class="install-cmd">
+                <span class="prompt">$</span>
+                <code>curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- Features -->
+    <section>
+        <div class="container">
+            <h2>Features</h2>
+            <p class="section-sub">One Docker container. 26 MCP tools. Zero cloud dependencies.</p>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">&#128269;</div>
+                    <h3>Hybrid Search + Reranker</h3>
+                    <p>Semantic vector search combined with BM25 keyword search via Reciprocal Rank Fusion. Optional cross-encoder reranker rescores candidates for 10-25% higher precision on vocabulary-mismatch queries.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128027;</div>
+                    <h3>Learns from Bugfixes</h3>
+                    <p>Agents write structured bugfix summaries that are instantly indexed. Every fix makes the next one cheaper. The flywheel effect compounds knowledge over time.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128221;</div>
+                    <h3>7 Structured Write Tools</h3>
+                    <p>Category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) enforce quality at the source. Auto-pushed to your knowledge repo.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#129504;</div>
+                    <h3>Embedding Model Hot-Swap</h3>
+                    <p>Change models at any time via the Web UI. Background migration re-embeds all documents while search stays fully available. Zero downtime.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128202;</div>
+                    <h3>Tool Telemetry</h3>
+                    <p>Tracks every MCP call per project. Detects knowledge gaps (search misses without writes) and nudges agents to document. Real-time dashboard in the Web UI.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128230;</div>
+                    <h3>Multi-Project Support</h3>
+                    <p>One container manages N knowledge repos with per-project isolation. Each project gets its own collection, watcher, health tracker, and quality checker.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128196;</div>
+                    <h3>9 Input Formats</h3>
+                    <p>Indexes .md, .pdf, .html, .docx, .rst, .txt, .json, .yaml, .csv. All formats converted to markdown in memory &mdash; no generated files on disk.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128268;</div>
+                    <h3>Git-Native Sync</h3>
+                    <p>Auto-pulls from your knowledge repo, auto-pushes bugfix summaries. GitHub webhook support for instant reindex on push. Diff-aware reindexing &mdash; only changed files.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#9989;</div>
+                    <h3>Quality Gate</h3>
+                    <p>Validates docs at ingest time. Files with critical issues are skipped (never deleted). Proactive quality checks after every reindex. Your files, your rules.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How Search Works -->
+    <section class="pipeline-bg">
+        <div class="container">
+            <h2>How Search Works</h2>
+            <p class="section-sub">Hybrid retrieval with optional cross-encoder reranking for maximum precision.</p>
+            <div class="pipeline-steps">
+                <div class="pipeline-step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h3>Vector Search (ChromaDB + HNSW)</h3>
+                        <p>Your query is embedded and matched against document chunks using cosine similarity. Finds semantically related content even when exact words differ.</p>
+                        <span class="step-tag tag-core">Semantic</span>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h3>BM25 Keyword Search</h3>
+                        <p>In parallel, exact keyword matching with TF-IDF weighting catches results that share specific terms with the query &mdash; even if semantically distant.</p>
+                        <span class="step-tag tag-core">Keyword</span>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h3>Reciprocal Rank Fusion (RRF)</h3>
+                        <p>Both result lists are merged using RRF with configurable weights and k parameter. Documents found by both methods get boosted.</p>
+                        <span class="step-tag tag-fast">Configurable</span>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">4</div>
+                    <div class="step-content">
+                        <h3>Cross-Encoder Reranking</h3>
+                        <p>A cross-encoder model reads each (query, document) pair together and produces a precise relevance score. Solves vocabulary mismatch &mdash; "auth bypass" finds "client-side auth flag".</p>
+                        <span class="step-tag tag-optional">Optional &middot; +50ms</span>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">5</div>
+                    <div class="step-content">
+                        <h3>Relevance Filter &amp; Return</h3>
+                        <p>Results below the configurable minimum relevance threshold are dropped. Only the most relevant chunks reach the AI agent.</p>
+                        <span class="step-tag tag-fast">Zero noise</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Models -->
+    <section>
+        <div class="container">
+            <h2>Models</h2>
+            <p class="section-sub">All models run locally. No data leaves your machine. Swap at any time via the Web UI.</p>
+            <div class="table-wrapper">
+                <h3>Embedding Models</h3>
+                <table class="model-table">
+                    <thead>
+                        <tr><th>Model</th><th>RAM</th><th>Quality</th><th>Best for</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>all-MiniLM-L6-v2</td><td>90MB</td><td>78%</td><td>Large repos, low RAM</td></tr>
+                        <tr><td>all-MiniLM-L12-v2</td><td>130MB</td><td>80%</td><td>Good speed/quality balance</td></tr>
+                        <tr><td>all-mpnet-base-v2</td><td>420MB</td><td>83%</td><td>Sentence-Transformers standard</td></tr>
+                        <tr><td>BAAI/bge-base-en-v1.5</td><td>420MB</td><td>85%</td><td>Best value for English</td></tr>
+                        <tr><td>nomic-ai/nomic-embed-text-v1.5</td><td>520MB</td><td>87%</td><td>Best local quality (EN)</td></tr>
+                        <tr><td>intfloat/multilingual-e5-base</td><td>1.1GB</td><td>82%</td><td>Mixed DE/EN docs</td></tr>
+                        <tr><td>BAAI/bge-m3</td><td>2.2GB</td><td>86%</td><td>Best multilingual</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-wrapper">
+                <h3>Reranker Models (optional, cross-encoder)</h3>
+                <table class="model-table">
+                    <thead>
+                        <tr><th>Model</th><th>RAM</th><th>Speed</th><th>Quality</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>cross-encoder/ms-marco-MiniLM-L-6-v2</td><td>90MB</td><td>Fast</td><td>Good &mdash; best speed/quality</td></tr>
+                        <tr><td>cross-encoder/ms-marco-MiniLM-L-12-v2</td><td>130MB</td><td>Medium</td><td>Better &mdash; higher precision</td></tr>
+                        <tr><td>BAAI/bge-reranker-base</td><td>420MB</td><td>Slower</td><td>Best &mdash; state-of-the-art</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="pipeline-bg">
+        <div class="container">
+            <h2>How It Works</h2>
+            <p class="section-sub">One command to install. Your AI agent handles the rest.</p>
+            <div class="pipeline-steps">
+                <div class="pipeline-step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h3>Install</h3>
+                        <p>Run the install command from your project directory. It creates a private knowledge repo, starts a Docker container, and connects your AI agent via MCP.</p>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h3>The AI searches before coding</h3>
+                        <p>Before every code change, the agent searches Flaiwheel for architecture decisions, past bugfixes, API docs, and best practices. Context the source code alone cannot provide.</p>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h3>The AI documents after fixing</h3>
+                        <p>After every bugfix, the agent writes a structured summary (root cause, solution, lesson learned). It is instantly indexed and searchable.</p>
+                    </div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-num">4</div>
+                    <div class="step-content">
+                        <h3>Knowledge compounds</h3>
+                        <p>The next search finds the previous fix. The next bug is cheaper. The flywheel accelerates. Every task makes the system smarter.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p style="margin-bottom: 8px;">
+                Flaiwheel &copy; 2026 <a href="https://4rce.com" target="_blank" rel="noopener">4rce.com Digital Technologies GmbH</a>
+                &middot; <a href="https://mariadb.com/bsl11/" target="_blank" rel="noopener">Business Source License 1.1</a>
+            </p>
+            <p>
+                Free for non-commercial use and teams of up to 10.
+                <strong>Commercial licensing:</strong> <a href="mailto:info@4rce.com">info@4rce.com</a>
+            </p>
+        </div>
+    </footer>
+
+</body>
+</html>

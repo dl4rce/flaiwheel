@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from .auth import AuthManager
 from .bootstrap import KnowledgeBootstrap
-from .config import LOCAL_MODELS, Config
+from .config import LOCAL_MODELS, RERANKER_MODELS, Config
 from .project import ProjectConfig, ProjectContext, ProjectRegistry, merge_config
 
 
@@ -34,6 +34,12 @@ class GlobalConfigUpdate(BaseModel):
     chunk_strategy: Optional[str] = None
     chunk_max_chars: Optional[int] = None
     chunk_overlap: Optional[int] = None
+    reranker_enabled: Optional[bool] = None
+    reranker_model: Optional[str] = None
+    rrf_k: Optional[int] = None
+    rrf_vector_weight: Optional[float] = None
+    rrf_bm25_weight: Optional[float] = None
+    min_relevance: Optional[float] = None
 
 
 class ProjectConfigUpdate(BaseModel):
@@ -251,7 +257,11 @@ def create_web_app(
         if project:
             ctx = _resolve(project)
             base["project"] = ctx.project_config.to_safe_dict()
-        return {"config": base, "available_models": LOCAL_MODELS}
+        return {
+            "config": base,
+            "available_models": LOCAL_MODELS,
+            "reranker_models": RERANKER_MODELS,
+        }
 
     @app.post("/api/config")
     async def update_global_config_endpoint(
@@ -438,6 +448,7 @@ def create_web_app(
     async def get_models(_user: str = Depends(require_auth)):
         return {
             "local_models": LOCAL_MODELS,
+            "reranker_models": RERANKER_MODELS,
             "current": {
                 "provider": global_config.embedding_provider,
                 "model": (
@@ -445,6 +456,8 @@ def create_web_app(
                     if global_config.embedding_provider == "local"
                     else global_config.openai_embedding_model
                 ),
+                "reranker_enabled": global_config.reranker_enabled,
+                "reranker_model": global_config.reranker_model,
             },
         }
 

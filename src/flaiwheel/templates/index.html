@@ -321,6 +321,10 @@
                     <div class="value" id="stat-strategy">&ndash;</div>
                     <div class="label">Chunking</div>
                 </div>
+                <div class="stat-item">
+                    <div class="value" id="stat-reranker">&ndash;</div>
+                    <div class="label">Reranker</div>
+                </div>
             </div>
             <div class="type-dist" id="type-dist"></div>
             <div class="btn-row">
@@ -375,6 +379,51 @@
                         <button class="btn btn-danger" onclick="cancelMigration()" style="padding:4px 12px; font-size:12px;">Cancel</button>
                     </div>
                 </div>
+            </div>
+
+            <!-- Search / Reranker -->
+            <div class="card grid-full">
+                <h2><span class="icon">&#127919;</span> Search &amp; Retrieval</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text);">
+                            <input type="checkbox" id="cfg-reranker-enabled"
+                                   style="width:18px; height:18px; accent-color:var(--accent);"
+                                   onchange="toggleRerankerSection()">
+                            Enable cross-encoder reranker
+                        </label>
+                        <div class="hint">Re-scores candidates with a cross-encoder for higher precision. Solves vocabulary mismatch. Adds ~50ms latency per search.</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Min relevance threshold (%)</label>
+                        <input type="number" id="cfg-min-relevance" value="0" min="0" max="100" step="5">
+                        <div class="hint">0 = return all results. 30+ recommended to reduce noise.</div>
+                    </div>
+                </div>
+                <div id="reranker-models-section" style="display:none; margin-bottom:16px;">
+                    <label style="font-size:13px; color:var(--text-dim); margin-bottom:8px; display:block;">
+                        Reranker model
+                    </label>
+                    <div class="model-list" id="reranker-model-list"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>RRF k parameter</label>
+                        <input type="number" id="cfg-rrf-k" value="60" min="1" max="200">
+                        <div class="hint">Lower k = more weight on top ranks. Default: 60</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Vector / BM25 weight</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="number" id="cfg-rrf-vector-w" value="1.0" min="0" max="5" step="0.1" style="width:50%;" placeholder="Vector">
+                            <input type="number" id="cfg-rrf-bm25-w" value="1.0" min="0" max="5" step="0.1" style="width:50%;" placeholder="BM25">
+                        </div>
+                        <div class="hint">Equal (1:1) by default. Try 0.4:0.6 for keyword-rich docs.</div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveSearchConfig()" style="margin-top:8px;">
+                    Save Search Settings
+                </button>
             </div>
 
             <!-- Chunking & Docs -->
@@ -558,6 +607,7 @@
     <script>
     let currentConfig = {};
     let selectedModel = 'all-MiniLM-L6-v2';
+    let selectedRerankerModel = 'cross-encoder/ms-marco-MiniLM-L-6-v2';
     let currentProject = '';
     let allProjects = [];
 
@@ -684,6 +734,15 @@
         renderModelList(data.available_models);
         toggleProviderFields();
         updateConnectionConfigs();
+
+        document.getElementById('cfg-reranker-enabled').checked = currentConfig.reranker_enabled || false;
+        selectedRerankerModel = currentConfig.reranker_model || 'cross-encoder/ms-marco-MiniLM-L-6-v2';
+        document.getElementById('cfg-min-relevance').value = currentConfig.min_relevance || 0;
+        document.getElementById('cfg-rrf-k').value = currentConfig.rrf_k || 60;
+        document.getElementById('cfg-rrf-vector-w').value = currentConfig.rrf_vector_weight ?? 1.0;
+        document.getElementById('cfg-rrf-bm25-w').value = currentConfig.rrf_bm25_weight ?? 1.0;
+        renderRerankerModelList(data.reranker_models || []);
+        toggleRerankerSection();
     }
 
     async function loadStats() {
@@ -694,6 +753,10 @@
         document.getElementById('stat-provider').textContent = stats.embedding_provider;
         document.getElementById('stat-model').textContent = (stats.embedding_model || '').split('/').pop() || '–';
         document.getElementById('stat-strategy').textContent = stats.chunk_strategy;
+        var rr = currentConfig.reranker_enabled;
+        document.getElementById('stat-reranker').innerHTML = rr
+            ? '<span style="color:var(--success)">ON</span>'
+            : '<span style="color:var(--text-dim)">OFF</span>';
 
         const dist = document.getElementById('type-dist');
         dist.innerHTML = Object.entries(stats.type_distribution || {})
@@ -1175,6 +1238,52 @@
         el.textContent = message;
         container.appendChild(el);
         setTimeout(function() { el.remove(); }, 4000);
+    }
+
+    function renderRerankerModelList(models) {
+        var list = document.getElementById('reranker-model-list');
+        if (!list || !models.length) return;
+        list.innerHTML = models.map(function(m) {
+            return '<label class="model-option ' + (m.id === selectedRerankerModel ? 'selected' : '') + '" '
+                + 'onclick="selectRerankerModel(\'' + m.id + '\', this)">'
+                + '<input type="radio" name="reranker-model" value="' + m.id + '" '
+                + (m.id === selectedRerankerModel ? 'checked' : '') + '>'
+                + '<div class="model-info">'
+                + '<div class="model-name">' + m.name + '</div>'
+                + '<div class="model-meta">' + m.desc + '</div>'
+                + '</div>'
+                + '<div class="model-badges">'
+                + '<span>' + m.speed + '</span>'
+                + '<span>' + m.ram + '</span>'
+                + '</div></label>';
+        }).join('');
+    }
+
+    function selectRerankerModel(modelId, el) {
+        selectedRerankerModel = modelId;
+        document.querySelectorAll('#reranker-model-list .model-option').forEach(function(e) { e.classList.remove('selected'); });
+        el.classList.add('selected');
+    }
+
+    function toggleRerankerSection() {
+        var enabled = document.getElementById('cfg-reranker-enabled').checked;
+        document.getElementById('reranker-models-section').style.display = enabled ? 'block' : 'none';
+    }
+
+    async function saveSearchConfig() {
+        var body = {
+            reranker_enabled: document.getElementById('cfg-reranker-enabled').checked,
+            reranker_model: selectedRerankerModel,
+            rrf_k: parseInt(document.getElementById('cfg-rrf-k').value) || 60,
+            rrf_vector_weight: parseFloat(document.getElementById('cfg-rrf-vector-w').value) || 1.0,
+            rrf_bm25_weight: parseFloat(document.getElementById('cfg-rrf-bm25-w').value) || 1.0,
+            min_relevance: parseFloat(document.getElementById('cfg-min-relevance').value) || 0,
+        };
+        toast('info', 'Saving search settings...');
+        var result = await api('POST', '/config', body);
+        if (!result) return;
+        toast('success', 'Search settings saved');
+        loadConfig();
     }
 
     /* ── Bootstrap / Cleanup ─────────────────── */

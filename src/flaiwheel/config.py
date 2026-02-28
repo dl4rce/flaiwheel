@@ -47,6 +47,12 @@ class Config(BaseSettings):
 
     # ── Search ───────────────────────────────────
     hybrid_search: bool = True
+    reranker_enabled: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rrf_k: int = 60
+    rrf_vector_weight: float = 1.0
+    rrf_bm25_weight: float = 1.0
+    min_relevance: float = 0.0
 
     # ── Server / Transport ───────────────────────
     transport: Literal["stdio", "sse"] = "sse"
@@ -172,5 +178,35 @@ LOCAL_MODELS = [
         "quality": "86%",
         "lang": "DE/EN/Multi",
         "desc": "Best multilingual model",
+    },
+]
+
+RERANKER_MODELS = [
+    {
+        "id": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "name": "MS MARCO MiniLM-L6",
+        "params": "22M",
+        "ram": "~90MB",
+        "speed": "Fast",
+        "quality": "Good",
+        "desc": "Best speed/quality balance for reranking",
+    },
+    {
+        "id": "cross-encoder/ms-marco-MiniLM-L-12-v2",
+        "name": "MS MARCO MiniLM-L12",
+        "params": "33M",
+        "ram": "~130MB",
+        "speed": "Medium",
+        "quality": "Better",
+        "desc": "Higher precision, still fast",
+    },
+    {
+        "id": "BAAI/bge-reranker-base",
+        "name": "BGE Reranker Base",
+        "params": "110M",
+        "ram": "~420MB",
+        "speed": "Slower",
+        "quality": "Best",
+        "desc": "State-of-the-art reranking accuracy",
     },
 ]
