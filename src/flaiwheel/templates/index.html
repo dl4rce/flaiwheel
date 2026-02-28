@@ -381,51 +381,6 @@
                 </div>
             </div>
 
-            <!-- Search / Reranker -->
-            <div class="card grid-full">
-                <h2><span class="icon">&#127919;</span> Search &amp; Retrieval</h2>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text);">
-                            <input type="checkbox" id="cfg-reranker-enabled"
-                                   style="width:18px; height:18px; accent-color:var(--accent);"
-                                   onchange="toggleRerankerSection()">
-                            Enable cross-encoder reranker
-                        </label>
-                        <div class="hint">Re-scores candidates with a cross-encoder for higher precision. Solves vocabulary mismatch. Adds ~50ms latency per search.</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Min relevance threshold (%)</label>
-                        <input type="number" id="cfg-min-relevance" value="0" min="0" max="100" step="5">
-                        <div class="hint">0 = return all results. 30+ recommended to reduce noise.</div>
-                    </div>
-                </div>
-                <div id="reranker-models-section" style="display:none; margin-bottom:16px;">
-                    <label style="font-size:13px; color:var(--text-dim); margin-bottom:8px; display:block;">
-                        Reranker model
-                    </label>
-                    <div class="model-list" id="reranker-model-list"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>RRF k parameter</label>
-                        <input type="number" id="cfg-rrf-k" value="60" min="1" max="200">
-                        <div class="hint">Lower k = more weight on top ranks. Default: 60</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Vector / BM25 weight</label>
-                        <div style="display:flex; gap:8px;">
-                            <input type="number" id="cfg-rrf-vector-w" value="1.0" min="0" max="5" step="0.1" style="width:50%;" placeholder="Vector">
-                            <input type="number" id="cfg-rrf-bm25-w" value="1.0" min="0" max="5" step="0.1" style="width:50%;" placeholder="BM25">
-                        </div>
-                        <div class="hint">Equal (1:1) by default. Try 0.4:0.6 for keyword-rich docs.</div>
-                    </div>
-                </div>
-                <button class="btn btn-primary" onclick="saveSearchConfig()" style="margin-top:8px;">
-                    Save Search Settings
-                </button>
-            </div>
-
             <!-- Chunking & Docs -->
             <div class="card">
                 <h2><span class="icon">&#9986;&#65039;</span> Chunking &amp; Documentation</h2>
@@ -482,6 +437,51 @@
                 </div>
                 <button class="btn btn-primary" onclick="saveGeneralConfig()" style="margin-top:8px; width:100%;">
                     Save
+                </button>
+            </div>
+
+            <!-- Search / Reranker -->
+            <div class="card grid-full">
+                <h2><span class="icon">&#127919;</span> Search &amp; Retrieval</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text);">
+                            <input type="checkbox" id="cfg-reranker-enabled"
+                                   style="width:18px; height:18px; accent-color:var(--accent);"
+                                   onchange="toggleRerankerSection()">
+                            Enable cross-encoder reranker
+                        </label>
+                        <div class="hint">Re-scores candidates with a cross-encoder for higher precision. Solves vocabulary mismatch. Adds ~50ms latency per search.</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Min relevance threshold (%)</label>
+                        <input type="number" id="cfg-min-relevance" value="0" min="0" max="100" step="5">
+                        <div class="hint">0 = return all results. 30+ recommended to reduce noise.</div>
+                    </div>
+                </div>
+                <div id="reranker-models-section" style="display:none; margin-bottom:16px;">
+                    <label style="font-size:13px; color:var(--text-dim); margin-bottom:8px; display:block;">
+                        Reranker model
+                    </label>
+                    <div class="model-list" id="reranker-model-list"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>RRF k parameter</label>
+                        <input type="number" id="cfg-rrf-k" value="60" min="1" max="200">
+                        <div class="hint">Lower k = more weight on top ranks. Default: 60</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Vector / BM25 weight</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="number" id="cfg-rrf-vector-w" value="1.0" min="0" max="5" step="0.1" style="width:50%;" placeholder="Vector">
+                            <input type="number" id="cfg-rrf-bm25-w" value="1.0" min="0" max="5" step="0.1" style="width:50%;" placeholder="BM25">
+                        </div>
+                        <div class="hint">Equal (1:1) by default. Try 0.4:0.6 for keyword-rich docs.</div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveSearchConfig()" style="margin-top:8px;">
+                    Save Search Settings
                 </button>
             </div>
         </div>
