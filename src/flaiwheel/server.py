@@ -62,6 +62,67 @@ def create_mcp_server(
     _active_projects: dict[int, str] = {}
     _active_lock = threading.Lock()
 
+    # ── Session Telemetry ────────────────────────────
+    _telemetry: dict[str, dict] = {}
+    _telemetry_lock = threading.Lock()
+
+    def _telem(project: str | None, tool_name: str) -> None:
+        """Record a tool call for a project."""
+        key = project or "_default"
+        with _telemetry_lock:
+            if key not in _telemetry:
+                _telemetry[key] = {
+                    "searches": 0, "search_misses": 0, "bugfix_searches": 0,
+                    "writes": 0, "bugfix_writes": 0, "session_saves": 0,
+                    "total_calls": 0, "last_tool": "", "nudges_sent": 0,
+                }
+            t = _telemetry[key]
+            t["total_calls"] += 1
+            t["last_tool"] = tool_name
+            if tool_name in ("search_docs", "search_by_type", "search_tests"):
+                t["searches"] += 1
+            elif tool_name == "search_bugfixes":
+                t["bugfix_searches"] += 1
+            elif tool_name == "write_bugfix_summary":
+                t["bugfix_writes"] += 1
+            elif tool_name.startswith("write_"):
+                t["writes"] += 1
+            elif tool_name == "save_session_summary":
+                t["session_saves"] += 1
+
+    def _nudge(project: str | None) -> str:
+        """Return a nudge string if the telemetry pattern warrants it."""
+        key = project or "_default"
+        with _telemetry_lock:
+            t = _telemetry.get(key)
+            if not t:
+                return ""
+            nudges = []
+            if t["bugfix_searches"] >= 1 and t["bugfix_writes"] == 0:
+                nudges.append(
+                    "Hint: You searched bugfixes but haven't documented a fix yet. "
+                    "If you fixed a bug, call write_bugfix_summary()."
+                )
+            if t["searches"] >= 5 and t["writes"] == 0 and t["bugfix_writes"] == 0:
+                nudges.append(
+                    "Hint: You've searched " + str(t["searches"]) + " times without "
+                    "capturing any knowledge. Consider write_architecture_doc() or write_best_practice()."
+                )
+            if t["search_misses"] >= 3:
+                nudges.append(
+                    "Hint: Multiple searches returned 0 results — "
+                    "the knowledge base may have a gap here. Consider documenting this topic."
+                )
+            if not nudges:
+                return ""
+            t["nudges_sent"] += len(nudges)
+            return "\n\n---\n" + "\n".join(nudges)
+
+    def get_telemetry_data() -> dict:
+        """Return telemetry data for all projects (used by Web UI API)."""
+        with _telemetry_lock:
+            return {k: dict(v) for k, v in _telemetry.items()}
+
     def _session_key(ctx: Context | None) -> int:
         """Return a per-connection key from an MCP Context.
 
@@ -163,15 +224,20 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "search_docs")
 
         results = ctx.indexer.search(query, top_k=top_k)
         ctx.health.record_search("search_docs", bool(results))
 
         if not results:
+            with _telemetry_lock:
+                t = _telemetry.get(ctx.name or "_default")
+                if t:
+                    t["search_misses"] += 1
             return (
                 "No relevant documents found. "
                 "Try a different or more specific query."
-            )
+            ) + _nudge(ctx.name)
 
         output = []
         for r in results:
@@ -181,7 +247,7 @@ def create_mcp_server(
                 f"(Relevance: {r['relevance']}%, Type: {r['type']})\n\n"
                 f"{r['text']}\n\n---"
             )
-        return "\n".join(output)
+        return "\n".join(output) + _nudge(ctx.name)
 
     @mcp.tool()
     def search_bugfixes(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
@@ -199,6 +265,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "search_bugfixes")
 
         results = ctx.indexer.search(query, top_k=top_k, type_filter="bugfix")
         ctx.health.record_search("search_bugfixes", bool(results))
@@ -207,7 +274,7 @@ def create_mcp_server(
             return (
                 "No similar bugfixes found - this might be a new problem. "
                 "Don't forget to call write_bugfix_summary() after fixing!"
-            )
+            ) + _nudge(ctx.name)
 
         output = [f"Found {len(results)} similar bugfixes\n"]
         for r in results:
@@ -216,7 +283,7 @@ def create_mcp_server(
                 f"### {loc} (Relevance: {r['relevance']}%)\n\n"
                 f"{r['text']}\n\n---"
             )
-        return "\n".join(output)
+        return "\n".join(output) + _nudge(ctx.name)
 
     @mcp.tool()
     def search_by_type(query: str, doc_type: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
@@ -232,12 +299,13 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "search_by_type")
 
         results = ctx.indexer.search(query, top_k=top_k, type_filter=doc_type)
         ctx.health.record_search("search_by_type", bool(results))
 
         if not results:
-            return f"No results of type '{doc_type}' found."
+            return f"No results of type '{doc_type}' found." + _nudge(ctx.name)
 
         output = []
         for r in results:
@@ -246,7 +314,7 @@ def create_mcp_server(
                 f"**{loc}** > _{r['heading']}_ ({r['relevance']}%)\n\n"
                 f"{r['text']}\n\n---"
             )
-        return "\n".join(output)
+        return "\n".join(output) + _nudge(ctx.name)
 
     @mcp.tool()
     def search_tests(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
@@ -263,12 +331,13 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "search_tests")
 
         results = ctx.indexer.search(query, top_k=top_k, type_filter="test")
         ctx.health.record_search("search_tests", bool(results))
 
         if not results:
-            return "No test cases found. Use write_test_case to document tests."
+            return "No test cases found. Use write_test_case to document tests." + _nudge(ctx.name)
 
         output = []
         for r in results:
@@ -281,7 +350,7 @@ def create_mcp_server(
                 f"**{loc}** > _{r['heading']}_ ({r['relevance']}%)\n\n"
                 f"{r['text']}\n\n---"
             )
-        return "\n".join(output)
+        return "\n".join(output) + _nudge(ctx.name)
 
     # ── Write helpers ─────────────────────────────────
 
@@ -333,6 +402,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_bugfix_summary")
 
         content = (
             f"# {title}\n\n"
@@ -371,6 +441,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_architecture_doc")
 
         sections = [
             f"# {title}\n",
@@ -414,6 +485,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_api_doc")
 
         sections = [
             f"# {title}\n",
@@ -452,6 +524,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_best_practice")
 
         sections = [
             f"# {title}\n",
@@ -488,6 +561,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_setup_doc")
 
         sections = [
             f"# {title}\n",
@@ -526,6 +600,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_changelog_entry")
 
         sections = [f"# {version}\n", f"**Date:** {release_date}\n"]
         if added:
@@ -572,6 +647,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "write_test_case")
 
         sections = [
             f"# {title}\n",
@@ -1154,6 +1230,7 @@ def create_mcp_server(
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
             return err
+        _telem(ctx.name, "save_session_summary")
 
         session = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1212,4 +1289,5 @@ def create_mcp_server(
 
         return "\n".join(lines)
 
+    mcp.get_telemetry_data = get_telemetry_data
     return mcp

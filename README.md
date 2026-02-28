@@ -16,7 +16,7 @@ Flaiwheel is a self-contained Docker service that:
 - **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
 - **Ingest quality gate** — files with critical issues are automatically skipped during indexing (never deleted — you own your files)
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
-- **Tracks search metrics** — hit rate, miss rate, per-tool usage visible in the health panel
+- **Tool telemetry** — tracks every MCP call per project (searches, writes, misses, patterns), detects knowledge gaps, and nudges agents to document — visible in the Web UI in real time
 - **Proactive quality checks** — automatically validates knowledge base after every reindex
 - **Knowledge Bootstrap** — "This is the Way": analyse messy repos, classify files, detect duplicates, propose a cleanup plan, execute with user approval (never deletes files)
 - **Multi-project support** — one container manages multiple knowledge repos with per-project isolation

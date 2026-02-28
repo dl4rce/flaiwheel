@@ -63,8 +63,11 @@ def main():
 
     auth = AuthManager(config)
 
-    web_app = create_web_app(config, registry, config_lock, auth)
     mcp_server = create_mcp_server(config, registry)
+    web_app = create_web_app(
+        config, registry, config_lock, auth,
+        get_telemetry=mcp_server.get_telemetry_data,
+    )
 
     def run_web():
         uvicorn.run(

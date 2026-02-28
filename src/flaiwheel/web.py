@@ -77,6 +77,7 @@ def create_web_app(
     registry: ProjectRegistry,
     config_lock: threading.Lock,
     auth: AuthManager,
+    get_telemetry: callable = None,
 ) -> FastAPI:
     """Factory: returns a FastAPI app backed by a ProjectRegistry."""
 
@@ -356,6 +357,14 @@ def create_web_app(
     ):
         ctx = _resolve(project)
         return ctx.indexer.stats
+
+    @app.get("/api/telemetry")
+    async def telemetry_data(
+        _user: str = Depends(require_auth),
+    ):
+        if get_telemetry:
+            return get_telemetry()
+        return {}
 
     @app.post("/api/index-flaiwheel-docs")
     async def index_flaiwheel_docs(

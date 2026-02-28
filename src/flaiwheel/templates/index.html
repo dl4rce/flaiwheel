@@ -481,6 +481,16 @@
             </div>
         </div>
 
+        <!-- Tool Telemetry -->
+        <div class="card" style="margin-bottom: 24px;">
+            <h2><span class="icon">&#128202;</span> Tool Telemetry</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin-bottom:16px;">
+                Live MCP tool usage per project since container start. Patterns trigger smart nudges to agents.
+            </p>
+            <div id="telemetry-empty" style="color:var(--text-dim); font-size:14px;">No telemetry data yet — tool calls will appear here once agents start using MCP tools.</div>
+            <div id="telemetry-grid" style="display:none; gap:16px;"></div>
+        </div>
+
         <div class="grid">
             <!-- Connection Config -->
             <div class="card">
@@ -556,9 +566,11 @@
             loadConfig();
             loadStats();
             loadHealth();
+            loadTelemetry();
         });
         setInterval(loadStats, 30000);
         setInterval(loadHealth, 15000);
+        setInterval(loadTelemetry, 10000);
     });
 
     function projectParam() {
@@ -1016,6 +1028,65 @@
                     + escapeHtml(i.message) + '</div>';
             }).join('');
         }
+    }
+
+    async function loadTelemetry() {
+        var data = await api('GET', '/telemetry');
+        if (!data || typeof data !== 'object') return;
+
+        var keys = Object.keys(data).filter(function(k) { return k !== '_default'; });
+        if (keys.length === 0 && data['_default']) keys = ['_default'];
+        if (keys.length === 0) {
+            document.getElementById('telemetry-empty').style.display = 'block';
+            document.getElementById('telemetry-grid').style.display = 'none';
+            return;
+        }
+
+        document.getElementById('telemetry-empty').style.display = 'none';
+        var grid = document.getElementById('telemetry-grid');
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
+
+        grid.innerHTML = keys.map(function(proj) {
+            var t = data[proj];
+            var label = proj === '_default' ? 'Default' : proj;
+            var readRatio = t.total_calls > 0
+                ? Math.round((t.searches + t.bugfix_searches) / t.total_calls * 100) : 0;
+            var writeRatio = t.total_calls > 0
+                ? Math.round((t.writes + t.bugfix_writes) / t.total_calls * 100) : 0;
+            var barColor = writeRatio > 0 ? 'var(--success)' : 'var(--warning)';
+            var missRate = t.searches > 0
+                ? Math.round(t.search_misses / t.searches * 100) : 0;
+
+            return '<div style="background:var(--bg-input); border-radius:var(--radius); padding:16px;">'
+                + '<div style="font-weight:600; font-size:14px; margin-bottom:12px; color:var(--text);">' + escapeHtml(label) + '</div>'
+                + '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">'
+                +   _statBox('Total Calls', t.total_calls)
+                +   _statBox('Searches', t.searches + t.bugfix_searches)
+                +   _statBox('Writes', t.writes + t.bugfix_writes)
+                +   _statBox('Nudges Sent', t.nudges_sent)
+                + '</div>'
+                + '<div style="margin-bottom:8px;">'
+                +   '<div style="font-size:11px; color:var(--text-dim); margin-bottom:4px;">Read / Write ratio</div>'
+                +   '<div style="display:flex; height:8px; border-radius:4px; overflow:hidden; background:var(--border);">'
+                +     '<div style="width:' + readRatio + '%; background:var(--accent);"></div>'
+                +     '<div style="width:' + writeRatio + '%; background:' + barColor + ';"></div>'
+                +   '</div>'
+                +   '<div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:2px;">'
+                +     '<span>Read ' + readRatio + '%</span><span>Write ' + writeRatio + '%</span>'
+                +   '</div>'
+                + '</div>'
+                + (missRate > 30
+                    ? '<div style="padding:6px 10px; background:rgba(255,152,0,0.1); border-radius:6px; font-size:12px; color:var(--warning);">Search miss rate: ' + missRate + '% — knowledge gaps likely</div>'
+                    : '<div style="padding:6px 10px; background:rgba(76,175,80,0.1); border-radius:6px; font-size:12px; color:var(--success);">Search miss rate: ' + missRate + '%</div>')
+                + '</div>';
+        }).join('');
+    }
+
+    function _statBox(label, value) {
+        return '<div style="text-align:center; padding:8px; background:var(--bg-card); border-radius:6px;">'
+            + '<div style="font-size:20px; font-weight:700; color:var(--accent);">' + value + '</div>'
+            + '<div style="font-size:11px; color:var(--text-dim);">' + label + '</div></div>';
     }
 
     function updateConnectionConfigs() {
