@@ -99,15 +99,25 @@ echo ""
 
 # ══════════════════════════════════════════════════════
 #  FAST PATH: detect running Flaiwheel → skip Docker
+#  Only if running version matches latest version.
+#  If version mismatch → fall through to update mode.
 # ══════════════════════════════════════════════════════
 
 FAST_PATH=false
 RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-' | head -1 || true)
 
 if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
-    FAST_PATH=true
-    echo -e "${GREEN}${BOLD}[✓] Flaiwheel already running (${RUNNING_FW}). Fast-connecting this project...${NC}"
-    echo ""
+    RUNNING_VERSION=$(curl -sf http://localhost:8080/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','0.0.0'))" 2>/dev/null || echo "0.0.0")
+    LATEST_VERSION=$(curl -sf "https://raw.githubusercontent.com/dl4rce/flaiwheel/main/src/flaiwheel/__init__.py" | grep '__version__' | cut -d'"' -f2 2>/dev/null || echo "0.0.0")
+
+    if [ "$RUNNING_VERSION" = "$LATEST_VERSION" ]; then
+        FAST_PATH=true
+        echo -e "${GREEN}${BOLD}[✓] Flaiwheel v${RUNNING_VERSION} already running (${RUNNING_FW}). Fast-connecting this project...${NC}"
+        echo ""
+    else
+        echo -e "${YELLOW}${BOLD}[↑] Flaiwheel update available: v${RUNNING_VERSION} → v${LATEST_VERSION}${NC}"
+        EXISTING_CONTAINER="$RUNNING_FW"
+    fi
 fi
 
 # ══════════════════════════════════════════════════════

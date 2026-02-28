@@ -1,5 +1,7 @@
 # AI Agent Instructions
 
+---
+
 ## Flaiwheel — Project Knowledge Base (MCP) — YOUR FIRST STOP
 
 This project has a **semantic knowledge base** powered by Flaiwheel.
@@ -42,9 +44,26 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
    - After writing tests: `write_test_case()` — document scenario, steps, expected result, status, tags
 5. **AFTER committing new/updated docs to the knowledge repo:** call `git_pull_reindex()`
 6. **Periodically:** `check_knowledge_quality()` and fix issues
-7. **"This is the Way"** — for messy repos, the user says this phrase (or "42"). Run `analyze_knowledge_repo()`, review the plan together, then `execute_cleanup(actions)` with approved IDs. Rewrite flagged files with `write_*` tools. Finalize with `reindex()`
+7. **"This is the Way"** — for messy repos, the user says this phrase (or "42"):
+   - **New project:** scan local project for docs → `classify_documents(files=JSON)` → review plan → `write_*` tools → `reindex()`
+   - **Existing knowledge repo:** `analyze_knowledge_repo()` → review plan → `execute_cleanup(actions)` → `reindex()`
 
 **Important:** Files with critical quality issues are skipped during indexing. Flaiwheel NEVER deletes or modifies user files.
+
+### Documentation Triggers
+
+**MANDATORY:** After fixing ANY bug → `write_bugfix_summary()` (no exceptions)
+
+**RECOMMENDED:**
+- Architecture decision → `write_architecture_doc()`
+- API change → `write_api_doc()`
+- New coding pattern → `write_best_practice()`
+- Deployment/infra change → `write_setup_doc()`
+- Tests written/modified → `write_test_case()`
+
+**SESSION CONTINUITY:**
+- At START of session → `get_recent_sessions()` (see what was done before)
+- At END of session → `save_session_summary()` (preserve context for next time)
 
 ### What the knowledge base contains
 
@@ -94,5 +113,8 @@ All tools accept an optional `project` parameter as explicit override.
 | `reindex()` | Re-index all documentation |
 | `check_knowledge_quality()` | Validate knowledge base |
 | `check_update()` | Check for newer Flaiwheel version |
-| `analyze_knowledge_repo()` | **"This is the Way"** — analyse repo, classify, detect duplicates |
+| `analyze_knowledge_repo()` | Analyse knowledge repo structure and quality |
 | `execute_cleanup(actions)` | Execute approved cleanup actions (never deletes files) |
+| `classify_documents(files)` | **"This is the Way"** — classify project docs for knowledge migration |
+| `save_session_summary(...)` | Save session context for continuity (call at end of session) |
+| `get_recent_sessions(limit)` | Retrieve recent session summaries (call at start of session) |
