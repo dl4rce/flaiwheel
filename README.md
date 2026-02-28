@@ -9,7 +9,8 @@
 Flaiwheel is a self-contained Docker service that:
 - **Indexes** your project documentation (`.md`, `.pdf`, `.html`, `.docx`, `.rst`, `.txt`, `.json`, `.yaml`, `.csv`) into a vector database
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
-- **Searches semantically** — agents find relevant docs by meaning, not keywords
+- **Hybrid search** — combines semantic vector search with BM25 keyword search via Reciprocal Rank Fusion (RRF) for best-of-both-worlds retrieval
+- **Session memory** — `save_session_summary()` + `get_recent_sessions()` preserve context across coding sessions — agents never start from scratch
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
 - **Structured write tools** — 7 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) that enforce quality at the source
 - **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
@@ -19,7 +20,7 @@ Flaiwheel is a self-contained Docker service that:
 - **Proactive quality checks** — automatically validates knowledge base after every reindex
 - **Knowledge Bootstrap** — "This is the Way": analyse messy repos, classify files, detect duplicates, propose a cleanup plan, execute with user approval (never deletes files)
 - **Multi-project support** — one container manages multiple knowledge repos with per-project isolation
-- **Includes a Web UI** for configuration, monitoring, testing, and bootstrap
+- **Includes a Web UI** for configuration, monitoring, and testing
 
 The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Knowledge compounds.
 
