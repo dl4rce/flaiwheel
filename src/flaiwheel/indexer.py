@@ -152,6 +152,50 @@ class DocsIndexer:
             embedding_function=self.ef,
             metadata={"hnsw:space": "cosine"},
         )
+        self._heal_dimension_mismatch()
+
+    def _heal_dimension_mismatch(self):
+        """Detect and auto-fix embedding dimension mismatch.
+
+        This happens when the global embedding model changes (env var or Web UI)
+        but the persisted collection still has vectors from the old model.
+        Since all projects share one global model, there's no way to query the
+        old vectors with the new model — both reads and writes would crash.
+
+        The source docs live in git so the collection is just a derived cache.
+        Safe to recreate: the next index_all() will re-embed everything."""
+        if self.collection.count() == 0:
+            return
+        try:
+            probe = self.collection.get(limit=1, include=["embeddings"])
+            if not probe["embeddings"] or not probe["embeddings"][0]:
+                return
+            stored_dim = len(probe["embeddings"][0])
+            current_dim = len(self.ef([" "])[0])
+            if stored_dim == current_dim:
+                return
+            model = (
+                self.config.embedding_model
+                if self.config.embedding_provider == "local"
+                else self.config.openai_embedding_model
+            )
+            print(
+                f"Dimension mismatch in '{self._collection_name}': "
+                f"stored={stored_dim}d, model '{model}'={current_dim}d — "
+                f"recreating collection (source docs in git, will re-embed)"
+            )
+            self.chroma.delete_collection(self._collection_name)
+            self.collection = self.chroma.get_or_create_collection(
+                self._collection_name,
+                embedding_function=self.ef,
+                metadata={"hnsw:space": "cosine"},
+            )
+            try:
+                self._hashes_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Warning: dimension check failed: {e}")
 
     def reinit(self, config: Config, embedding_fn=None):
         """Re-init with new config (e.g. after model change in Web UI)."""
