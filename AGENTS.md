@@ -55,11 +55,11 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 **MANDATORY:** After fixing ANY bug → `write_bugfix_summary()` (no exceptions)
 
 **RECOMMENDED:**
-- Architecture decision → `write_architecture_doc()`
+- Architecture decision → `write_architecture_doc()` **(MUST include Mermaid.js diagram)**
 - API change → `write_api_doc()`
 - New coding pattern → `write_best_practice()`
 - Deployment/infra change → `write_setup_doc()`
-- Tests written/modified → `write_test_case()`
+- Tests written/modified → `write_test_case()` (Use Gherkin/BDD flow specs when applicable)
 
 **SESSION CONTINUITY:**
 - At START of session → `get_recent_sessions()` (see what was done before)
