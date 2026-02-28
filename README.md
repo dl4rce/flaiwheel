@@ -11,7 +11,8 @@ Flaiwheel is a self-contained Docker service that:
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Hybrid search** — combines semantic vector search with BM25 keyword search via Reciprocal Rank Fusion (RRF) for best-of-both-worlds retrieval
 - **Cross-encoder reranker** — optional reranking step that rescores candidates with a cross-encoder model for significantly higher precision on vocabulary-mismatch queries (e.g. "auth bypass" finds "client-side auth flag")
-- **Session memory** — `save_session_summary()` + `get_recent_sessions()` preserve context across coding sessions — agents never start from scratch
+- **Living Architecture** — AI agents are instructed to maintain self-updating Mermaid.js diagrams for system components and flows.
+- **Executable Test Flows** — test scenarios are documented in machine-readable BDD/Gherkin format (`Given`, `When`, `Then`) for QA automation.
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
 - **Structured write tools** — 7 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) that enforce quality at the source
 - **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
@@ -138,12 +139,12 @@ Your AI agent now has access to 26 MCP tools:
 - `search_bugfixes` — search bugfix summaries for past issues
 - `search_by_type` — search filtered by category (architecture, api, bugfix, best-practice, setup, changelog, test)
 - `write_bugfix_summary` — document fixes (auto-pushed to knowledge repo)
-- `write_architecture_doc` — document architecture decisions
+- `write_architecture_doc` — document architecture decisions (with Mermaid diagram)
 - `write_api_doc` — document API endpoints
 - `write_best_practice` — document coding standards/patterns
 - `write_setup_doc` — document setup/deployment procedures
 - `write_changelog_entry` — document release notes
-- `write_test_case` — document test cases (scenario, steps, expected result)
+- `write_test_case` — document test cases as BDD flows
 - `search_tests` — search test cases for existing coverage and patterns
 - `validate_doc` — validate markdown before committing
 - `git_pull_reindex` — pull latest from knowledge repo + re-index
@@ -194,12 +195,12 @@ For every task, follow this order:
 ### Documenting knowledge (use structured write tools):
 Instead of writing raw markdown, use the built-in write tools — they enforce correct structure, place files in the right directory, index immediately, and auto-push:
 - `write_bugfix_summary()` — after every bugfix (**mandatory**)
-- `write_architecture_doc()` — architecture decisions, system design
+- `write_architecture_doc()` — architecture decisions, system design (requires Mermaid.js diagram)
 - `write_api_doc()` — API endpoints, contracts, schemas
 - `write_best_practice()` — coding standards, patterns
 - `write_setup_doc()` — setup, deployment, infrastructure
 - `write_changelog_entry()` — release notes
-- `write_test_case()` — after writing/modifying tests, document the scenario, steps, and expected result
+- `write_test_case()` — document test scenario as BDD/Gherkin flow (`Given/When/Then`)
 - `search_tests()` — **before** writing new tests, check what's already covered
 
 For freeform docs not covered by these tools: call `validate_doc(content, category)` before committing to catch quality issues early.
@@ -250,12 +251,12 @@ All tools accept an optional `project` parameter as explicit override. When omit
 | `search_bugfixes(query, top_k)` | Search only bugfix summaries |
 | `search_by_type(query, doc_type, top_k)` | Filter by type |
 | `write_bugfix_summary(title, root_cause, solution, ...)` | Document a bugfix (auto-pushed + reindexed) |
-| `write_architecture_doc(title, overview, decisions, trade_offs, ...)` | Document architecture decisions |
+| `write_architecture_doc(title, overview, decisions, trade_offs, ...)` | Document architecture decisions (requires Mermaid.js diagram) |
 | `write_api_doc(title, endpoint, method, request_schema, response_schema, ...)` | Document API endpoints |
 | `write_best_practice(title, context, rule, rationale, ...)` | Document coding standards |
 | `write_setup_doc(title, prerequisites, steps, verification, ...)` | Document setup/deployment |
 | `write_changelog_entry(version, release_date, added, changed, fixed, breaking)` | Document release notes |
-| `write_test_case(title, scenario, steps, expected_result, ...)` | Document test cases (auto-pushed + reindexed) |
+| `write_test_case(title, scenario, steps, expected_result, ...)` | Document test cases as BDD flows (auto-pushed) |
 | `search_tests(query, top_k)` | Search test cases for coverage and patterns |
 | `validate_doc(content, category)` | Validate markdown before committing |
 | `git_pull_reindex()` | Pull latest from knowledge repo + re-index |
