@@ -600,12 +600,17 @@ class DocsIndexer:
                     metadatas=[c["metadata"] for c in batch],
                 )
 
-        # Remove chunks from deleted/renamed files
+        # Remove chunks from deleted/renamed files — but NEVER wipe all
+        # chunks when 0 files were found (repo not cloned yet / empty dir).
         stale_ids = existing_ids - new_ids
-        if stale_ids:
+        if stale_ids and file_count > 0:
             stale_list = list(stale_ids)
             for i in range(0, len(stale_list), 5000):
                 self.collection.delete(ids=stale_list[i : i + 5000])
+        elif stale_ids and file_count == 0 and existing_ids:
+            print(f"Safety: 0 files on disk but {len(existing_ids)} chunks in DB "
+                  f"— skipping stale removal (repo may not be cloned yet)")
+            stale_ids = set()
 
         # Verify ChromaDB actually persisted before saving hashes.
         # If count is 0 but we expected chunks, don't save hashes —
