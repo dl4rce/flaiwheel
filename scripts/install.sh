@@ -364,7 +364,7 @@ TOOLSEOF
         echo -e "# ${dir}\n\nThis directory contains ${dir} documentation managed by Flaiwheel.\nAdd .md files here or use the corresponding write tool." > "${dir}/README.md"
     done
 
-    git add README.md FLAIWHEEL_TOOLS.md .gitignore architecture/ api/ bugfix-log/ best-practices/ setup/ changelog/ tests/
+    git add README.md FLAIWHEEL_TOOLS.md architecture/ api/ bugfix-log/ best-practices/ setup/ changelog/ tests/
     git commit -m "init: knowledge base structure (created by Flaiwheel installer)"
     git push origin main 2>/dev/null || git push origin master 2>/dev/null
 
