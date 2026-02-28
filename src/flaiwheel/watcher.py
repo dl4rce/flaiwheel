@@ -102,29 +102,28 @@ class GitWatcher:
         if not changed_lines:
             return
 
-        files = [
-            line[3:].strip().strip('"')
-            for line in changed_lines.splitlines()
-            if line.strip()
-        ]
-
         docs_path = Path(self.config.docs_path)
-        if git_dir != docs_path:
-            try:
-                rel = docs_path.relative_to(git_dir)
-                subprocess.run(
-                    ["git", "-C", str(git_dir), "add", str(rel)],
-                    check=True, timeout=10,
-                )
-            except ValueError:
-                subprocess.run(
-                    ["git", "-C", str(git_dir), "add", "-A"],
-                    check=True, timeout=10,
-                )
-        else:
+        try:
+            rel_prefix = str(docs_path.relative_to(git_dir)) if git_dir != docs_path else ""
+        except ValueError:
+            rel_prefix = ""
+
+        files = []
+        for line in changed_lines.splitlines():
+            if not line.strip():
+                continue
+            fpath = line[3:].strip().strip('"')
+            if rel_prefix and not fpath.startswith(rel_prefix + "/") and fpath != rel_prefix:
+                continue
+            files.append(fpath)
+
+        if not files:
+            return
+
+        for f in files:
             subprocess.run(
-                ["git", "-C", str(git_dir), "add", "-A"],
-                check=True, timeout=10,
+                ["git", "-C", str(git_dir), "add", "--", f],
+                capture_output=True, timeout=10,
             )
 
         msg = self._build_commit_message(files)

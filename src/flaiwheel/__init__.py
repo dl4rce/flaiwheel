@@ -3,4 +3,4 @@
 # Use of this software is governed by the Business Source License 1.1. See LICENSE.md.
 
 """Flaiwheel – Self-improving knowledge base for AI coding agents."""
-__version__ = "2.6.2"
+__version__ = "2.6.3"

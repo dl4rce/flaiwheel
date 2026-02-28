@@ -261,7 +261,7 @@ TOOLSEOF
                 echo -e "# ${dir}\n\nThis directory contains ${dir} documentation managed by Flaiwheel.\nAdd .md files here or use the corresponding write tool." > "${dir}/README.md"
             fi
         done
-        git add -A
+        git add FLAIWHEEL_TOOLS.md architecture/ api/ bugfix-log/ best-practices/ setup/ changelog/ tests/
         git diff --staged --quiet || { git commit -m "docs: add/update Flaiwheel tools + ensure directory structure" && git push origin main 2>/dev/null || git push origin master 2>/dev/null; }
         popd > /dev/null
         ok "Knowledge repo updated (tools + directory structure)"
@@ -364,7 +364,7 @@ TOOLSEOF
         echo -e "# ${dir}\n\nThis directory contains ${dir} documentation managed by Flaiwheel.\nAdd .md files here or use the corresponding write tool." > "${dir}/README.md"
     done
 
-    git add -A
+    git add README.md FLAIWHEEL_TOOLS.md .gitignore architecture/ api/ bugfix-log/ best-practices/ setup/ changelog/ tests/
     git commit -m "init: knowledge base structure (created by Flaiwheel installer)"
     git push origin main 2>/dev/null || git push origin master 2>/dev/null
 
