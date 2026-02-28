@@ -345,7 +345,9 @@ class TestBackwardCompat:
 
         docs = tmp_path / "docs"
         docs.mkdir()
-        _make_docs(docs)
+        isolated = docs / "my-app"
+        isolated.mkdir()
+        _make_docs(isolated)
 
         cfg = Config(
             docs_path=str(docs),
@@ -358,6 +360,7 @@ class TestBackwardCompat:
         assert len(reg) == 1
         ctx = reg.get_default()
         assert ctx.name == "my-app"
+        assert ctx.project_config.docs_path == str(isolated)
         assert ctx.project_config.collection_name == LEGACY_COLLECTION
 
     def test_existing_projects_json_loaded(self, tmp_path, monkeypatch):

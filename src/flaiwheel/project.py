@@ -194,6 +194,13 @@ class ProjectRegistry:
         PROJECTS_FILE.write_text(json.dumps(configs, indent=2, default=str))
 
     @staticmethod
+    def _save_configs(configs: list["ProjectConfig"]):
+        PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PROJECTS_FILE.write_text(json.dumps(
+            [pc.model_dump() for pc in configs], indent=2, default=str
+        ))
+
+    @staticmethod
     def load_project_configs() -> list[ProjectConfig]:
         if not PROJECTS_FILE.exists():
             return []
@@ -216,6 +223,7 @@ class ProjectRegistry:
         configs = self.load_project_configs()
 
         if configs:
+            self._migrate_root_docs_paths(configs)
             for pc in configs:
                 print(f"Loading project: {pc.name}")
                 ctx = self.add(pc, start_watcher=False)
@@ -227,6 +235,8 @@ class ProjectRegistry:
             name = _derive_project_name(gc)
             print(f"Legacy mode: creating project '{name}' from env vars")
 
+            isolated_path = f"{gc.docs_path.rstrip('/')}/{name}"
+
             pc = ProjectConfig(
                 name=name,
                 git_repo_url=gc.git_repo_url,
@@ -237,13 +247,25 @@ class ProjectRegistry:
                 git_sync_interval=gc.git_sync_interval,
                 git_commit_prefix=gc.git_commit_prefix,
                 webhook_secret=gc.webhook_secret,
-                docs_path=gc.docs_path,
+                docs_path=isolated_path,
                 collection_name=LEGACY_COLLECTION,
             )
 
             ctx = self.add(pc, start_watcher=False)
             _initial_index(ctx)
             self.save()
+
+    def _migrate_root_docs_paths(self, configs: list["ProjectConfig"]):
+        """Migrate any project with docs_path=/docs to /docs/{name} to prevent collisions."""
+        changed = False
+        for pc in configs:
+            if pc.docs_path == "/docs":
+                old = pc.docs_path
+                pc.docs_path = f"/docs/{pc.name}"
+                print(f"  Migrating {pc.name}: docs_path {old} -> {pc.docs_path}")
+                changed = True
+        if changed:
+            self._save_configs(configs)
 
     def start_all_watchers(self):
         for ctx in self.all():
