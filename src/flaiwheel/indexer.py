@@ -168,9 +168,13 @@ class DocsIndexer:
             return
         try:
             probe = self.collection.get(limit=1, include=["embeddings"])
-            if not probe["embeddings"] or not probe["embeddings"][0]:
+            embs = probe.get("embeddings")
+            if embs is None or len(embs) == 0:
                 return
-            stored_dim = len(probe["embeddings"][0])
+            first_emb = embs[0]
+            if first_emb is None or len(first_emb) == 0:
+                return
+            stored_dim = len(first_emb)
             current_dim = len(self.ef([" "])[0])
             if stored_dim == current_dim:
                 return
