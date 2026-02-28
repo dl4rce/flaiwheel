@@ -108,10 +108,24 @@ class GitWatcher:
             if line.strip()
         ]
 
-        subprocess.run(
-            ["git", "-C", str(git_dir), "add", "-A"],
-            check=True, timeout=10,
-        )
+        docs_path = Path(self.config.docs_path)
+        if git_dir != docs_path:
+            try:
+                rel = docs_path.relative_to(git_dir)
+                subprocess.run(
+                    ["git", "-C", str(git_dir), "add", str(rel)],
+                    check=True, timeout=10,
+                )
+            except ValueError:
+                subprocess.run(
+                    ["git", "-C", str(git_dir), "add", "-A"],
+                    check=True, timeout=10,
+                )
+        else:
+            subprocess.run(
+                ["git", "-C", str(git_dir), "add", "-A"],
+                check=True, timeout=10,
+            )
 
         msg = self._build_commit_message(files)
         subprocess.run(

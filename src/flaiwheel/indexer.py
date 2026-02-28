@@ -522,15 +522,19 @@ class DocsIndexer:
         if not docs_path.exists():
             return {"status": "error", "message": f"Path does not exist: {docs_path}"}
 
-        old_hashes = {} if force else self._load_file_hashes()
-        new_hashes: dict[str, str] = {}
-
         existing_ids: set[str] = set()
         try:
             result = self.collection.get(include=[])
             existing_ids = set(result["ids"])
         except Exception:
             pass
+
+        if not force and not existing_ids:
+            force = True
+            print("Collection empty — forcing full re-index (ignoring hash cache)")
+
+        old_hashes = {} if force else self._load_file_hashes()
+        new_hashes: dict[str, str] = {}
 
         all_chunks: list[dict] = []
         changed_chunks: list[dict] = []
