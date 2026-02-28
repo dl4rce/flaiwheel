@@ -227,6 +227,7 @@ class ProjectRegistry:
             for pc in configs:
                 print(f"Loading project: {pc.name}")
                 ctx = self.add(pc, start_watcher=False)
+                ctx.watcher.clone_if_needed()
                 _initial_index(ctx)
             return
 
@@ -252,6 +253,7 @@ class ProjectRegistry:
             )
 
             ctx = self.add(pc, start_watcher=False)
+            ctx.watcher.clone_if_needed()
             _initial_index(ctx)
             self.save()
 
