@@ -40,17 +40,7 @@ def _path_category_hint(path_hint: str) -> tuple[str, float]:
     if not path_hint:
         return "docs", 0.0
 
-    p = path_hint.lower()
-    if re.search(r"\b(?:bug[-_]?fix(?:-log)?)\b", p):
-        tokenized = re.split(r"[./_\\-]+", p)
-        directory_tokens = set(tokenized[:-1])
-        token_in_directory = any(
-            token in directory_tokens
-            for token in ("bugfix", "bug-fix", "bugfix-log", "bug", "fix", "fixes")
-        )
-        return "bugfix", 0.9 if token_in_directory else 0.65
-
-    tokens = [t for t in re.split(r"[./_\\-]+", p) if t]
+    tokens = [t for t in re.split(r"[./_\\-]+", path_hint.lower()) if t]
     if not tokens:
         return "docs", 0.0
 
@@ -62,6 +52,16 @@ def _path_category_hint(path_hint: str) -> tuple[str, float]:
 
     def _score(base: float, in_directory: bool) -> float:
         return min(1.0, base + (0.12 if in_directory else 0.0))
+
+    if {"bugfix", "bugfixlog", "bugfixes"} & all_tokens or (
+        "bug" in all_tokens and "fix" in all_tokens
+    ):
+        in_dir = (
+            _in_directory("bugfix")
+            or _in_directory("bugfixlog")
+            or ("bug" in directory_tokens and "fix" in directory_tokens)
+        )
+        return "bugfix", _score(0.8, in_dir)
 
     if {"best-practice", "best", "practice"} & all_tokens:
         return "best-practice", _score(

@@ -38,12 +38,16 @@ The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Know
 
 ---
 
-## What’s New in v3.3.0
+## What’s New in v3.4.0
 
-- **Bootstrap path classification hardened** — path hints now use token-based detection with confidence, avoiding substring false positives (e.g. `apiary` no longer maps to API) and reducing misfiled documents.
-- **Safer bootstrap execution** — bootstrap execution now stages only changed paths (`git add -- <paths>`) and avoids global `git add -A` / hard-reset undo patterns.
-- **Quality classifier alignment** — quality checks now use the same category signal extraction logic as bootstrap path classification, improving consistency between recommendations and cleanup decisions.
-- **Version bump** — package version updated to `3.3.0`.
+- **Classification consistency** — `_path_category_hint` now uses a single unified token-based approach across all categories, including bugfix detection (removes inconsistent regex branch).
+- **`CHANGELOG.md`** — standard changelog file added to repo root for GitHub browsing.
+- No breaking changes — fully backward-compatible.
+
+### Previous: v3.3.0
+- Bootstrap path classification hardened with confidence-aware token detection (no more `apiary` → `api` false positives).
+- Bootstrap execution stages only touched files — no global `git add -A` or hard-reset rollback patterns.
+- Quality and bootstrap classification now share the same signal model (`_path_category_hint`).
 
 ---
 
