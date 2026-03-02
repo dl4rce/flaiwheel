@@ -53,3 +53,5 @@ node_modules/
 
 # Flaiwheel (local MCP config — token may differ per developer)
 .cursor/mcp.json
+# Flaiwheel hook config (contains local credentials)
+.cursor/flaiwheel-hook.conf
