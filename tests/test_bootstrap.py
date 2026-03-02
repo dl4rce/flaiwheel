@@ -17,6 +17,7 @@ from flaiwheel.bootstrap import (
     KnowledgeBootstrap,
     _classify_by_keywords,
     _cosine_similarity,
+    _path_category_hint,
     format_classification_report,
     format_report,
 )
@@ -29,6 +30,7 @@ def _make_file_info(
     path: str,
     content_preview: str = "Some content here",
     category_by_path: str = "docs",
+    category_by_path_confidence: float = 1.0,
     category_by_content: str = "",
     category_by_embedding: str = "",
     embedding_confidence: float = 0.0,
@@ -48,6 +50,7 @@ def _make_file_info(
         heading_count=heading_count,
         word_count=word_count,
         category_by_path=category_by_path,
+        category_by_path_confidence=category_by_path_confidence,
         category_by_content=category_by_content,
         category_by_embedding=category_by_embedding,
         embedding_confidence=embedding_confidence,
@@ -218,6 +221,17 @@ class TestConsensusCategory:
         assert cat == "docs"
         assert conf == 0.3
 
+
+class TestPathCategoryHint:
+    def test_false_positive_api_like_token_is_ignored(self):
+        category, confidence = _path_category_hint("notes/about-apiary.md")
+        assert category == "docs"
+        assert confidence == 0.0
+
+    def test_directory_path_hint_strength(self):
+        category, confidence = _path_category_hint("api/endpoints/users.md")
+        assert category == "api"
+        assert confidence >= 0.9
 
 # ── Duplicate Detection ───────────────────────────────
 
@@ -498,6 +512,45 @@ class TestExecution:
             if "git" in str(c) and "mv" in str(c)
         ]
         assert len(git_mv_calls) >= 1
+
+    @patch("flaiwheel.bootstrap.subprocess.run")
+    def test_execute_move_stages_targeted_paths(self, mock_run, tmp_docs):
+        src = tmp_docs / "stray.md"
+        src.write_text("# Stray file\n\nContent here.\n")
+
+        def fake_run(cmd, *args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="abc123\n",
+                stderr="",
+            )
+
+        mock_run.side_effect = fake_run
+
+        action = {
+            "id": "a1",
+            "type": "move",
+            "from": "stray.md",
+            "to": "api/stray.md",
+            "reason": "Test move",
+        }
+        bootstrap = KnowledgeBootstrap(tmp_docs)
+        bootstrap._report = {"proposed_actions": [action]}
+        result = bootstrap.execute(["a1"])
+
+        git_add_calls = [c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ("git", "add")]
+        assert len(git_add_calls) == 1
+        assert "--" in git_add_calls[0]
+        assert "-A" not in git_add_calls[0]
+        assert git_add_calls[0][-1] == "api/stray.md"
+        assert result["changed_paths"] == ["api/stray.md"]
+        assert "reset --hard" not in result["rollback_command"]
+
+        hard_reset_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ("git", "reset")
+        ]
+        assert hard_reset_calls == []
 
     def test_execute_move_missing_source(self, tmp_docs):
         action = {

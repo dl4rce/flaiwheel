@@ -28,8 +28,76 @@ EXPECTED_DIRS = [
 BUGFIX_REQUIRED_SECTIONS = ["Root Cause", "Solution", "Lesson Learned"]
 TEST_REQUIRED_SECTIONS = ["Scenario", "Steps", "Expected Result"]
 
+PATH_HINT_STRONG_THRESHOLD = 0.7
+PATH_HINT_WEAK_THRESHOLD = 0.45
+
 SEVERITY_PENALTY = {"critical": 10, "warning": 2, "info": 0}
 MAX_DEDUCTION = {"critical": 60, "warning": 30, "info": 0}
+
+
+def _path_category_hint(path_hint: str) -> tuple[str, float]:
+    """Infer category from path structure and return (category, confidence)."""
+    if not path_hint:
+        return "docs", 0.0
+
+    p = path_hint.lower()
+    if re.search(r"\b(?:bug[-_]?fix(?:-log)?)\b", p):
+        tokenized = re.split(r"[./_\\-]+", p)
+        directory_tokens = set(tokenized[:-1])
+        token_in_directory = any(
+            token in directory_tokens
+            for token in ("bugfix", "bug-fix", "bugfix-log", "bug", "fix", "fixes")
+        )
+        return "bugfix", 0.9 if token_in_directory else 0.65
+
+    tokens = [t for t in re.split(r"[./_\\-]+", p) if t]
+    if not tokens:
+        return "docs", 0.0
+
+    directory_tokens = set(tokens[:-1])
+    all_tokens = set(tokens)
+
+    def _in_directory(token: str) -> bool:
+        return token in directory_tokens
+
+    def _score(base: float, in_directory: bool) -> float:
+        return min(1.0, base + (0.12 if in_directory else 0.0))
+
+    if {"best-practice", "best", "practice"} & all_tokens:
+        return "best-practice", _score(
+            0.75,
+            "best-practice" in directory_tokens
+            or ("best" in directory_tokens and "practice" in directory_tokens),
+        )
+
+    if {"architecture", "architect", "architectural", "architectures"} & all_tokens:
+        return "architecture", _score(0.82, _in_directory("architecture"))
+
+    if {"changelog", "release", "release-notes"} & all_tokens:
+        return "changelog", _score(
+            0.78, "changelog" in directory_tokens or "release" in directory_tokens
+        )
+
+    if {"api", "apis", "endpoint", "endpoints"} & all_tokens:
+        return "api", _score(
+            0.8,
+            _in_directory("api") or _in_directory("apis")
+            or _in_directory("endpoint") or _in_directory("endpoints"),
+        )
+
+    if {"setup", "install", "deployment", "deploy"} & all_tokens:
+        return "setup", _score(
+            0.75, _in_directory("setup") or _in_directory("install")
+        )
+
+    if {"test", "tests", "testing", "qa"} & all_tokens:
+        return "test", _score(
+            0.78,
+            _in_directory("test") or _in_directory("tests")
+            or _in_directory("testing"),
+        )
+
+    return "docs", 0.0
 
 
 class KnowledgeQualityChecker:
@@ -414,22 +482,7 @@ def _strip_heading_decorators(text: str) -> str:
 
 
 def _detect_category(path: str) -> str:
-    p = path.lower()
-    if "bugfix" in p or "bug-fix" in p:
-        return "bugfix"
-    if "best-practice" in p:
-        return "best-practice"
-    if "api" in p:
-        return "api"
-    if "architect" in p:
-        return "architecture"
-    if "changelog" in p or "release" in p:
-        return "changelog"
-    if "setup" in p or "install" in p:
-        return "setup"
-    if "test" in p:
-        return "test"
-    return "docs"
+    return _path_category_hint(path)[0]
 
 
 def _issue(severity: str, file: str, message: str) -> dict:

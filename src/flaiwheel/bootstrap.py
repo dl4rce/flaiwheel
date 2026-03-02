@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .quality import EXPECTED_DIRS, _detect_category
+from .quality import EXPECTED_DIRS, PATH_HINT_STRONG_THRESHOLD, PATH_HINT_WEAK_THRESHOLD, _path_category_hint
 from .readers import SUPPORTED_EXTENSIONS, extract_text
 
 CATEGORY_TEMPLATES: dict[str, str] = {
@@ -166,6 +166,7 @@ class FileInfo:
     heading_count: int
     word_count: int
     category_by_path: str
+    category_by_path_confidence: float = 0.0
     category_by_content: str = ""
     category_by_embedding: str = ""
     embedding_confidence: float = 0.0
@@ -222,10 +223,13 @@ class DocumentClassifier:
         kw_cat: str, emb_cat: str, emb_conf: float, path_hint: str,
     ) -> tuple[str, float]:
         """Three-signal consensus: path hint > keyword+embedding agree > keyword > embedding."""
-        path_cat = _detect_category(path_hint) if path_hint else "docs"
+        path_cat, path_conf = _path_category_hint(path_hint) if path_hint else ("docs", 0.0)
 
-        if path_cat != "docs":
-            return path_cat, 0.95
+        if path_cat != "docs" and path_conf >= PATH_HINT_STRONG_THRESHOLD:
+            return path_cat, min(0.75 + path_conf * 0.2, 0.95)
+
+        if path_cat != "docs" and path_conf >= PATH_HINT_WEAK_THRESHOLD:
+            return path_cat, 0.7
 
         if kw_cat != "docs" and kw_cat == emb_cat:
             return kw_cat, min(0.85 + emb_conf * 0.1, 0.95)
@@ -438,6 +442,7 @@ class KnowledgeBootstrap:
 
                 rel_path = str(p.relative_to(self.docs_path))
                 headings = re.findall(r"^#{1,6}\s+", content, re.MULTILINE)
+                category_by_path, category_by_path_confidence = _path_category_hint(rel_path)
 
                 fi = FileInfo(
                     path=rel_path,
@@ -448,7 +453,8 @@ class KnowledgeBootstrap:
                     has_headings=bool(headings),
                     heading_count=len(headings),
                     word_count=len(content.split()),
-                    category_by_path=_detect_category(rel_path),
+                    category_by_path=category_by_path,
+                    category_by_path_confidence=category_by_path_confidence,
                 )
 
                 if self.quality_checker:
@@ -502,12 +508,16 @@ class KnowledgeBootstrap:
     @staticmethod
     def _consensus_category(fi: FileInfo) -> tuple[str, float]:
         path_cat = fi.category_by_path
+        path_conf = fi.category_by_path_confidence
         content_cat = fi.category_by_content
         embed_cat = fi.category_by_embedding
         embed_conf = fi.embedding_confidence
 
-        if path_cat != "docs":
-            return path_cat, 0.95
+        if path_cat != "docs" and path_conf >= PATH_HINT_STRONG_THRESHOLD:
+            return path_cat, min(0.75 + path_conf * 0.2, 0.95)
+
+        if path_cat != "docs" and path_conf >= PATH_HINT_WEAK_THRESHOLD:
+            return path_cat, 0.7
 
         if content_cat != "docs" and content_cat == embed_cat:
             return content_cat, min(0.85 + embed_conf * 0.1, 0.95)
@@ -775,8 +785,10 @@ class KnowledgeBootstrap:
         actions_by_id = {a["id"]: a for a in self._report["proposed_actions"]}
         results: list[dict] = []
         errors: list[str] = []
+        staged_paths: set[str] = set()
 
         rollback_hash = ""
+        has_git = False
         try:
             r = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -785,6 +797,7 @@ class KnowledgeBootstrap:
             )
             if r.returncode == 0:
                 rollback_hash = r.stdout.strip()
+                has_git = True
         except Exception:
             pass
 
@@ -806,6 +819,7 @@ class KnowledgeBootstrap:
                             f"Documentation for {category}.\n",
                             encoding="utf-8",
                         )
+                        staged_paths.add(str(readme.relative_to(self.docs_path)))
                     results.append({"id": aid, "status": "ok", "type": "create_dir"})
 
                 elif action["type"] == "move":
@@ -822,6 +836,7 @@ class KnowledgeBootstrap:
                     )
                     if r.returncode != 0:
                         src.rename(dst)
+                    staged_paths.add(action["to"])
                     results.append({
                         "id": aid, "status": "ok", "type": "move",
                         "from": action["from"], "to": action["to"],
@@ -839,31 +854,47 @@ class KnowledgeBootstrap:
         commit_hash = ""
         moved = [r for r in results if r.get("type") == "move"]
         created = [r for r in results if r.get("type") == "create_dir"]
-        if moved or created:
+        if has_git and staged_paths:
             try:
-                subprocess.run(
-                    ["git", "add", "-A"],
-                    capture_output=True, timeout=10,
+                add_result = subprocess.run(
+                    ["git", "add", "--", *sorted(staged_paths)],
+                    capture_output=True, text=True, timeout=10,
                     cwd=str(self.docs_path),
                 )
+                if add_result.returncode != 0:
+                    errors.append(f"Failed to stage bootstrap changes: {add_result.stderr.strip()}")
+                    raise RuntimeError("git add failed")
                 msg = (
                     f"Bootstrap cleanup: {len(moved)} file(s) moved, "
                     f"{len(created)} dir(s) created"
                 )
-                subprocess.run(
+                commit = subprocess.run(
                     ["git", "commit", "-m", msg],
                     capture_output=True, text=True, timeout=15,
                     cwd=str(self.docs_path),
                 )
-                r = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    capture_output=True, text=True, timeout=5,
-                    cwd=str(self.docs_path),
-                )
-                if r.returncode == 0:
-                    commit_hash = r.stdout.strip()
+                if commit.returncode == 0:
+                    r = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        capture_output=True, text=True, timeout=5,
+                        cwd=str(self.docs_path),
+                    )
+                    if r.returncode == 0:
+                        commit_hash = r.stdout.strip()
+                else:
+                    errors.append(f"Failed to commit bootstrap changes: {commit.stderr.strip()}")
             except Exception:
                 pass
+
+        rollback_command: str
+        if commit_hash:
+            rollback_command = f"git revert {commit_hash}"
+        elif has_git and staged_paths:
+            rollback_command = (
+                "git restore --worktree --staged -- " + " ".join(sorted(staged_paths))
+            )
+        else:
+            rollback_command = "Manual rollback required"
 
         return {
             "status": "ok" if not errors else "partial",
@@ -872,11 +903,8 @@ class KnowledgeBootstrap:
             "results": results,
             "rollback_hash": rollback_hash,
             "commit_hash": commit_hash,
-            "rollback_command": (
-                f"git revert {commit_hash}" if commit_hash else
-                f"git reset --hard {rollback_hash}" if rollback_hash else
-                "Manual rollback required"
-            ),
+            "rollback_command": rollback_command,
+            "changed_paths": sorted(staged_paths),
         }
 
 

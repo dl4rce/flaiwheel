@@ -38,13 +38,12 @@ The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Know
 
 ---
 
-## What’s New in v3.2.0
+## What’s New in v3.3.0
 
-- **Persistent telemetry** — MCP tool telemetry now survives container restarts and updates.
-- **Impact metrics API** — use `GET /api/impact-metrics` to track estimated time saved and regressions avoided.
-- **CI guardrail ingestion** — CI can post PR guardrail outcomes to `POST /api/telemetry/ci-guardrail-report`.
-- **Web UI impact card** — 30-day dashboard for time saved, regressions avoided, and guardrail findings.
-- **Test coverage** — telemetry persistence and impact aggregation are covered by automated tests.
+- **Bootstrap path classification hardened** — path hints now use token-based detection with confidence, avoiding substring false positives (e.g. `apiary` no longer maps to API) and reducing misfiled documents.
+- **Safer bootstrap execution** — bootstrap execution now stages only changed paths (`git add -- <paths>`) and avoids global `git add -A` / hard-reset undo patterns.
+- **Quality classifier alignment** — quality checks now use the same category signal extraction logic as bootstrap path classification, improving consistency between recommendations and cleanup decisions.
+- **Version bump** — package version updated to `3.3.0`.
 
 ---
 

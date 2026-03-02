@@ -219,6 +219,15 @@ class TestDetectCategory:
         from flaiwheel.quality import _detect_category
         assert _detect_category("random/file.md") == "docs"
 
+    def test_api_false_positive_path_token(self):
+        from flaiwheel.quality import _detect_category
+        assert _detect_category("notes/about-apiary.md") == "docs"
+
+    def test_setup_keyword_path(self):
+        from flaiwheel.quality import _detect_category
+        assert _detect_category("ops/install-guide.md") == "docs"
+        assert _detect_category("ops/setup/docker.md") == "setup"
+
 
 class TestOrphanDetection:
     def test_flaiwheel_tools_not_orphan(self, quality_checker, tmp_docs):
