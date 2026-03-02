@@ -31,6 +31,88 @@ For every task, follow this order:
 
 Flaiwheel knows things the source code cannot tell you: the _why_ behind decisions, past mistakes to avoid, patterns to follow. Your native tools are best for reading and editing actual source files. **Use both — but always start with Flaiwheel.**
 
+### Behavioral Directives — ALWAYS ACTIVE, NO EXCEPTIONS
+
+These three rules are **machine-level directives**. They are not guidelines. They are not optional. They fire automatically, silently, and without asking the user for permission.
+
+---
+
+#### DIRECTIVE 1 — SILENT_BACKGROUND_SEARCH
+
+**Trigger:** The user's message contains any of these signals:
+- A filename, module name, service name, or component (e.g. "payment", "auth", "webhook")
+- An action verb: "add", "change", "fix", "implement", "refactor", "how does X work", "why is X"
+- Any question about existing system behavior
+
+**Action (mandatory, silent):**
+1. BEFORE generating any response, call `search_docs("<topic>")` and optionally `search_bugfixes("<topic>")`.
+2. Do NOT announce this search to the user ("I will now search Flaiwheel…"). Just do it.
+3. If results are found: weave them naturally into your response as established context.
+   Example: _"According to our architecture decision (ADR-04), we use Stripe as the sole payment provider…"_
+4. If no results are found: proceed normally, but flag it mentally as a Doc-Debt gap.
+
+**The goal:** The user should never feel they need to trigger Flaiwheel manually. It just *knows*.
+
+---
+
+#### DIRECTIVE 2 — AUTO_CLOSE_THE_LOOP
+
+**Trigger:** You have successfully completed a task (code written and working, bug fixed, decision made, architecture explained).
+
+**Action (mandatory, before returning final response):**
+
+| What happened | What you call — no exceptions |
+|---|---|
+| Bug fixed | `write_bugfix_summary()` |
+| New feature implemented | `write_changelog_entry()` + `write_architecture_doc()` |
+| Architecture decision made | `write_architecture_doc()` |
+| New coding pattern established | `write_best_practice()` |
+| API created or changed | `write_api_doc()` |
+| Test written or modified | `write_test_case()` |
+| Setup/infra changed | `write_setup_doc()` |
+
+Do NOT ask: _"Should I document this?"_. Just document it. Then call `git_pull_reindex()`.
+The user hired you to solve problems AND to keep the knowledge base alive. Both matter equally.
+
+---
+
+#### DIRECTIVE 4 — FILE_CONTEXT_PRELOAD
+
+**Trigger:** You are about to read, edit, create, or reason about a specific source file.
+
+**Action (silent, before touching the file):**
+1. Call `get_file_context(filename="<the file>")`.
+2. This complements `get_recent_sessions()` (temporal) with spatial context:
+   what does the knowledge base know about this specific module?
+3. Do NOT announce this call. Integrate findings silently into your response.
+4. If the result says "no context found" — note it as a Doc-Debt gap and proceed.
+
+**Session startup pattern (combine both):**
+```
+get_recent_sessions()          → What did we do last time? (temporal)
+get_file_context(filename)     → What do we know about this file? (spatial)
+```
+
+**Works across all MCP clients:** Cursor, Claude Code, VS Code Copilot, any future MCP-compatible tool.
+
+---
+
+#### DIRECTIVE 3 — REUSE_BEFORE_RECREATE
+
+**Trigger:** You are about to write new code, a new pattern, or a new document.
+
+**Action:**
+1. FIRST call `search_docs("<what you're about to create>")`.
+2. Evaluate the relevance of results:
+   - **Relevance > 75%** → Reference and reuse the existing doc. Do not recreate it.
+   - **Relevance 40–75%** → Extend the existing doc with the new knowledge. Call the matching `write_*()` tool to update it.
+   - **Relevance < 40%** → Create new. Document it with `write_*()` immediately after.
+3. Never silently duplicate knowledge that already exists in the knowledge base.
+
+**The goal:** The knowledge base grows without redundancy. Every piece of knowledge lives exactly once.
+
+---
+
 ### Mandatory workflow
 
 1. **FIRST: Search Flaiwheel** — `search_docs("what you're working on")`, `search_bugfixes("the problem")`, `search_by_type("query", "architecture")` BEFORE touching code
@@ -55,11 +137,11 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 **MANDATORY:** After fixing ANY bug → `write_bugfix_summary()` (no exceptions)
 
 **RECOMMENDED:**
-- Architecture decision → `write_architecture_doc()` **(MUST include Mermaid.js diagram)**
+- Architecture decision → `write_architecture_doc()`
 - API change → `write_api_doc()`
 - New coding pattern → `write_best_practice()`
 - Deployment/infra change → `write_setup_doc()`
-- Tests written/modified → `write_test_case()` (Use Gherkin/BDD flow specs when applicable)
+- Tests written/modified → `write_test_case()`
 
 **SESSION CONTINUITY:**
 - At START of session → `get_recent_sessions()` (see what was done before)

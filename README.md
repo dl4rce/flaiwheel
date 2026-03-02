@@ -6,13 +6,22 @@
 
 ## What is Flaiwheel?
 
-Flaiwheel is a self-contained Docker service that:
+Flaiwheel is a self-contained Docker service that turns AI coding agents from amnesiac assistants into an always-learning engineering platform. It operates on three levels:
+
+**Pull** — agents search before they code (`search_docs`, `get_file_context`)  
+**Push** — agents document as they work (`write_bugfix_summary`, `write_architecture_doc`, …)  
+**Capture** — git commits auto-capture knowledge via a post-commit hook, even without an AI agent
+
+Features:
 - **Indexes** your project documentation (`.md`, `.pdf`, `.html`, `.docx`, `.rst`, `.txt`, `.json`, `.yaml`, `.csv`) into a vector database
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Hybrid search** — combines semantic vector search with BM25 keyword search via Reciprocal Rank Fusion (RRF) for best-of-both-worlds retrieval
 - **Cross-encoder reranker** — optional reranking step that rescores candidates with a cross-encoder model for significantly higher precision on vocabulary-mismatch queries (e.g. "auth bypass" finds "client-side auth flag")
-- **Living Architecture** — AI agents are instructed to maintain self-updating Mermaid.js diagrams for system components and flows.
-- **Executable Test Flows** — test scenarios are documented in machine-readable BDD/Gherkin format (`Given`, `When`, `Then`) for QA automation.
+- **Behavioral Directives** — AI agents silently search Flaiwheel before every response, auto-document after every task, and reuse before recreating — all without being asked
+- **`get_file_context(filename)`** — pre-loads spatial knowledge for any file the agent is about to edit (complements `get_recent_sessions` for full temporal + spatial context)
+- **post-commit git hook** — captures every `fix:`, `feat:`, `refactor:`, `perf:`, `docs:` commit as a structured knowledge doc automatically — no agent needed, IDE-agnostic, no credentials required (localhost trust)
+- **Living Architecture** — AI agents are instructed to maintain self-updating Mermaid.js diagrams for system components and flows
+- **Executable Test Flows** — test scenarios are documented in machine-readable BDD/Gherkin format (`Given`, `When`, `Then`) for QA automation
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
 - **Structured write tools** — 7 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) that enforce quality at the source
 - **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
@@ -51,10 +60,12 @@ curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/instal
 
 **After install:**
 
-1. Restart Cursor
+1. Restart Cursor (or your IDE)
 2. Go to **Cursor Settings → MCP** and verify that `flaiwheel` appears in the server list
 3. If the toggle next to `flaiwheel` is off, **enable it manually**
 4. Wait for the green "connected" indicator
+
+The installer also sets up a **post-commit git hook** that automatically captures every `fix:`, `feat:`, `refactor:`, `perf:`, and `docs:` commit as a structured knowledge doc — no agent or manual action required.
 
 Once connected, the AI has access to all Flaiwheel tools. If you have existing docs, tell the AI: *"migrate docs"*.
 
@@ -130,7 +141,7 @@ Add to `.cursor/mcp.json` (or `claude_desktop_config.json`):
 
 </details>
 
-Your AI agent now has access to 26 MCP tools:
+Your AI agent now has access to 27 MCP tools:
 - `set_project` — **bind this session to a project** (call first!)
 - `setup_project` — register + index a new project from the agent (auto-binds)
 - `get_active_project` — show which project is currently bound
@@ -157,6 +168,7 @@ Your AI agent now has access to 26 MCP tools:
 - `classify_documents` — **"This is the Way"** — classify project docs for migration into the knowledge base
 - `save_session_summary` — save session context for continuity (call at end of session)
 - `get_recent_sessions` — retrieve recent session summaries (call at start of session)
+- `get_file_context` — **NEW** pre-load spatial knowledge for a specific file before editing it
 
 ---
 
@@ -237,7 +249,7 @@ Tell your agent **"This is the Way"** (or **"42"**) to trigger bootstrap analysi
 | `test` | `search_tests("q")` | Test cases, scenarios, regression patterns |
 | _everything_ | `search_docs("q")` | Semantic search across all docs |
 
-### All 26 MCP Tools
+### All 27 MCP Tools
 
 All tools accept an optional `project` parameter as explicit override. When omitted, the active project (set via `set_project`) is used automatically.
 
@@ -269,6 +281,7 @@ All tools accept an optional `project` parameter as explicit override. When omit
 | `classify_documents(files)` | **"This is the Way"** — classify project docs for knowledge migration |
 | `save_session_summary(summary, decisions, open_questions, files_modified)` | Save session context for next session continuity |
 | `get_recent_sessions(limit)` | Retrieve recent session summaries (newest first) |
+| `get_file_context(filename)` | Pre-load spatial knowledge for a file — call before reading/editing any source file |
 
 ---
 

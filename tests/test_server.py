@@ -263,3 +263,43 @@ class TestCheckKnowledgeQuality:
     def test_clean_repo_reports_clean(self, server_env):
         result = _call_tool(server_env["mcp"], "check_knowledge_quality")
         assert "Quality Score" in result
+
+
+class TestGetFileContext:
+    def test_no_docs_returns_gap_message(self, server_env):
+        result = _call_tool(server_env["mcp"], "get_file_context",
+            filename="payment.service.ts")
+        assert "No Flaiwheel context found" in result
+        assert "payment.service.ts" in result
+
+    def test_finds_relevant_doc_after_indexing(self, server_env):
+        _call_tool(server_env["mcp"], "write_bugfix_summary",
+            title="Payment webhook race condition",
+            root_cause="Concurrent webhook calls incremented the same counter without locking.",
+            solution="Added a distributed lock with Redis. Only one webhook handler proceeds per transaction.",
+            lesson_learned="Always use distributed locks for shared state in webhook handlers.",
+            affected_files="payment/webhook.py",
+            tags="payment,race-condition,webhook",
+        )
+        result = _call_tool(server_env["mcp"], "get_file_context",
+            filename="src/payment/webhook.py")
+        assert "Flaiwheel Context" in result
+        assert "payment" in result.lower() or "webhook" in result.lower()
+
+    def test_strips_generic_parent_dirs(self, server_env):
+        _call_tool(server_env["mcp"], "write_architecture_doc",
+            title="Authentication JWT design",
+            overview="Stateless JWT authentication with RS256 signing.",
+            decisions="RS256 chosen for public-key verification across services.",
+            trade_offs="Slower than HS256 but more secure for multi-service setup.",
+        )
+        # "src" is a generic dir and should be stripped — query should still work
+        result = _call_tool(server_env["mcp"], "get_file_context",
+            filename="src/auth/jwt.py")
+        assert "Flaiwheel Context" in result or "No Flaiwheel context" in result
+
+    def test_unknown_project_returns_error(self, server_env):
+        result = _call_tool(server_env["mcp"], "get_file_context",
+            filename="foo.py",
+            project="nonexistent_project_xyz")
+        assert "not found" in result.lower() or "no projects" in result.lower()

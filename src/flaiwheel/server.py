@@ -1289,5 +1289,75 @@ def create_mcp_server(
 
         return "\n".join(lines)
 
+    @mcp.tool()
+    def get_file_context(
+        filename: str,
+        project: str = "",
+        mcp_ctx: Context = None,
+    ) -> str:
+        """Get Flaiwheel knowledge context for a specific source file.
+
+        Complements get_recent_sessions() (temporal context) with spatial context:
+        what does the knowledge base know about THIS file or module?
+
+        Call this BEFORE reading, editing, or creating a file to pre-load
+        relevant architecture decisions, past bugfixes, and best practices —
+        without having to think of the right search query yourself.
+
+        Supports all MCP clients: Cursor, Claude Code, VS Code Copilot, etc.
+
+        Args:
+            filename: The file path or name being opened/edited
+                      (e.g. "payment.service.ts", "src/auth/jwt.py")
+            project: Target project name (optional)
+        """
+        ctx, err = _ctx(project or None, mcp_ctx)
+        if not ctx:
+            return err
+        _telem(ctx.name, "get_file_context")
+
+        # Build a multi-term query from the filename parts:
+        # "src/payment/stripe-webhook.service.ts" → "stripe webhook payment service"
+        from pathlib import Path as _Path
+        p = _Path(filename)
+        # stem without extension suffixes (e.g. "stripe-webhook.service" → "stripe webhook service")
+        stem = re.sub(r"\.", " ", p.stem)
+        # parent directory name (skip generic names like "src", "lib", "app")
+        _skip = {"src", "lib", "app", "components", "utils", "helpers", "common", "shared", ".", ""}
+        parent = p.parent.name if p.parent.name not in _skip else ""
+        query = f"{stem} {parent}".strip()
+
+        results = ctx.indexer.search(query, top_k=4)
+        ctx.health.record_search("get_file_context", bool(results))
+
+        if not results:
+            with _telemetry_lock:
+                t = _telemetry.get(ctx.name or "_default")
+                if t:
+                    t["search_misses"] += 1
+            return (
+                f"No Flaiwheel context found for `{filename}`.\n"
+                "This may be a documentation gap — consider documenting decisions "
+                "related to this module after your changes."
+            )
+
+        lines = [
+            f"## Flaiwheel Context for `{filename}`\n",
+            f"*{len(results)} relevant knowledge entries found. "
+            "Integrate this context before making changes.*\n",
+        ]
+        for r in results:
+            loc = r["source"]
+            relevance = r.get("relevance", 0)
+            doc_type = r.get("type", "—")
+            heading = r.get("heading", "")
+            text = r.get("text", "")[:600]
+            lines.append(f"### {heading or loc}")
+            lines.append(f"*Source: `{loc}` | Type: {doc_type} | Relevance: {relevance}%*\n")
+            lines.append(text)
+            lines.append("")
+
+        return "\n".join(lines) + _nudge(ctx.name)
+
     mcp.get_telemetry_data = get_telemetry_data
     return mcp

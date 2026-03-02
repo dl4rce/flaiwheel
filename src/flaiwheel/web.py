@@ -11,7 +11,9 @@ When omitted the default (first) project is used.
 """
 import hashlib
 import hmac
+import re
 import threading
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -78,6 +80,15 @@ class BootstrapExecuteRequest(BaseModel):
     actions: list[str]
 
 
+class CaptureCommitRequest(BaseModel):
+    commit_hash: str
+    commit_type: str       # fix, feat, refactor, docs, perf
+    commit_message: str
+    commit_scope: str = ""
+    files_changed: list[str] = []
+    diff_summary: str = ""
+
+
 def create_web_app(
     global_config: Config,
     registry: ProjectRegistry,
@@ -91,10 +102,20 @@ def create_web_app(
         title="Flaiwheel",
         description="Self-improving knowledge base for AI coding agents",
     )
-    security = HTTPBasic()
+    security = HTTPBasic(auto_error=False)
 
-    def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
-        if not auth.verify(credentials.username, credentials.password):
+    def require_auth(
+        request: Request,
+        credentials: Optional[HTTPBasicCredentials] = Depends(security),
+    ):
+        # Requests from localhost are trusted without credentials.
+        # This allows the post-commit git hook to call the API without
+        # storing or reading any password — git CLI auth is sufficient context.
+        client_host = request.client.host if request.client else ""
+        if client_host in ("127.0.0.1", "::1", "localhost"):
+            return "localhost"
+
+        if credentials is None or not auth.verify(credentials.username, credentials.password):
             raise HTTPException(
                 status_code=401,
                 detail="Invalid credentials",
@@ -568,6 +589,156 @@ def create_web_app(
         return result
 
     # ── GitHub Webhook (HMAC auth) ────────────────────
+
+    @app.get("/api/search/by-file")
+    async def search_by_file(
+        filename: str = Query(..., description="File path or name, e.g. payment.service.ts"),
+        top_k: int = Query(4, ge=1, le=10),
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        """Return Flaiwheel knowledge relevant to a specific source file.
+
+        Used by IDE extensions (VS Code, Cursor), Claude Code hooks, and any tool
+        that wants to pre-load context for a file without a manual search query.
+        Trusted from localhost without credentials.
+
+        Returns a lightweight JSON payload optimised for IDE consumption.
+        """
+        ctx = _resolve(project)
+
+        # Derive search query from filename (mirrors get_file_context MCP tool logic)
+        from pathlib import Path as _Path
+        p = _Path(filename)
+        _skip = {"src", "lib", "app", "components", "utils", "helpers", "common", "shared", ".", ""}
+        stem = re.sub(r"\.", " ", p.stem)
+        parent = p.parent.name if p.parent.name not in _skip else ""
+        query = f"{stem} {parent}".strip()
+
+        results = ctx.indexer.search(query=query, top_k=top_k)
+
+        return {
+            "filename": filename,
+            "query": query,
+            "project": ctx.name,
+            "count": len(results),
+            "results": [
+                {
+                    "title": r.get("heading") or r["source"],
+                    "source": r["source"],
+                    "type": r.get("type", "—"),
+                    "relevance": r.get("relevance", 0),
+                    "summary": r.get("text", "")[:300],
+                }
+                for r in results
+            ],
+        }
+
+    @app.post("/api/capture-commit")
+    async def capture_commit(
+        req: CaptureCommitRequest,
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        """Capture a git commit as a structured knowledge doc.
+
+        Called automatically by the Flaiwheel post-commit git hook.
+        Generates a markdown file from the commit data, indexes it, and pushes it
+        to the knowledge repo — no agent or MCP session required.
+
+        Supported commit types (Conventional Commits):
+          fix      → bugfix-log/
+          feat     → changelog/
+          refactor → best-practices/
+          docs     → architecture/
+          perf     → best-practices/
+        """
+        ctx = _resolve(project)
+        today = date.today().isoformat()
+        slug = re.sub(r"[^a-z0-9]+", "-", req.commit_message.lower()).strip("-")[:60]
+        files_str = ", ".join(req.files_changed) if req.files_changed else "—"
+        scope_str = f" ({req.commit_scope})" if req.commit_scope else ""
+        short_hash = req.commit_hash[:8] if req.commit_hash else "unknown"
+
+        commit_type = req.commit_type.lower()
+
+        if commit_type == "fix":
+            filename = f"bugfix-log/{today}-{slug}.md"
+            content = (
+                f"# {req.commit_message}\n\n"
+                f"**Date:** {today}  \n"
+                f"**Commit:** `{short_hash}`  \n"
+                f"**Scope:** {req.commit_scope or '—'}  \n"
+                f"**Affected files:** {files_str}\n\n"
+                f"## Root Cause\n"
+                f"*Auto-captured from git commit — enrich with root cause details.*\n\n"
+                f"## Solution\n"
+                f"{req.diff_summary or f'See commit `{short_hash}` for full diff.'}\n\n"
+                f"## Lesson Learned\n"
+                f"*Review and enrich this entry with lessons learned and prevention tips.*\n"
+            )
+        elif commit_type == "feat":
+            filename = f"changelog/{today}-{slug}.md"
+            content = (
+                f"# {req.commit_message}\n\n"
+                f"**Date:** {today}  \n"
+                f"**Commit:** `{short_hash}`  \n"
+                f"**Scope:** {req.commit_scope or '—'}  \n"
+                f"**Changed files:** {files_str}\n\n"
+                f"## Summary\n"
+                f"*Auto-captured from git commit — enrich with feature description.*\n\n"
+                f"## Changes\n"
+                f"{req.diff_summary or f'See commit `{short_hash}` for full diff.'}\n\n"
+                f"## Impact\n"
+                f"*Describe user-facing or API-level impact.*\n"
+            )
+        elif commit_type in ("refactor", "perf"):
+            filename = f"best-practices/{today}-{slug}.md"
+            content = (
+                f"# {req.commit_message}\n\n"
+                f"**Date:** {today}  \n"
+                f"**Commit:** `{short_hash}`  \n"
+                f"**Type:** {commit_type}{scope_str}  \n"
+                f"**Affected files:** {files_str}\n\n"
+                f"## What Changed\n"
+                f"{req.diff_summary or f'See commit `{short_hash}` for full diff.'}\n\n"
+                f"## Pattern / Rationale\n"
+                f"*Describe the pattern established and why it improves the codebase.*\n\n"
+                f"## When to Apply\n"
+                f"*Describe when this pattern should be reused.*\n"
+            )
+        elif commit_type == "docs":
+            filename = f"architecture/{today}-{slug}.md"
+            content = (
+                f"# {req.commit_message}\n\n"
+                f"**Date:** {today}  \n"
+                f"**Commit:** `{short_hash}`  \n"
+                f"**Changed files:** {files_str}\n\n"
+                f"## Overview\n"
+                f"{req.diff_summary or f'See commit `{short_hash}` for full diff.'}\n\n"
+                f"## Decisions\n"
+                f"*Enrich with architectural decisions documented in this change.*\n"
+            )
+        else:
+            return {"status": "skipped", "reason": f"commit type '{commit_type}' not captured"}
+
+        filepath = Path(ctx.merged_config.docs_path) / filename
+        safe_base = Path(ctx.merged_config.docs_path).resolve()
+        if not filepath.resolve().is_relative_to(safe_base):
+            raise HTTPException(status_code=400, detail="Path traversal detected")
+
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_text(content, encoding="utf-8")
+        chunk_count = ctx.indexer.index_single(filename, content)
+        ctx.watcher.push_pending()
+
+        return {
+            "status": "captured",
+            "filename": filename,
+            "chunks": chunk_count,
+            "commit": short_hash,
+            "type": commit_type,
+        }
 
     @app.post("/webhook/github")
     async def github_webhook(request: Request):
