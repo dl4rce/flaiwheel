@@ -67,6 +67,8 @@ def main():
     web_app = create_web_app(
         config, registry, config_lock, auth,
         get_telemetry=mcp_server.get_telemetry_data,
+        get_impact_metrics=mcp_server.get_impact_metrics,
+        record_ci_guardrail=mcp_server.record_ci_guardrail_report,
     )
 
     def run_web():

@@ -534,10 +534,37 @@
         <div class="card" style="margin-bottom: 24px;">
             <h2><span class="icon">&#128202;</span> Tool Telemetry</h2>
             <p style="color:var(--text-dim); font-size:13px; margin-bottom:16px;">
-                Live MCP tool usage per project since container start. Patterns trigger smart nudges to agents.
+                Persistent MCP tool usage per project (survives restarts and updates). Patterns trigger smart nudges to agents.
             </p>
             <div id="telemetry-empty" style="color:var(--text-dim); font-size:14px;">No telemetry data yet — tool calls will appear here once agents start using MCP tools.</div>
             <div id="telemetry-grid" style="display:none; gap:16px;"></div>
+        </div>
+
+        <!-- Impact Metrics -->
+        <div class="card" style="margin-bottom: 24px;">
+            <h2><span class="icon">&#9201;</span> Time Saved &amp; Regression Avoided (30d)</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin-bottom:16px;">
+                Estimated impact from search hits + pre-merge guardrail fixes. CI can report guardrail findings via API.
+            </p>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+                <div style="text-align:center; padding:12px; background:var(--bg-input); border-radius:8px;">
+                    <div id="impact-time-hours" style="font-size:24px; font-weight:700; color:var(--success);">0.00h</div>
+                    <div style="font-size:12px; color:var(--text-dim);">Estimated Time Saved</div>
+                </div>
+                <div style="text-align:center; padding:12px; background:var(--bg-input); border-radius:8px;">
+                    <div id="impact-regressions-avoided" style="font-size:24px; font-weight:700; color:var(--accent);">0</div>
+                    <div style="font-size:12px; color:var(--text-dim);">Regressions Avoided</div>
+                </div>
+                <div style="text-align:center; padding:12px; background:var(--bg-input); border-radius:8px;">
+                    <div id="impact-violations-found" style="font-size:24px; font-weight:700; color:var(--warning);">0</div>
+                    <div style="font-size:12px; color:var(--text-dim);">Guardrail Violations Found</div>
+                </div>
+                <div style="text-align:center; padding:12px; background:var(--bg-input); border-radius:8px;">
+                    <div id="impact-ci-reports" style="font-size:24px; font-weight:700; color:var(--text);">0</div>
+                    <div style="font-size:12px; color:var(--text-dim);">CI Reports</div>
+                </div>
+            </div>
+            <div id="impact-assumptions" style="font-size:12px; color:var(--text-dim); margin-top:10px;"></div>
         </div>
 
         <div class="grid">
@@ -617,10 +644,12 @@
             loadStats();
             loadHealth();
             loadTelemetry();
+            loadImpactMetrics();
         });
         setInterval(loadStats, 30000);
         setInterval(loadHealth, 15000);
         setInterval(loadTelemetry, 10000);
+        setInterval(loadImpactMetrics, 20000);
     });
 
     function projectParam() {
@@ -647,6 +676,7 @@
         loadConfig();
         loadStats();
         loadHealth();
+        loadImpactMetrics();
         document.getElementById('btn-remove-project').style.display = allProjects.length > 1 ? 'inline-flex' : 'none';
     }
 
@@ -677,6 +707,7 @@
             currentProject = name;
             await loadProjects();
             loadConfig(); loadStats(); loadHealth();
+            loadImpactMetrics();
         } else {
             toast('error', result.detail || 'Failed to add project');
         }
@@ -693,6 +724,7 @@
             currentProject = '';
             await loadProjects();
             loadConfig(); loadStats(); loadHealth();
+            loadImpactMetrics();
         } else {
             toast('error', result.detail || 'Failed');
         }
@@ -986,7 +1018,7 @@
     }
 
     async function refreshAll() {
-        await Promise.all([loadStats(), loadHealth()]);
+        await Promise.all([loadStats(), loadHealth(), loadImpactMetrics()]);
     }
 
     async function triggerReindex() {
@@ -1091,6 +1123,31 @@
                     + escapeHtml(i.message) + '</div>';
             }).join('');
         }
+    }
+
+    async function loadImpactMetrics() {
+        var path = '/impact-metrics?days=30';
+        if (currentProject) {
+            path += '&project=' + encodeURIComponent(currentProject);
+        }
+        var data = await api('GET', path);
+        if (!data) return;
+
+        var hours = Number(data.estimated_time_saved_hours || 0);
+        var regressions = Number(data.regressions_avoided || 0);
+        var found = Number(data.guardrail_violations_found || 0);
+        var ciReports = Number(data.ci_reports || 0);
+
+        document.getElementById('impact-time-hours').textContent = hours.toFixed(2) + 'h';
+        document.getElementById('impact-regressions-avoided').textContent = regressions.toString();
+        document.getElementById('impact-violations-found').textContent = found.toString();
+        document.getElementById('impact-ci-reports').textContent = ciReports.toString();
+
+        var assumptions = data.assumptions || {};
+        var lookup = assumptions.lookup_minutes_per_search_hit ?? 0;
+        var premerge = assumptions.minutes_saved_per_premerge_guardrail_fix ?? 0;
+        document.getElementById('impact-assumptions').textContent =
+            'Assumptions: ' + lookup + ' min/search-hit, ' + premerge + ' min/pre-merge guardrail fix.';
     }
 
     async function loadTelemetry() {

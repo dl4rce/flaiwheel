@@ -37,6 +37,7 @@ def server_env(tmp_docs, tmp_path):
     mcp = create_mcp_server(cfg, registry)
     return {
         "mcp": mcp,
+        "registry": registry,
         "config": cfg,
         "indexer": ctx.indexer,
         "health": ctx.health,
@@ -303,3 +304,43 @@ class TestGetFileContext:
             filename="foo.py",
             project="nonexistent_project_xyz")
         assert "not found" in result.lower() or "no projects" in result.lower()
+
+
+class TestTelemetryPersistenceAndImpact:
+    def test_telemetry_persists_across_server_recreate(self, server_env):
+        _call_tool(server_env["mcp"], "search_docs", query="nonexistent telemetry term")
+
+        before = server_env["mcp"].get_telemetry_data()
+        assert "test" in before
+        assert before["test"]["total_calls"] >= 1
+
+        mcp2 = create_mcp_server(server_env["config"], server_env["registry"])
+        after = mcp2.get_telemetry_data()
+        assert "test" in after
+        assert after["test"]["total_calls"] >= before["test"]["total_calls"]
+
+    def test_impact_metrics_aggregate_ci_guardrail_reports(self, server_env):
+        _call_tool(server_env["mcp"], "write_best_practice",
+            title="Error handling telemetry impact",
+            context="API route handlers and service boundaries",
+            rule="Capture failures and return structured errors",
+            rationale="Improves triage speed and prevents repeated regressions",
+        )
+        _call_tool(server_env["mcp"], "search_docs", query="error handling telemetry impact")
+
+        report = server_env["mcp"].record_ci_guardrail_report(
+            project="test",
+            violations_found=3,
+            violations_blocking=1,
+            violations_fixed_before_merge=2,
+            cycle_time_baseline_minutes=45.0,
+            cycle_time_actual_minutes=30.0,
+            metadata={"source": "pytest"},
+        )
+        assert report["status"] == "recorded"
+
+        metrics = server_env["mcp"].get_impact_metrics(project="test", days=30)
+        assert metrics["ci_reports"] >= 1
+        assert metrics["guardrail_violations_found"] >= 3
+        assert metrics["regressions_avoided"] >= 2
+        assert metrics["estimated_time_saved_minutes"] > 0

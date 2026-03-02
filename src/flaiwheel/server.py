@@ -25,6 +25,7 @@ from .bootstrap import (
 )
 from .config import Config
 from .project import ProjectConfig, ProjectRegistry, ProjectContext
+from .telemetry import TelemetryStore
 
 GITHUB_REPO = "dl4rce/flaiwheel"
 
@@ -62,21 +63,38 @@ def create_mcp_server(
     _active_projects: dict[int, str] = {}
     _active_lock = threading.Lock()
 
-    # ── Session Telemetry ────────────────────────────
-    _telemetry: dict[str, dict] = {}
+    # ── Session Telemetry (persistent) ───────────────
+    _telemetry_store = TelemetryStore(config.vectorstore_path)
+    _telemetry: dict[str, dict] = _telemetry_store.load_summary()
     _telemetry_lock = threading.Lock()
+
+    def _ensure_telem(key: str) -> dict:
+        if key not in _telemetry:
+            _telemetry[key] = {
+                "searches": 0,
+                "search_misses": 0,
+                "bugfix_searches": 0,
+                "writes": 0,
+                "bugfix_writes": 0,
+                "session_saves": 0,
+                "total_calls": 0,
+                "last_tool": "",
+                "nudges_sent": 0,
+                "ci_reports": 0,
+                "guardrail_violations_found": 0,
+                "guardrail_violations_blocking": 0,
+                "guardrail_violations_fixed": 0,
+            }
+        return _telemetry[key]
+
+    def _persist_telemetry_locked() -> None:
+        _telemetry_store.save_summary(_telemetry)
 
     def _telem(project: str | None, tool_name: str) -> None:
         """Record a tool call for a project."""
         key = project or "_default"
         with _telemetry_lock:
-            if key not in _telemetry:
-                _telemetry[key] = {
-                    "searches": 0, "search_misses": 0, "bugfix_searches": 0,
-                    "writes": 0, "bugfix_writes": 0, "session_saves": 0,
-                    "total_calls": 0, "last_tool": "", "nudges_sent": 0,
-                }
-            t = _telemetry[key]
+            t = _ensure_telem(key)
             t["total_calls"] += 1
             t["last_tool"] = tool_name
             if tool_name in ("search_docs", "search_by_type", "search_tests"):
@@ -89,12 +107,81 @@ def create_mcp_server(
                 t["writes"] += 1
             elif tool_name == "save_session_summary":
                 t["session_saves"] += 1
+            _persist_telemetry_locked()
+        _telemetry_store.append_event("tool_call", key, {"tool_name": tool_name})
+
+    def _record_search_result(
+        project: str | None,
+        tool_name: str,
+        hit: bool,
+        result_count: int,
+    ) -> None:
+        key = project or "_default"
+        with _telemetry_lock:
+            t = _ensure_telem(key)
+            if not hit:
+                t["search_misses"] += 1
+            _persist_telemetry_locked()
+        _telemetry_store.append_event(
+            "search_result",
+            key,
+            {
+                "tool_name": tool_name,
+                "hit": bool(hit),
+                "result_count": max(0, int(result_count)),
+            },
+        )
+
+    def record_ci_guardrail_report(
+        project: str | None,
+        violations_found: int = 0,
+        violations_blocking: int = 0,
+        violations_fixed_before_merge: int = 0,
+        cycle_time_baseline_minutes: float | None = None,
+        cycle_time_actual_minutes: float | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        key = project or "_default"
+        found = max(0, int(violations_found))
+        blocking = max(0, int(violations_blocking))
+        fixed = max(0, int(violations_fixed_before_merge))
+
+        with _telemetry_lock:
+            t = _ensure_telem(key)
+            t["ci_reports"] += 1
+            t["guardrail_violations_found"] += found
+            t["guardrail_violations_blocking"] += blocking
+            t["guardrail_violations_fixed"] += fixed
+            _persist_telemetry_locked()
+
+        payload = {
+            "violations_found": found,
+            "violations_blocking": blocking,
+            "violations_fixed_before_merge": fixed,
+        }
+        if cycle_time_baseline_minutes is not None:
+            payload["cycle_time_baseline_minutes"] = float(cycle_time_baseline_minutes)
+        if cycle_time_actual_minutes is not None:
+            payload["cycle_time_actual_minutes"] = float(cycle_time_actual_minutes)
+        if metadata:
+            payload["metadata"] = metadata
+        _telemetry_store.append_event("ci_guardrail_report", key, payload)
+        return {
+            "status": "recorded",
+            "project": key,
+            "violations_found": found,
+            "violations_blocking": blocking,
+            "violations_fixed_before_merge": fixed,
+        }
+
+    def get_impact_metrics(project: str | None = None, days: int = 30) -> dict:
+        return _telemetry_store.compute_impact_metrics(project, days=days)
 
     def _nudge(project: str | None) -> str:
         """Return a nudge string if the telemetry pattern warrants it."""
         key = project or "_default"
         with _telemetry_lock:
-            t = _telemetry.get(key)
+            t = _ensure_telem(key)
             if not t:
                 return ""
             nudges = []
@@ -116,7 +203,16 @@ def create_mcp_server(
             if not nudges:
                 return ""
             t["nudges_sent"] += len(nudges)
-            return "\n\n---\n" + "\n".join(nudges)
+            _persist_telemetry_locked()
+        _telemetry_store.append_event(
+            "nudge",
+            key,
+            {
+                "count": len(nudges),
+                "messages": nudges,
+            },
+        )
+        return "\n\n---\n" + "\n".join(nudges)
 
     def get_telemetry_data() -> dict:
         """Return telemetry data for all projects (used by Web UI API)."""
@@ -228,12 +324,9 @@ def create_mcp_server(
 
         results = ctx.indexer.search(query, top_k=top_k)
         ctx.health.record_search("search_docs", bool(results))
+        _record_search_result(ctx.name, "search_docs", bool(results), len(results))
 
         if not results:
-            with _telemetry_lock:
-                t = _telemetry.get(ctx.name or "_default")
-                if t:
-                    t["search_misses"] += 1
             return (
                 "No relevant documents found. "
                 "Try a different or more specific query."
@@ -269,6 +362,7 @@ def create_mcp_server(
 
         results = ctx.indexer.search(query, top_k=top_k, type_filter="bugfix")
         ctx.health.record_search("search_bugfixes", bool(results))
+        _record_search_result(ctx.name, "search_bugfixes", bool(results), len(results))
 
         if not results:
             return (
@@ -303,6 +397,7 @@ def create_mcp_server(
 
         results = ctx.indexer.search(query, top_k=top_k, type_filter=doc_type)
         ctx.health.record_search("search_by_type", bool(results))
+        _record_search_result(ctx.name, "search_by_type", bool(results), len(results))
 
         if not results:
             return f"No results of type '{doc_type}' found." + _nudge(ctx.name)
@@ -335,6 +430,7 @@ def create_mcp_server(
 
         results = ctx.indexer.search(query, top_k=top_k, type_filter="test")
         ctx.health.record_search("search_tests", bool(results))
+        _record_search_result(ctx.name, "search_tests", bool(results), len(results))
 
         if not results:
             return "No test cases found. Use write_test_case to document tests." + _nudge(ctx.name)
@@ -1329,12 +1425,9 @@ def create_mcp_server(
 
         results = ctx.indexer.search(query, top_k=4)
         ctx.health.record_search("get_file_context", bool(results))
+        _record_search_result(ctx.name, "get_file_context", bool(results), len(results))
 
         if not results:
-            with _telemetry_lock:
-                t = _telemetry.get(ctx.name or "_default")
-                if t:
-                    t["search_misses"] += 1
             return (
                 f"No Flaiwheel context found for `{filename}`.\n"
                 "This may be a documentation gap — consider documenting decisions "
@@ -1360,4 +1453,6 @@ def create_mcp_server(
         return "\n".join(lines) + _nudge(ctx.name)
 
     mcp.get_telemetry_data = get_telemetry_data
+    mcp.get_impact_metrics = get_impact_metrics
+    mcp.record_ci_guardrail_report = record_ci_guardrail_report
     return mcp

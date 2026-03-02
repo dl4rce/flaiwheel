@@ -89,12 +89,27 @@ class CaptureCommitRequest(BaseModel):
     diff_summary: str = ""
 
 
+class CIGuardrailReportRequest(BaseModel):
+    violations_found: int = 0
+    violations_blocking: int = 0
+    violations_fixed_before_merge: int = 0
+    cycle_time_baseline_minutes: Optional[float] = None
+    cycle_time_actual_minutes: Optional[float] = None
+    project: Optional[str] = None
+    pr_number: Optional[int] = None
+    branch: Optional[str] = None
+    commit_sha: Optional[str] = None
+    source: str = "github-actions"
+
+
 def create_web_app(
     global_config: Config,
     registry: ProjectRegistry,
     config_lock: threading.Lock,
     auth: AuthManager,
     get_telemetry: callable = None,
+    get_impact_metrics: callable = None,
+    record_ci_guardrail: callable = None,
 ) -> FastAPI:
     """Factory: returns a FastAPI app backed by a ProjectRegistry."""
 
@@ -396,6 +411,63 @@ def create_web_app(
         if get_telemetry:
             return get_telemetry()
         return {}
+
+    @app.get("/api/impact-metrics")
+    async def impact_metrics(
+        days: int = Query(30, ge=1, le=365),
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        if get_impact_metrics:
+            return get_impact_metrics(project=project, days=days)
+        return {
+            "project": project or "all",
+            "window_days": days,
+            "search_events": 0,
+            "search_hits": 0,
+            "ci_reports": 0,
+            "guardrail_violations_found": 0,
+            "guardrail_violations_blocking": 0,
+            "regressions_avoided": 0,
+            "cycle_time_minutes_saved_observed": 0.0,
+            "estimated_time_saved_minutes": 0.0,
+            "estimated_time_saved_hours": 0.0,
+            "assumptions": {},
+        }
+
+    @app.post("/api/telemetry/ci-guardrail-report")
+    async def ci_guardrail_report(
+        req: CIGuardrailReportRequest,
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        if not record_ci_guardrail:
+            raise HTTPException(status_code=503, detail="CI telemetry reporter unavailable")
+
+        effective_project = project or req.project
+        if not effective_project:
+            default_ctx = registry.get_default()
+            if default_ctx:
+                effective_project = default_ctx.name
+
+        metadata = {
+            "source": req.source,
+            "pr_number": req.pr_number,
+            "branch": req.branch,
+            "commit_sha": req.commit_sha,
+        }
+        result = record_ci_guardrail(
+            project=effective_project,
+            violations_found=max(0, int(req.violations_found)),
+            violations_blocking=max(0, int(req.violations_blocking)),
+            violations_fixed_before_merge=max(0, int(req.violations_fixed_before_merge)),
+            cycle_time_baseline_minutes=req.cycle_time_baseline_minutes,
+            cycle_time_actual_minutes=req.cycle_time_actual_minutes,
+            metadata=metadata,
+        )
+        if get_impact_metrics:
+            result["impact_30d"] = get_impact_metrics(project=effective_project, days=30)
+        return result
 
     @app.post("/api/index-flaiwheel-docs")
     async def index_flaiwheel_docs(

@@ -27,7 +27,8 @@ Features:
 - **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
 - **Ingest quality gate** — files with critical issues are automatically skipped during indexing (never deleted — you own your files)
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
-- **Tool telemetry** — tracks every MCP call per project (searches, writes, misses, patterns), detects knowledge gaps, and nudges agents to document — visible in the Web UI in real time
+- **Tool telemetry (persistent)** — tracks every MCP call per project (searches, writes, misses, patterns), detects knowledge gaps, and nudges agents to document — persisted across restarts and visible in the Web UI
+- **Impact metrics API** — `/api/impact-metrics` computes estimated time saved + regressions avoided; CI pipelines can post guardrail outcomes to `/api/telemetry/ci-guardrail-report`
 - **Proactive quality checks** — automatically validates knowledge base after every reindex
 - **Knowledge Bootstrap** — "This is the Way": analyse messy repos, classify files, detect duplicates, propose a cleanup plan, execute with user approval (never deletes files)
 - **Multi-project support** — one container manages multiple knowledge repos with per-project isolation
@@ -452,6 +453,32 @@ Instead of waiting for the 300s polling interval, configure a GitHub webhook for
 5. **Events:** select "Just the push event"
 
 The webhook endpoint verifies the HMAC signature if `MCP_WEBHOOK_SECRET` is set. Without a secret, any POST triggers a pull + reindex.
+
+### CI Guardrail Telemetry (ROI tracking)
+
+Track non-vanity engineering impact directly in Flaiwheel:
+
+- **POST** `/api/telemetry/ci-guardrail-report` — CI reports guardrail findings/fixes per PR
+- **GET** `/api/impact-metrics?project=<name>&days=30` — returns estimated time saved + regressions avoided
+
+Example payload:
+
+```json
+{
+  "project": "my-app",
+  "violations_found": 4,
+  "violations_blocking": 1,
+  "violations_fixed_before_merge": 2,
+  "cycle_time_baseline_minutes": 58,
+  "cycle_time_actual_minutes": 43,
+  "pr_number": 127,
+  "branch": "feature/payment-fix",
+  "commit_sha": "abc1234",
+  "source": "github-actions"
+}
+```
+
+Flaiwheel persists telemetry on disk (`<vectorstore>/telemetry`) so metrics survive container restarts and updates.
 
 ### Diff-aware Reindexing
 
