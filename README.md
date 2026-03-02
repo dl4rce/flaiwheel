@@ -38,6 +38,16 @@ The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Know
 
 ---
 
+## What’s New in v3.2.0
+
+- **Persistent telemetry** — MCP tool telemetry now survives container restarts and updates.
+- **Impact metrics API** — use `GET /api/impact-metrics` to track estimated time saved and regressions avoided.
+- **CI guardrail ingestion** — CI can post PR guardrail outcomes to `POST /api/telemetry/ci-guardrail-report`.
+- **Web UI impact card** — 30-day dashboard for time saved, regressions avoided, and guardrail findings.
+- **Test coverage** — telemetry persistence and impact aggregation are covered by automated tests.
+
+---
+
 ## Quick Start — One Command (recommended)
 
 **Prerequisites:** [GitHub CLI](https://cli.github.com) authenticated (`gh auth login`), [Docker](https://docs.docker.com/get-docker/) running.
