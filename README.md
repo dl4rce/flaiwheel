@@ -474,7 +474,7 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 │                         │ shared state (ProjectRegistry)     │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
 │  │  MCP Server (FastMCP)                    Port 8081    │  │
-│  │  26 tools (search, write, classify, manage, projects) │  │
+│  │  27 tools (search, write, classify, manage, projects) │  │
 │  └─────────────────────┬─────────────────────────────────┘  │
 │                         │                                    │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
@@ -554,7 +554,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (226 tests covering readers, quality checker, indexer, reranker, health tracker, MCP tools, model migration, multi-project, bootstrap, classification)
+# Run tests (230 tests covering readers, quality checker, indexer, reranker, health tracker, MCP tools, model migration, multi-project, bootstrap, classification, file-context)
 pytest
 
 # Run locally (needs /docs and /data directories)
