@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.6.1] — 2026-03-03
+
+### Fixed
+- Web UI Client Configuration panel: added VS Code and Claude Code CLI tabs; fixed Claude Desktop tab (was showing SSE format, now correctly shows `mcp-remote` stdio bridge via `npx`).
+
+---
+
 ## [3.6.0] — 2026-03-03
 
 ### Added
