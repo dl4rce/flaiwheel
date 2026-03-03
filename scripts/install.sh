@@ -7,17 +7,30 @@
 # Usage: bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 set -euo pipefail
 
+# ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
+_FW_VERSION="3.7.3"
+
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
-# curl | bash breaks interactive prompts. Detect it and re-exec correctly.
+# curl | bash connects stdin to the pipe — interactive read prompts break.
+# Re-exec from a temp file so stdin is the terminal again.
+# IMPORTANT: re-exec from THIS script's own path (already on disk or $0),
+# never re-download — that would fetch a potentially stale CDN-cached version.
 if [ ! -t 0 ]; then
-    _SCRIPT_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh"
     _TMP_SCRIPT=$(mktemp /tmp/flaiwheel-install-XXXXXX.sh)
-    if curl -sSL "$_SCRIPT_URL" -o "$_TMP_SCRIPT" 2>/dev/null && [ -s "$_TMP_SCRIPT" ]; then
-        chmod +x "$_TMP_SCRIPT"
-        exec bash "$_TMP_SCRIPT" "$@"
+    # If we were piped in, $0 is "bash" — read ourselves from stdin via /proc or re-download pinned tag
+    if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "/bin/bash" ]; then
+        # Running as a file (e.g. bash /tmp/fw-install.sh) — just re-exec with stdin from /dev/tty
+        exec bash "$0" "$@" </dev/tty
     else
-        echo "Error: could not download installer to a temp file." >&2
-        exit 1
+        # Truly piped via curl | bash — download pinned to current version tag
+        _PINNED_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/v${_FW_VERSION}/scripts/install.sh"
+        if curl -sSL "$_PINNED_URL" -o "$_TMP_SCRIPT" 2>/dev/null && [ -s "$_TMP_SCRIPT" ]; then
+            chmod +x "$_TMP_SCRIPT"
+            exec bash "$_TMP_SCRIPT" "$@" </dev/tty
+        else
+            echo "Error: could not download installer. Try: bash <(curl -sSL ${_PINNED_URL})" >&2
+            exit 1
+        fi
     fi
 fi
 
