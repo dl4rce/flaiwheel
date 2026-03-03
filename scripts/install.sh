@@ -182,8 +182,26 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
             _AUTHED_URL="$_CLONE_URL"
         fi
         info "Cloning ${_CLONE_URL}..."
-        git clone "$_AUTHED_URL" "$_CLONE_DIR" 2>&1 | grep -v 'token\|password\|credential' \
-            || fail "Clone failed. Check the repo name and your GitHub access."
+        if [ -d "$_CLONE_DIR" ]; then
+            warn "Directory '${_CLONE_DIR}' already exists."
+            echo ""
+            echo -e "  ${BOLD}1)${NC} Use existing directory (skip clone)"
+            echo -e "  ${BOLD}2)${NC} Delete and re-clone"
+            echo ""
+            read -p "  Choose [1/2]: " -n 1 -r _CLONE_CHOICE </dev/tty
+            echo ""
+            if [[ "$_CLONE_CHOICE" == "2" ]]; then
+                rm -rf "$_CLONE_DIR"
+                git clone "$_AUTHED_URL" "$_CLONE_DIR" 2>&1 | grep -v 'token\|password\|credential' \
+                    || fail "Clone failed. Check the repo name and your GitHub access."
+                ok "Re-cloned: ${_CLONE_DIR}"
+            else
+                ok "Using existing directory: ${_CLONE_DIR}"
+            fi
+        else
+            git clone "$_AUTHED_URL" "$_CLONE_DIR" 2>&1 | grep -v 'token\|password\|credential' \
+                || fail "Clone failed. Check the repo name and your GitHub access."
+        fi
         cd "$_CLONE_DIR" || fail "Could not enter cloned directory."
         ok "Cloned and entered: $(pwd)"
     else
