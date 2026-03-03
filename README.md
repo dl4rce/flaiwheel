@@ -80,11 +80,16 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ## What’s New in v3.5.0
 
+- **VS Code / GitHub Copilot support** — the installer writes `.vscode/mcp.json` (native SSE, no bridge needed, requires VS Code 1.99+) and `.github/copilot-instructions.md` with Flaiwheel behavioral rules.
 - **Claude Desktop support** — the installer auto-configures `~/Library/Application Support/Claude/claude_desktop_config.json` using `mcp-remote` as a stdio→SSE bridge. Claude for Mac connects to Flaiwheel out of the box — just restart the app after install.
 - **Claude Code CLI support** — the installer auto-registers Flaiwheel via `claude mcp add` if the `claude` CLI is on PATH. Falls back with a prominent `ACTION REQUIRED` prompt if not.
 - **`CLAUDE.md` + `.mcp.json`** — generated in the project root for Claude Code CLI. Includes a first-session MCP connection check that the agent enforces automatically.
-- **`AGENTS.md`** — written to the project root for all other agents (GitHub Copilot, etc.).
-- **One installer, all agents** — Cursor, Claude Desktop, Claude Code CLI all connected in a single `curl | bash`.
+- **`AGENTS.md`** — written to the project root for all other agents.
+- **One installer, all agents** — Cursor, VS Code Copilot, Claude Desktop, Claude Code CLI all connected in a single `curl | bash`.
+
+### Previous: v3.5.x
+- Claude Desktop + Claude Code CLI support added.
+- README strategically rewritten with positioning, target audience, and competitive framing.
 
 ### Previous: v3.4.x
 - Search miss rate fix — `search_bugfixes` calls no longer inflate miss rate above 100%.
@@ -111,10 +116,11 @@ curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/instal
 2. Creates a private `<project>-knowledge` repo with the standard folder structure
 3. Starts the Flaiwheel Docker container pointed at that repo
 4. Configures **Cursor** — writes `.cursor/mcp.json` and `.cursor/rules/flaiwheel.mdc`
-5. Configures **Claude Desktop** (macOS app) — writes `claude_desktop_config.json` via `mcp-remote` bridge (requires Node.js)
-6. Configures **Claude Code CLI** — writes `.mcp.json` + `CLAUDE.md` and runs `claude mcp add` automatically if the CLI is on PATH
-7. Writes `AGENTS.md` for all other agents (GitHub Copilot, etc.)
-8. If existing `.md` docs are found, creates a migration guide — the AI will offer to organize them into the knowledge repo
+5. Configures **VS Code / GitHub Copilot** — writes `.vscode/mcp.json` (native SSE, VS Code 1.99+) and `.github/copilot-instructions.md`
+6. Configures **Claude Desktop** (macOS app) — writes `claude_desktop_config.json` via `mcp-remote` bridge (requires Node.js)
+7. Configures **Claude Code CLI** — writes `.mcp.json` + `CLAUDE.md` and runs `claude mcp add` automatically if the CLI is on PATH
+8. Writes `AGENTS.md` for all other agents
+9. If existing `.md` docs are found, creates a migration guide — the AI will offer to organize them into the knowledge repo
 
 **After install:**
 
@@ -123,6 +129,7 @@ curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/instal
 | **Cursor** | Restart Cursor → Settings → MCP → enable `flaiwheel` toggle |
 | **Claude Desktop** (macOS app) | Quit and reopen Claude for Mac — hammer icon appears when connected |
 | **Claude Code CLI** | Already registered automatically — run `/mcp` inside Claude Code to verify |
+| **VS Code** | Open project → Command Palette → **MCP: List Servers** → start `flaiwheel` |
 
 The installer also sets up a **post-commit git hook** that automatically captures every `fix:`, `feat:`, `refactor:`, `perf:`, and `docs:` commit as a structured knowledge doc — no agent or manual action required.
 
@@ -189,6 +196,19 @@ docker run -d \
   }
 }
 ```
+
+**VS Code / GitHub Copilot** (1.99+) — add to `.vscode/mcp.json`:
+```json
+{
+  "servers": {
+    "flaiwheel": {
+      "type": "sse",
+      "url": "http://localhost:8081/sse"
+    }
+  }
+}
+```
+Then: Command Palette → **MCP: List Servers** → start `flaiwheel`.
 
 **Claude Desktop** (macOS app) — add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json

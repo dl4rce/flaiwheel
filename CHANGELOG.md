@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.6.0] — 2026-03-03
+
+### Added
+- **VS Code / GitHub Copilot support** — installer writes `.vscode/mcp.json` with native SSE config (no bridge, no Node.js required). Requires VS Code 1.99+ with GitHub Copilot. Works project-scope.
+- **`.github/copilot-instructions.md`** — generated in project root with Flaiwheel session rules and MCP connection check instructions for VS Code Copilot.
+- VS Code added to all installer summary output variants (FAST_PATH, UPDATE_MODE, fresh install).
+- VS Code added to README Quick Start installer list, After Install table, and Manual Setup section.
+
+---
+
 ## [3.5.0] — 2026-03-03
 
 ### Added

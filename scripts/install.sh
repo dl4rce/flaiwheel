@@ -1095,6 +1095,106 @@ if [ "$CLAUDE_CLI_MISSING" = true ]; then
 fi
 
 # ══════════════════════════════════════════════════════
+#  PHASE 7d: Create .vscode/mcp.json + .github/copilot-instructions.md (VS Code / GitHub Copilot)
+# ══════════════════════════════════════════════════════
+
+VSCODE_DIR="${PROJECT_DIR}/.vscode"
+VSCODE_MCP="${VSCODE_DIR}/mcp.json"
+VSCODE_REGISTERED=false
+
+mkdir -p "$VSCODE_DIR"
+
+if [ -f "$VSCODE_MCP" ]; then
+    if grep -q "flaiwheel" "$VSCODE_MCP" 2>/dev/null; then
+        ok ".vscode/mcp.json already has flaiwheel configured"
+        VSCODE_REGISTERED=true
+    else
+        info "Adding flaiwheel to existing .vscode/mcp.json..."
+        python3 -c "
+import json
+with open('$VSCODE_MCP', encoding='utf-8') as f:
+    cfg = json.load(f)
+cfg.setdefault('servers', {})['flaiwheel'] = {'type': 'sse', 'url': 'http://localhost:8081/sse'}
+with open('$VSCODE_MCP', 'w', encoding='utf-8') as f:
+    json.dump(cfg, f, indent=2)
+    f.write('\n')
+"
+        ok "Added flaiwheel to .vscode/mcp.json (existing config preserved)"
+        VSCODE_REGISTERED=true
+    fi
+else
+    cat > "$VSCODE_MCP" << VSCODEEOF
+{
+  "servers": {
+    "flaiwheel": {
+      "type": "sse",
+      "url": "http://localhost:8081/sse"
+    }
+  }
+}
+VSCODEEOF
+    ok "Created .vscode/mcp.json (VS Code / GitHub Copilot MCP config)"
+    VSCODE_REGISTERED=true
+fi
+
+# .github/copilot-instructions.md — VS Code Copilot's equivalent of AGENTS.md
+GITHUB_DIR="${PROJECT_DIR}/.github"
+COPILOT_FILE="${GITHUB_DIR}/copilot-instructions.md"
+FLAIWHEEL_COPILOT_BLOCK=$(cat << COPILOTEOF
+## Flaiwheel — Project Knowledge Base (MCP)
+
+> Full AI agent instructions are in **AGENTS.md** in the project root — read it at session start.
+
+### MCP Connection
+
+Flaiwheel is configured in \`.vscode/mcp.json\`. Verify the connection:
+- Open the Command Palette (\`Ctrl+Shift+P\` / \`Cmd+Shift+P\`)
+- Run **MCP: List Servers** — \`flaiwheel\` should appear as running
+
+If it is not running:
+1. Open \`.vscode/mcp.json\` and confirm the server entry is present
+2. Run **MCP: List Servers** → select \`flaiwheel\` → click **Start**
+3. Requires VS Code 1.99+ with GitHub Copilot
+
+### Session Start — ALWAYS DO THIS FIRST
+
+1. Verify MCP connection (see above)
+2. Read \`AGENTS.md\` in this project root
+3. Call \`set_project("${PROJECT}")\` via Flaiwheel MCP
+4. Call \`get_recent_sessions()\` to restore context from the last session
+
+### Rules
+
+- Search Flaiwheel BEFORE reading source code. Always.
+- After every bugfix: \`write_bugfix_summary()\`. No exceptions.
+- End every session with \`save_session_summary()\`.
+COPILOTEOF
+)
+
+mkdir -p "$GITHUB_DIR"
+if [ -f "$COPILOT_FILE" ]; then
+    if grep -q "flaiwheel\|Flaiwheel" "$COPILOT_FILE" 2>/dev/null; then
+        python3 -c "
+import re
+content = open('$COPILOT_FILE', encoding='utf-8').read()
+content = re.sub(
+    r'(?:^---\n+)?^## Flaiwheel.*?(?=^## (?!Flaiwheel)|\Z)',
+    '', content, flags=re.MULTILINE | re.DOTALL
+).rstrip()
+open('$COPILOT_FILE', 'w', encoding='utf-8').write(content + '\n')
+"
+        printf '\n---\n\n%s\n' "$FLAIWHEEL_COPILOT_BLOCK" >> "$COPILOT_FILE"
+        ok "Updated Flaiwheel section in .github/copilot-instructions.md"
+    else
+        printf '\n---\n\n%s\n' "$FLAIWHEEL_COPILOT_BLOCK" >> "$COPILOT_FILE"
+        ok "Appended Flaiwheel section to existing .github/copilot-instructions.md"
+    fi
+else
+    printf '# Copilot Instructions\n\n%s\n' "$FLAIWHEEL_COPILOT_BLOCK" > "$COPILOT_FILE"
+    ok "Created .github/copilot-instructions.md (VS Code Copilot instructions)"
+fi
+
+# ══════════════════════════════════════════════════════
 #  PHASE 8: Detect existing docs and create migration guide
 # ══════════════════════════════════════════════════════
 
@@ -1233,7 +1333,7 @@ if [ "$FAST_PATH" = true ]; then
     echo -e "  ${BOLD}Container:${NC}     ${GREEN}${CONTAINER_NAME}${NC} (already running)"
     echo -e "  ${BOLD}This project:${NC}  ${GREEN}${PROJECT}${NC} (registered)"
     echo -e "  ${BOLD}Knowledge:${NC}     ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
-    echo -e "  ${BOLD}Config:${NC}        ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC} + ${GREEN}AGENTS.md${NC} + ${GREEN}CLAUDE.md${NC}"
+    echo -e "  ${BOLD}Config:${NC}        ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.mcp.json${NC} + ${GREEN}.vscode/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC} + ${GREEN}AGENTS.md${NC} + ${GREEN}CLAUDE.md${NC}"
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
@@ -1246,8 +1346,11 @@ if [ "$FAST_PATH" = true ]; then
         echo -e "    3. Claude Code CLI: run once to register MCP:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
-    echo -e "    4. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
-    echo -e "    5. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
+    if [ "$VSCODE_REGISTERED" = true ]; then
+        echo -e "    4. VS Code: open project, run ${BOLD}MCP: List Servers${NC} → start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
+    fi
+    echo -e "    5. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
+    echo -e "    6. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
 elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Update Complete                       ║${NC}"
@@ -1269,7 +1372,10 @@ elif [ "$UPDATE_MODE" = true ]; then
         echo -e "    3. Claude Code CLI: re-run if needed:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
-    echo -e "    4. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    if [ "$VSCODE_REGISTERED" = true ]; then
+        echo -e "    4. VS Code: run ${BOLD}MCP: List Servers${NC} → restart ${GREEN}flaiwheel${NC} if needed ${GREEN}✓${NC}"
+    fi
+    echo -e "    5. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
 else
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Setup Complete                       ║${NC}"
@@ -1281,6 +1387,7 @@ else
     echo -e "    Cursor config:   ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC}"
     echo -e "    Claude Desktop:  ${GREEN}~/Library/Application Support/Claude/claude_desktop_config.json${NC}"
     echo -e "    Claude Code CLI: ${GREEN}.mcp.json${NC} + ${GREEN}CLAUDE.md${NC}"
+    echo -e "    VS Code:         ${GREEN}.vscode/mcp.json${NC} + ${GREEN}.github/copilot-instructions.md${NC}"
     echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
     echo -e "    Git hook:        ${GREEN}.git/hooks/post-commit${NC} (auto-captures commits)"
     echo ""
@@ -1296,8 +1403,11 @@ else
         echo -e "    4. Claude Code CLI: run once to register MCP:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
-    echo -e "    5. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
-    echo -e "    6. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
+    if [ "$VSCODE_REGISTERED" = true ]; then
+        echo -e "    5. VS Code: open project, run ${BOLD}MCP: List Servers${NC} (Cmd+Shift+P), start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
+    fi
+    echo -e "    6. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    7. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 fi
 echo ""
 if [ "$MD_COUNT" -gt 2 ]; then
