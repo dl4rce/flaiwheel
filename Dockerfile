@@ -3,9 +3,12 @@
 # BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
 
 # ── Stage 1: build deps ───────────────────────────────────────────────────
-# Heavy pip install happens here. This layer is cached after the first build
-# and only rebuilds when pyproject.toml changes.
+# Uses uv (Rust-based installer, parallel, 10-100x faster than pip).
+# Layer is cached after first build — only rebuilds if pyproject.toml changes.
 FROM python:3.12-slim AS builder
+
+# Install uv — single binary, no deps
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc g++ && \
@@ -15,12 +18,13 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
 
-# Install into an isolated prefix so we can copy just the site-packages
-RUN pip install --no-cache-dir --prefix=/install .
+# uv installs in parallel using all available cores.
+# --prefix=/install isolates packages so we copy only them to the runtime stage.
+RUN uv pip install --system --no-cache --prefix=/install .
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────
-# Only copies the installed packages — no build tools, no compiler, no cache.
-# Fewer files = much faster layer export.
+# Only the installed packages are copied — no build tools, no compiler.
+# Fewer files = faster layer export.
 FROM python:3.12-slim
 
 RUN apt-get update && \
