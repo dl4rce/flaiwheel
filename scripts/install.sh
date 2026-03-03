@@ -34,6 +34,44 @@ ok()    { echo -e "${GREEN}[✓]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 fail()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 
+# ── Parallel job helpers ─────────────────────────────
+# Usage:
+#   run_parallel job_name "commands..." &
+#   _PIDS+=($!)  _PJOBS+=("job_name")
+#   wait_all
+_PIDS=()
+_PJOBS=()
+
+# Run a named block in a subshell; on failure print its log and exit 1
+run_parallel() {
+    local _name="$1"; shift
+    local _log; _log=$(mktemp /tmp/fw-job-XXXXXX.log)
+    (
+        # Subshell inherits all exported vars; capture stdout+stderr to log
+        exec > "$_log" 2>&1
+        "$@"
+    )
+    local _rc=$?
+    cat "$_log"          # merge output into main stream (already serialised per-job)
+    rm -f "$_log"
+    if [ $_rc -ne 0 ]; then
+        echo -e "${RED}[✗]${NC} Parallel job '${_name}' failed (exit ${_rc})" >&2
+        exit $_rc
+    fi
+}
+
+wait_all() {
+    local _failed=0
+    for i in "${!_PIDS[@]}"; do
+        if ! wait "${_PIDS[$i]}"; then
+            echo -e "${RED}[✗]${NC} Job '${_PJOBS[$i]}' failed" >&2
+            _failed=1
+        fi
+    done
+    _PIDS=(); _PJOBS=()
+    [ $_failed -eq 0 ] || exit 1
+}
+
 # ── Banner ──────────────────────────────────────────
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
@@ -593,9 +631,11 @@ fi
 echo ""
 
 # ══════════════════════════════════════════════════════
-#  PHASE 4: Get GitHub token for Flaiwheel container
+#  PHASE 4: Get GitHub token (runs in parallel with Phase 3 above)
 # ══════════════════════════════════════════════════════
 
+# Phase 3 already ran synchronously (needs KNOWLEDGE_REPO_URL output).
+# Token fetch is instant but kept here for clarity.
 GH_TOKEN=$(gh auth token 2>/dev/null || true)
 if [ -z "$GH_TOKEN" ]; then
     fail "Could not retrieve GitHub token from gh CLI. Run: gh auth login"
@@ -761,13 +801,32 @@ fi
 echo ""
 
 # ══════════════════════════════════════════════════════
+#  PHASES 6-10: Write config files in parallel
+#  All phases write to different paths — no conflicts.
+# ══════════════════════════════════════════════════════
+
+info "Writing config files (parallel)..."
+
+# ── Helper: atomic log line (prevents interleaved output) ──────────────────
+_LOG_LOCK=$(mktemp /tmp/fw-lock-XXXXXX)
+plog() { flock "$_LOG_LOCK" echo -e "$1"; }
+pok()  { plog "${GREEN}[✓]${NC} $1"; }
+pwarn(){ plog "${YELLOW}[!]${NC} $1"; }
+pinfo(){ plog "${BLUE}[flaiwheel]${NC} $1"; }
+
+# Export all variables needed by the parallel subshells
+export PROJECT_DIR OWNER PROJECT KNOWLEDGE_REPO KNOWLEDGE_REPO_URL
+export CURSOR_DIR="${PROJECT_DIR}/.cursor"
+export RULES_DIR="${PROJECT_DIR}/.cursor/rules"
+export GITIGNORE="${PROJECT_DIR}/.gitignore"
+mkdir -p "$CURSOR_DIR" "$RULES_DIR" "${PROJECT_DIR}/.github" "${PROJECT_DIR}/.vscode" "${PROJECT_DIR}/.git/hooks"
+
+# ══════════════════════════════════════════════════════
 #  PHASE 6: Create Cursor MCP config
 # ══════════════════════════════════════════════════════
 
-CURSOR_DIR="${PROJECT_DIR}/.cursor"
+_phase6_cursor_mcp() {
 MCP_JSON="${CURSOR_DIR}/mcp.json"
-
-mkdir -p "$CURSOR_DIR"
 
 if [ -f "$MCP_JSON" ]; then
     if grep -q "flaiwheel" "$MCP_JSON" 2>/dev/null; then
@@ -800,15 +859,14 @@ else
 EOF
     ok "Created .cursor/mcp.json"
 fi
+} # end _phase6_cursor_mcp
 
 # ══════════════════════════════════════════════════════
 #  PHASE 7: Create Cursor rule for AI agents
 # ══════════════════════════════════════════════════════
 
-RULES_DIR="${CURSOR_DIR}/rules"
+_phase7_cursor_rule() {
 RULE_FILE="${RULES_DIR}/flaiwheel.mdc"
-
-mkdir -p "$RULES_DIR"
 
 cat > "$RULE_FILE" << RULEEOF
 ---
@@ -984,11 +1042,13 @@ All tools accept an optional \`project\` parameter as explicit override. When om
 RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
+} # end _phase7_cursor_rule
 
 # ══════════════════════════════════════════════════════
 #  PHASE 7b: Create AGENTS.md (for Claude Code and other agents)
 # ══════════════════════════════════════════════════════
 
+_phase7b_agents_md() {
 AGENTS_FILE="${PROJECT_DIR}/AGENTS.md"
 
 FLAIWHEEL_AGENTS_BLOCK=$(cat << BLOCKEOF
@@ -1137,11 +1197,13 @@ else
     printf '# AI Agent Instructions\n\n%s\n' "$FLAIWHEEL_AGENTS_BLOCK" > "$AGENTS_FILE"
     ok "Created AGENTS.md with Flaiwheel instructions"
 fi
+} # end _phase7b_agents_md
 
 # ══════════════════════════════════════════════════════
 #  PHASE 7c: Create .mcp.json + CLAUDE.md (for Claude Code)
 # ══════════════════════════════════════════════════════
 
+_phase7c_claude() {
 MCP_JSON_ROOT="${PROJECT_DIR}/.mcp.json"
 
 if [ -f "$MCP_JSON_ROOT" ]; then
@@ -1308,16 +1370,16 @@ if [ "$CLAUDE_CLI_MISSING" = true ]; then
     echo -e "  ${BOLD}Cursor${NC} users: no action needed — .cursor/mcp.json handles it."
     echo ""
 fi
+} # end _phase7c_claude
 
 # ══════════════════════════════════════════════════════
 #  PHASE 7d: Create .vscode/mcp.json + .github/copilot-instructions.md (VS Code / GitHub Copilot)
 # ══════════════════════════════════════════════════════
 
+_phase7d_vscode() {
 VSCODE_DIR="${PROJECT_DIR}/.vscode"
 VSCODE_MCP="${VSCODE_DIR}/mcp.json"
 VSCODE_REGISTERED=false
-
-mkdir -p "$VSCODE_DIR"
 
 if [ -f "$VSCODE_MCP" ]; then
     if grep -q "flaiwheel" "$VSCODE_MCP" 2>/dev/null; then
@@ -1408,11 +1470,13 @@ else
     printf '# Copilot Instructions\n\n%s\n' "$FLAIWHEEL_COPILOT_BLOCK" > "$COPILOT_FILE"
     ok "Created .github/copilot-instructions.md (VS Code Copilot instructions)"
 fi
+} # end _phase7d_vscode
 
 # ══════════════════════════════════════════════════════
 #  PHASE 8: Detect existing docs and create migration guide
 # ══════════════════════════════════════════════════════
 
+_phase8_migration() {
 MD_COUNT=$(find "$PROJECT_DIR" -name "*.md" \
     -not -path "*/.git/*" \
     -not -path "*/.cursor/*" \
@@ -1467,14 +1531,13 @@ MIGRATEEOF
 else
     info "Few or no existing docs detected — skipping migration guide"
 fi
-
-echo ""
+} # end _phase8_migration
 
 # ══════════════════════════════════════════════════════
 #  PHASE 9: Add .cursor entries to .gitignore (if needed)
 # ══════════════════════════════════════════════════════
 
-GITIGNORE="${PROJECT_DIR}/.gitignore"
+_phase9_gitignore() {
 if [ -f "$GITIGNORE" ]; then
     if ! grep -q "\.cursor/mcp\.json" "$GITIGNORE" 2>/dev/null; then
         echo "" >> "$GITIGNORE"
@@ -1489,11 +1552,13 @@ else
 EOF
     ok "Created .gitignore with .cursor/mcp.json exclusion"
 fi
+} # end _phase9_gitignore
 
 # ══════════════════════════════════════════════════════
 #  PHASE 10: Install post-commit git hook (Knowledge Capture)
 # ══════════════════════════════════════════════════════
 
+_phase10_hook() {
 HOOK_CONF="${PROJECT_DIR}/.cursor/flaiwheel-hook.conf"
 HOOK_DEST="${PROJECT_DIR}/.git/hooks/post-commit"
 
@@ -1534,6 +1599,24 @@ if [ -f "$GITIGNORE" ] && ! grep -q "flaiwheel-hook.conf" "$GITIGNORE" 2>/dev/nu
     echo "# Flaiwheel hook config (contains local credentials)" >> "$GITIGNORE"
     echo ".cursor/flaiwheel-hook.conf" >> "$GITIGNORE"
 fi
+} # end _phase10_hook
+
+# ══════════════════════════════════════════════════════
+#  Launch Phases 6-10 in parallel
+# ══════════════════════════════════════════════════════
+
+_phase6_cursor_mcp  & _PIDS+=($!) _PJOBS+=("cursor-mcp")
+_phase7_cursor_rule & _PIDS+=($!) _PJOBS+=("cursor-rule")
+_phase7b_agents_md  & _PIDS+=($!) _PJOBS+=("agents-md")
+_phase7c_claude     & _PIDS+=($!) _PJOBS+=("claude-md")
+_phase7d_vscode     & _PIDS+=($!) _PJOBS+=("vscode")
+_phase8_migration   & _PIDS+=($!) _PJOBS+=("migration-guide")
+_phase9_gitignore   & _PIDS+=($!) _PJOBS+=("gitignore")
+_phase10_hook       & _PIDS+=($!) _PJOBS+=("git-hook")
+
+wait_all
+ok "All config files written"
+rm -f "$_LOG_LOCK"
 
 # ══════════════════════════════════════════════════════
 #  Done
