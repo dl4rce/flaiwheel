@@ -164,10 +164,26 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
     echo ""
 
     if [[ "$_REPO_CHOICE" == "2" ]]; then
-        read -p "  GitHub repo URL (e.g. https://github.com/owner/repo.git): " _CLONE_URL </dev/tty
+        read -p "  GitHub repo (owner/repo or full URL): " _CLONE_URL </dev/tty
+        # Normalise: accept "owner/repo", "github.com/owner/repo", or full https/ssh URL
+        if [[ "$_CLONE_URL" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$ ]]; then
+            _CLONE_URL="https://github.com/${_CLONE_URL}.git"
+        elif [[ "$_CLONE_URL" =~ ^github\.com/ ]]; then
+            _CLONE_URL="https://${_CLONE_URL}"
+        fi
+        # Strip trailing .git for display, ensure it ends with .git for clone
+        _CLONE_URL="${_CLONE_URL%.git}.git"
         _CLONE_DIR=$(basename "${_CLONE_URL%.git}")
+        # Inject gh token into https URL so clone doesn't prompt for credentials
+        _GH_TOKEN_FOR_CLONE=$(gh auth token 2>/dev/null || true)
+        if [ -n "$_GH_TOKEN_FOR_CLONE" ] && [[ "$_CLONE_URL" == https://github.com/* ]]; then
+            _AUTHED_URL="${_CLONE_URL/https:\/\//https:\/\/${_GH_TOKEN_FOR_CLONE}@}"
+        else
+            _AUTHED_URL="$_CLONE_URL"
+        fi
         info "Cloning ${_CLONE_URL}..."
-        git clone "$_CLONE_URL" "$_CLONE_DIR" || fail "Clone failed. Check the URL and your access."
+        git clone "$_AUTHED_URL" "$_CLONE_DIR" 2>&1 | grep -v 'token\|password\|credential' \
+            || fail "Clone failed. Check the repo name and your GitHub access."
         cd "$_CLONE_DIR" || fail "Could not enter cloned directory."
         ok "Cloned and entered: $(pwd)"
     else
