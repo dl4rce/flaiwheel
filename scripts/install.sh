@@ -206,12 +206,58 @@ if [ -z "$REMOTE_URL" ]; then
     fail "No git remote 'origin' found. Push your project to GitHub first.\n  Run: git remote add origin https://github.com/YOUR_ORG/YOUR_REPO.git"
 fi
 
-# 5. Docker installed and running
+# 5. Docker installed and running — auto-install if missing
 if ! command -v docker &>/dev/null; then
-    fail "Docker not installed. Install it: https://docs.docker.com/get-docker/"
+    warn "Docker not found. Attempting auto-install..."
+    _OS="$(uname -s)"
+    _DOCKER_INSTALLED=false
+
+    if [ "$_OS" = "Darwin" ]; then
+        # macOS — Docker Desktop via Homebrew Cask
+        if command -v brew &>/dev/null; then
+            info "Installing Docker Desktop via Homebrew..."
+            brew install --cask docker && _DOCKER_INSTALLED=true
+        else
+            echo ""
+            echo -e "  ${RED}${BOLD}Docker Desktop cannot be auto-installed on macOS without Homebrew.${NC}"
+            echo -e "  Download it from: ${GREEN}https://docs.docker.com/desktop/mac/install/${NC}"
+            echo ""
+            exit 1
+        fi
+
+    elif [ "$_OS" = "Linux" ]; then
+        # Linux — use Docker's official convenience script (works on all major distros)
+        info "Installing Docker via official install script..."
+        curl -fsSL https://get.docker.com | sh && _DOCKER_INSTALLED=true
+
+        if [ "$_DOCKER_INSTALLED" = true ]; then
+            # Start and enable Docker daemon
+            systemctl enable docker 2>/dev/null || true
+            systemctl start  docker 2>/dev/null || true
+        fi
+    fi
+
+    if [ "$_DOCKER_INSTALLED" = true ] && command -v docker &>/dev/null; then
+        ok "Docker installed: $(docker --version)"
+    else
+        echo ""
+        echo -e "  ${RED}${BOLD}Docker auto-install failed.${NC}"
+        echo -e "  Install it manually: ${GREEN}https://docs.docker.com/get-docker/${NC}"
+        echo ""
+        exit 1
+    fi
 fi
+
 if ! docker info &>/dev/null 2>&1; then
-    fail "Docker is not running. Start Docker first."
+    _OS="$(uname -s)"
+    if [ "$_OS" = "Linux" ]; then
+        info "Docker daemon not running — attempting to start..."
+        systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
+        sleep 3
+    fi
+    if ! docker info &>/dev/null 2>&1; then
+        fail "Docker is not running. Start it with: systemctl start docker"
+    fi
 fi
 
 ok "All prerequisites met"
