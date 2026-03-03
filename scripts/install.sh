@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.7.8"
+_FW_VERSION="3.7.9"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -728,7 +728,9 @@ else
         git clone --depth 1 "$CLONE_URL" "$BUILD_DIR" 2>/dev/null || \
             fail "Could not clone Flaiwheel repo. Check your gh permissions for dl4rce/flaiwheel."
 
-        docker build -t "$IMAGE_NAME" "$BUILD_DIR" || \
+        docker build -t "$IMAGE_NAME" \
+            --build-arg "FLAIWHEEL_VERSION=${_FW_VERSION}" \
+            "$BUILD_DIR" || \
             fail "Docker build failed. Check the build output above."
 
         rm -rf "$BUILD_DIR"
@@ -821,17 +823,27 @@ else
     }
 
     if [ "$UPDATE_MODE" = true ]; then
+        # Check if the existing image already matches the current installer version.
+        # If yes, skip the expensive rebuild — just recreate the container.
+        _IMAGE_VERSION=$(docker inspect --format \
+            '{{index .Config.Labels "org.opencontainers.image.version"}}' \
+            "$IMAGE_NAME" 2>/dev/null || true)
+
+        if [ "${_IMAGE_VERSION}" = "${_FW_VERSION}" ] && docker image inspect "$IMAGE_NAME" &>/dev/null; then
+            ok "Docker image ${IMAGE_NAME} already at v${_FW_VERSION} — skipping rebuild"
+            _SKIP_BUILD=true
+        else
+            _SKIP_BUILD=false
+        fi
+
         info "Stopping container ${OLD_CONTAINER_NAME}..."
         docker stop "$OLD_CONTAINER_NAME" 2>/dev/null || true
         docker rm "$OLD_CONTAINER_NAME" 2>/dev/null || true
         ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
 
-        docker rmi "$IMAGE_NAME" 2>/dev/null || true
-        # Only rebuild if the image was actually removed (i.e. not reused)
-        if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+        if [ "$_SKIP_BUILD" = false ]; then
+            docker rmi "$IMAGE_NAME" 2>/dev/null || true
             build_image
-        else
-            ok "Docker image ${IMAGE_NAME} already up to date — skipping rebuild"
         fi
 
         info "Recreating container as ${CONTAINER_NAME}..."
@@ -845,7 +857,7 @@ else
         if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
             build_image
         else
-            ok "Docker image ${IMAGE_NAME} already exists"
+            ok "Docker image ${IMAGE_NAME} already exists — skipping rebuild"
         fi
 
         info "Starting Flaiwheel container: ${CONTAINER_NAME}..."

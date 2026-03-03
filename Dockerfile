@@ -48,6 +48,13 @@ RUN chmod +x scripts/*.sh
 # /data = vectorstore + config + models (persistent volume)
 VOLUME ["/docs", "/data"]
 
+# OCI standard labels — used by installer to detect if rebuild is needed
+ARG FLAIWHEEL_VERSION=dev
+LABEL org.opencontainers.image.version="${FLAIWHEEL_VERSION}" \
+      org.opencontainers.image.title="Flaiwheel" \
+      org.opencontainers.image.source="https://github.com/dl4rce/flaiwheel" \
+      org.opencontainers.image.licenses="BSL-1.1"
+
 ENV MCP_DOCS_PATH=/docs \
     MCP_VECTORSTORE_PATH=/data/vectorstore \
     MCP_EMBEDDING_PROVIDER=local \
