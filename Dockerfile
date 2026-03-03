@@ -28,7 +28,7 @@ VOLUME ["/docs", "/data"]
 ENV MCP_DOCS_PATH=/docs \
     MCP_VECTORSTORE_PATH=/data/vectorstore \
     MCP_EMBEDDING_PROVIDER=local \
-    MCP_EMBEDDING_MODEL=all-MiniLM-L6-v2 \
+    MCP_EMBEDDING_MODEL=all-MiniLM-L12-v2 \
     MCP_CHUNK_STRATEGY=heading \
     MCP_TRANSPORT=sse \
     MCP_SSE_PORT=8081 \

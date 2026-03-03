@@ -707,6 +707,23 @@ else
         ok "Docker image built: ${IMAGE_NAME}"
     }
 
+    # ── Embedding model selection ──────────────────────────────────────────
+    echo ""
+    echo -e "  ${BOLD}Embedding model${NC} (downloaded on first start, cached on /data volume):"
+    echo -e "    ${BOLD}1)${NC} all-MiniLM-L12-v2     — fast, good quality  [default]"
+    echo -e "    ${BOLD}2)${NC} all-MiniLM-L6-v2      — fastest, smaller (~80MB)"
+    echo -e "    ${BOLD}3)${NC} all-mpnet-base-v2      — best quality, slower (~420MB)"
+    echo ""
+    read -p "  Choose [1/2/3, Enter=default]: " -n 1 -r _MODEL_CHOICE </dev/tty
+    echo ""
+    case "$_MODEL_CHOICE" in
+        2) EMBEDDING_MODEL="all-MiniLM-L6-v2" ;;
+        3) EMBEDDING_MODEL="all-mpnet-base-v2" ;;
+        *) EMBEDDING_MODEL="all-MiniLM-L12-v2" ;;
+    esac
+    ok "Embedding model: ${EMBEDDING_MODEL}"
+    echo ""
+
     start_container() {
         local repo_url="${1:-$KNOWLEDGE_REPO_URL}"
         local auto_push="${2:-true}"
@@ -724,6 +741,7 @@ else
             -e MCP_GIT_REPO_URL="$repo_url" \
             -e MCP_GIT_TOKEN="$GH_TOKEN" \
             -e MCP_GIT_AUTO_PUSH="$auto_push" \
+            -e MCP_EMBEDDING_MODEL="${EMBEDDING_MODEL:-all-MiniLM-L12-v2}" \
             $extra_env \
             -v "${VOLUME_NAME}:/data" \
             --restart unless-stopped \
@@ -758,33 +776,41 @@ else
         ok "Flaiwheel container started"
     fi
 
-    # Wait for container to be healthy and extract credentials
-    info "Waiting for Flaiwheel to be ready..."
+    # Wait for container to be healthy and extract credentials.
+    # On first install the embedding model is downloaded at startup (~60-120s).
+    # We poll for up to 5 minutes so fresh installs don't time out.
+    info "Waiting for Flaiwheel to be ready (first start downloads the embedding model)..."
     HEALTHY=false
-    for i in $(seq 1 60); do
+    for i in $(seq 1 150); do   # 150 × 2s = 300s = 5 min
         if curl -sf http://localhost:8080/health &>/dev/null; then
             HEALTHY=true
             break
         fi
+        # Print a dot every 10s so the user knows it's alive
+        [ $((i % 5)) -eq 0 ] && printf "."
         sleep 2
     done
+    [ "$HEALTHY" = true ] && echo "" || echo ""
 
     if [ "$HEALTHY" = false ]; then
-        warn "Container did not become healthy within 120s."
+        warn "Container not healthy yet after 5 min — still starting (model download may be slow)."
         warn "Check logs: docker logs ${CONTAINER_NAME}"
+        warn "Re-run the installer once it's up to finish registration."
     fi
 
+    # Extract credentials — password is written to /data/.admin_password early in startup,
+    # before the model download, so this usually succeeds even if health check timed out.
     ADMIN_PASS=""
-    for i in $(seq 1 15); do
+    for i in $(seq 1 30); do
         ADMIN_PASS=$(docker exec "$CONTAINER_NAME" cat /data/.admin_password 2>/dev/null || true)
         if [ -n "$ADMIN_PASS" ]; then break; fi
         ADMIN_PASS=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
         if [ -n "$ADMIN_PASS" ]; then break; fi
-        sleep 1
+        sleep 2
     done
 
     if [ -n "$ADMIN_PASS" ]; then
-        ok "Flaiwheel is ready"
+        ok "Credentials extracted"
         if [ "$HEALTHY" = true ]; then
             info "Indexing Flaiwheel reference docs..."
             if curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null; then
@@ -794,7 +820,8 @@ else
             fi
         fi
     else
-        warn "Could not extract credentials automatically."
+        warn "Could not extract credentials yet — container may still be starting."
+        warn "Retrieve them later with: docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
     fi
 fi
 
@@ -806,6 +833,12 @@ echo ""
 # ══════════════════════════════════════════════════════
 
 info "Writing config files (parallel)..."
+
+# Initialise summary flags — set here so the Done section never hits unbound variable.
+# Parallel subshells cannot write back to the parent; these are best-effort defaults.
+CLAUDE_DESKTOP_REGISTERED=false
+CLAUDE_MCP_REGISTERED=false
+VSCODE_REGISTERED=false
 
 # ── Helper: atomic log line (prevents interleaved output) ──────────────────
 _LOG_LOCK=$(mktemp /tmp/fw-lock-XXXXXX)
@@ -1728,12 +1761,29 @@ elif [ -n "${ADMIN_PASS:-}" ]; then
     echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"
     echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
-    echo -e "  ${BOLD}║  Password:  ${GREEN}${ADMIN_PASS}${NC}${BOLD}              ║${NC}"
+    echo -e "  ${BOLD}║  Password:  ${GREEN}${ADMIN_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"
     echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}     ║${NC}"
     echo -e "  ${BOLD}╚════════════════════════════════════════════╝${NC}"
 else
-    echo -e "  ${YELLOW}To retrieve your Web UI credentials:${NC}"
-    echo -e "    docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'"
+    # Container may still be starting (model download in progress).
+    # Try one more time to get the password before giving up.
+    _LATE_PASS=$(docker exec "${CONTAINER_NAME}" cat /data/.admin_password 2>/dev/null || \
+                 docker logs "${CONTAINER_NAME}" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
+    if [ -n "$_LATE_PASS" ]; then
+        echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
+        echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
+        echo -e "  ${BOLD}║                                            ║${NC}"
+        echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
+        echo -e "  ${BOLD}║  Password:  ${GREEN}${_LATE_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
+        echo -e "  ${BOLD}║                                            ║${NC}"
+        echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}     ║${NC}"
+        echo -e "  ${BOLD}╚════════════════════════════════════════════╝${NC}"
+    else
+        echo -e "  ${YELLOW}${BOLD}Container is still starting (embedding model download in progress).${NC}"
+        echo -e "  Watch progress:  ${GREEN}docker logs -f ${CONTAINER_NAME}${NC}"
+        echo -e "  Get credentials: ${GREEN}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
+        echo -e "  Or read file:    ${GREEN}docker exec ${CONTAINER_NAME} cat /data/.admin_password${NC}"
+    fi
 fi
 echo ""
