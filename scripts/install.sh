@@ -4,8 +4,22 @@
 # BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
 #
 # One-command installer: sets up Flaiwheel for any project.
-# Usage: curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+# Usage: bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 set -euo pipefail
+
+# ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
+# curl | bash breaks interactive prompts. Detect it and re-exec correctly.
+if [ ! -t 0 ]; then
+    _SCRIPT_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh"
+    _TMP_SCRIPT=$(mktemp /tmp/flaiwheel-install-XXXXXX.sh)
+    if curl -sSL "$_SCRIPT_URL" -o "$_TMP_SCRIPT" 2>/dev/null && [ -s "$_TMP_SCRIPT" ]; then
+        chmod +x "$_TMP_SCRIPT"
+        exec bash "$_TMP_SCRIPT" "$@"
+    else
+        echo "Error: could not download installer to a temp file." >&2
+        exit 1
+    fi
+fi
 
 # ── Colors ──────────────────────────────────────────
 RED='\033[0;31m'
