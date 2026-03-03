@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.5] — 2026-03-03
+
+### Improved
+- `install.sh`: when `claude` CLI is not on PATH, print a prominent boxed `ACTION REQUIRED` prompt with the exact command to run — no longer a quiet `info` line that is easy to miss.
+- `CLAUDE.md` template (written to user projects) and this repo's own `CLAUDE.md`: added a `⚠️ First-time setup` section that instructs the AI agent to check `/mcp` at session start and proactively tell the user to run the registration command if Flaiwheel is not connected.
+
+---
+
 ## [3.4.4] — 2026-03-03
 
 ### Added

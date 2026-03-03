@@ -965,15 +965,29 @@ FLAIWHEEL_CLAUDE_BLOCK=$(cat << CLAUDEEOF
 
 > Full AI agent instructions (including Flaiwheel workflow) are in **AGENTS.md** — read it fully before doing anything else.
 
+### ⚠️ First-time setup — check MCP connection before anything else
+
+1. Type \`/mcp\` to see connected servers
+2. If \`flaiwheel\` is **not listed**, tell the user:
+
+   > "Flaiwheel MCP is not connected. Please run this command in your terminal, then restart Claude Code:
+   >
+   > \`claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse\`"
+
+3. Do **not** proceed until Flaiwheel is connected — it is the primary knowledge source for this project.
+
 ### Session Start — ALWAYS DO THIS FIRST
 
-1. Read \`AGENTS.md\` in this project root
-2. Call \`set_project("${PROJECT}")\` via the Flaiwheel MCP tool
-3. Call \`get_recent_sessions()\` to restore context from the last session
+1. Check MCP connection (see above)
+2. Read \`AGENTS.md\` in this project root
+3. Call \`set_project("${PROJECT}")\` via the Flaiwheel MCP tool
+4. Call \`get_recent_sessions()\` to restore context from the last session
 
 ### Flaiwheel MCP
 
 - **Endpoint:** \`http://localhost:8081/sse\` (configured in \`.mcp.json\`)
+- **Register once:** \`claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse\`
+- **Verify:** type \`/mcp\` — \`flaiwheel\` should appear with 27 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call \`write_bugfix_summary()\`. No exceptions.
 - **Rule:** End every session with \`save_session_summary()\`.
@@ -1004,20 +1018,38 @@ fi
 
 # Auto-register with Claude Code CLI if available
 CLAUDE_MCP_REGISTERED=false
+CLAUDE_CLI_MISSING=false
 if command -v claude >/dev/null 2>&1; then
     info "Claude Code CLI detected — registering Flaiwheel MCP automatically..."
-    if claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>/dev/null; then
+    CLAUDE_REGISTER_OUT=$(claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>&1)
+    CLAUDE_REGISTER_RC=$?
+    if [ $CLAUDE_REGISTER_RC -eq 0 ]; then
         ok "Claude Code: flaiwheel MCP registered (project scope)"
         CLAUDE_MCP_REGISTERED=true
-    elif claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>&1 | grep -qi "already exists\|already configured"; then
+    elif echo "$CLAUDE_REGISTER_OUT" | grep -qi "already exists\|already configured\|already added"; then
         ok "Claude Code: flaiwheel MCP already registered"
         CLAUDE_MCP_REGISTERED=true
     else
-        warn "Claude Code CLI found but registration failed — run manually:"
-        warn "  claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse"
+        warn "Claude Code CLI found but registration failed:"
+        warn "  ${CLAUDE_REGISTER_OUT}"
+        CLAUDE_CLI_MISSING=true
     fi
 else
-    info "Claude Code CLI not found — skipping auto-registration"
+    CLAUDE_CLI_MISSING=true
+fi
+
+if [ "$CLAUDE_CLI_MISSING" = true ]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}┌─────────────────────────────────────────────────────┐${NC}"
+    echo -e "  ${YELLOW}${BOLD}│  ACTION REQUIRED — Claude Code MCP registration     │${NC}"
+    echo -e "  ${YELLOW}${BOLD}└─────────────────────────────────────────────────────┘${NC}"
+    echo -e "  Run this command ${BOLD}once${NC} in your terminal to connect Claude Code:"
+    echo ""
+    echo -e "  ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    echo ""
+    echo -e "  Then type ${BOLD}/mcp${NC} inside Claude Code to verify the connection."
+    echo -e "  ${BOLD}Cursor${NC} users: no action needed — .cursor/mcp.json handles it."
+    echo ""
 fi
 
 # ══════════════════════════════════════════════════════

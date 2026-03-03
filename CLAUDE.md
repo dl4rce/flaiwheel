@@ -2,17 +2,29 @@
 
 > Full AI agent instructions (including Flaiwheel workflow) are in **AGENTS.md** — read it at the start of every session.
 
+## ⚠️ First-time setup — check MCP connection before anything else
+
+1. Type `/mcp` to see connected servers
+2. If `flaiwheel` is **not listed**, tell the user:
+
+   > "Flaiwheel MCP is not connected. Please run this command in your terminal, then restart Claude Code:
+   >
+   > `claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse`"
+
+3. Do **not** proceed until Flaiwheel is connected — it is the primary knowledge source.
+
 ## Session Start Checklist
 
-1. Read `AGENTS.md` fully before doing anything else
-2. Call `set_project("flaiwheel")` via the Flaiwheel MCP tool
-3. Call `get_recent_sessions()` to restore context from the last session
+1. Check MCP connection (see above)
+2. Read `AGENTS.md` fully
+3. Call `set_project("flaiwheel")` via the Flaiwheel MCP tool
+4. Call `get_recent_sessions()` to restore context from the last session
 
 ## Flaiwheel MCP
 
 - **Endpoint:** `http://localhost:8081/sse` (configured in `.mcp.json`)
-- **First-time trust:** run once → `claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse`
-- **Verify connected:** type `/mcp` inside Claude Code — `flaiwheel` should appear with 27 tools
+- **Register once:** `claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse`
+- **Verify:** type `/mcp` inside Claude Code — `flaiwheel` should appear with 27 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call `write_bugfix_summary()`. No exceptions.
 - **Rule:** End every session with `save_session_summary()`.
