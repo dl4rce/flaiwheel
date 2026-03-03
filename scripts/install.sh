@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.7.9"
+_FW_VERSION="3.8.0"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -706,20 +706,21 @@ else
     build_image() {
         info "Building Flaiwheel Docker image..."
 
-        # Pre-build cleanup: stale containerd ingest data accumulates from
-        # interrupted builds and is NOT cleared by 'docker builder prune'.
-        # Wipe it before every build so we never hit "no space left on device"
-        # during layer export on small disks.
+        # Pre-build cleanup: free as much disk as possible.
+        # 1. Prune ALL unused build cache, images, and containers
+        # 2. Wipe containerd ingest dir (stale blobs invisible to docker prune)
+        info "Cleaning up Docker caches before build..."
+        docker builder prune -af >/dev/null 2>&1 || true
+        docker image prune -af >/dev/null 2>&1 || true
+        docker container prune -f >/dev/null 2>&1 || true
+
         _INGEST_DIR="/var/lib/containerd/io.containerd.content.v1.content/ingest"
         if [ -d "$_INGEST_DIR" ] && [ "$(ls -A "$_INGEST_DIR" 2>/dev/null | wc -l)" -gt 0 ]; then
-            info "Clearing stale containerd ingest cache before build..."
             systemctl stop docker 2>/dev/null || true
             rm -rf "${_INGEST_DIR:?}"/*
             systemctl start docker
             sleep 2
         fi
-        # Also clear dangling build cache layers
-        docker builder prune -f --filter "until=24h" >/dev/null 2>&1 || true
 
         BUILD_DIR=$(mktemp -d)
         GH_TOKEN_FOR_CLONE=$(gh auth token 2>/dev/null || true)

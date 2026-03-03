@@ -15,11 +15,18 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Install CPU-only PyTorch FIRST — prevents sentence-transformers from pulling
+# the full CUDA/cuDNN stack (~7GB of nvidia libs, useless without a GPU).
+# This alone shrinks the image from ~8GB to ~1GB.
+RUN uv pip install --system --no-cache --prefix=/install \
+    torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 COPY pyproject.toml README.md ./
 COPY src/ src/
 
 # uv installs in parallel using all available cores.
-# --prefix=/install isolates packages so we copy only them to the runtime stage.
+# torch is already satisfied from CPU index above — won't be re-downloaded.
 RUN uv pip install --system --no-cache --prefix=/install .
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────
