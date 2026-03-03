@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.5.0] — 2026-03-03
+
+### Added
+- **Claude Desktop (macOS app)** — installer auto-configures `~/Library/Application Support/Claude/claude_desktop_config.json` using `mcp-remote` as a stdio→SSE bridge. Requires Node.js/npx. Falls back with manual instructions if npx is absent.
+- **Claude Code CLI** — installer auto-runs `claude mcp add --transport sse --scope project flaiwheel ...` if the `claude` CLI is on PATH. Falls back with a boxed `ACTION REQUIRED` prompt if not.
+- **`CLAUDE.md`** — generated in project root with a first-session `/mcp` connection check; the AI agent proactively prompts the user with the registration command if Flaiwheel is not connected.
+- **`.mcp.json`** — generated in project root for Claude Code CLI project-scope MCP config.
+- **`AGENTS.md`** — generated in project root for all other agents.
+
+### Fixed
+- `mcp-proxy` replaced by `mcp-remote` for Claude Desktop bridge — `mcp-proxy` treated the SSE URL as a process to spawn (`ENOENT`); `mcp-remote` correctly acts as a stdio client connecting to a remote SSE endpoint.
+- Test `test_execute_move_stages_targeted_paths` — filter used tuple comparison against list (`[:2] == ("git","add")`), always returning empty.
+- Test `test_setup_keyword_path` — corrected expected value from `"docs"` to `"setup"` for `ops/install-guide.md`.
+
+---
+
 ## [3.4.7] — 2026-03-03
 
 ### Fixed
