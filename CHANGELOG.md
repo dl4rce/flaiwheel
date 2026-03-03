@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.4] — 2026-03-03
+
+### Added
+- `install.sh` now auto-registers Flaiwheel with the Claude Code CLI if `claude` is available on `$PATH`. Zero manual steps needed — the installer calls `claude mcp add --transport sse --scope project flaiwheel ...` automatically and prints `✓` in the summary. Falls back gracefully with the manual command if the CLI is not installed.
+
+---
+
 ## [3.4.3] — 2026-03-03
 
 ### Fixed

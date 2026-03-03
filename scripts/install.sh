@@ -1002,6 +1002,24 @@ else
     ok "Created CLAUDE.md (Claude Code instructions)"
 fi
 
+# Auto-register with Claude Code CLI if available
+CLAUDE_MCP_REGISTERED=false
+if command -v claude >/dev/null 2>&1; then
+    info "Claude Code CLI detected — registering Flaiwheel MCP automatically..."
+    if claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>/dev/null; then
+        ok "Claude Code: flaiwheel MCP registered (project scope)"
+        CLAUDE_MCP_REGISTERED=true
+    elif claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>&1 | grep -qi "already exists\|already configured"; then
+        ok "Claude Code: flaiwheel MCP already registered"
+        CLAUDE_MCP_REGISTERED=true
+    else
+        warn "Claude Code CLI found but registration failed — run manually:"
+        warn "  claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse"
+    fi
+else
+    info "Claude Code CLI not found — skipping auto-registration"
+fi
+
 # ══════════════════════════════════════════════════════
 #  PHASE 8: Detect existing docs and create migration guide
 # ══════════════════════════════════════════════════════
@@ -1145,8 +1163,12 @@ if [ "$FAST_PATH" = true ]; then
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
-    echo -e "    2. Claude Code: run once to trust the project MCP:"
-    echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
+        echo -e "    2. Claude Code: MCP already registered ${GREEN}✓${NC}"
+    else
+        echo -e "    2. Claude Code: run once to register MCP:"
+        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    fi
     echo -e "    3. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
     echo -e "    4. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
 elif [ "$UPDATE_MODE" = true ]; then
@@ -1161,8 +1183,12 @@ elif [ "$UPDATE_MODE" = true ]; then
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to reconnect MCP"
-    echo -e "    2. Claude Code: re-run trust if needed:"
-    echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
+        echo -e "    2. Claude Code: MCP already registered ${GREEN}✓${NC}"
+    else
+        echo -e "    2. Claude Code: re-run if needed:"
+        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    fi
     echo -e "    3. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
 else
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
@@ -1181,8 +1207,12 @@ else
     echo -e "    1. Restart Cursor"
     echo -e "    2. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
     echo -e "    3. Wait for the green ${GREEN}connected${NC} indicator"
-    echo -e "    4. Claude Code: run once to trust the project MCP:"
-    echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
+        echo -e "    4. Claude Code: MCP already registered ${GREEN}✓${NC}"
+    else
+        echo -e "    4. Claude Code: run once to register MCP:"
+        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    fi
     echo -e "    5. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
     echo -e "    6. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 fi
