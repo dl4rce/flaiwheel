@@ -34,9 +34,100 @@ echo ""
 
 info "Checking prerequisites..."
 
-# 1. gh CLI installed
+# 1. gh CLI installed — auto-install if missing
 if ! command -v gh &>/dev/null; then
-    fail "GitHub CLI (gh) not installed. Install it: https://cli.github.com"
+    warn "GitHub CLI (gh) not found. Attempting auto-install..."
+
+    _OS="$(uname -s)"
+    _ARCH="$(uname -m)"
+    _GH_INSTALLED=false
+
+    if [ "$_OS" = "Darwin" ]; then
+        # macOS — use Homebrew if available, otherwise install Homebrew first
+        if command -v brew &>/dev/null; then
+            info "Installing gh via Homebrew..."
+            brew install gh && _GH_INSTALLED=true
+        else
+            info "Homebrew not found. Installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
+                eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)" && \
+                brew install gh && _GH_INSTALLED=true
+        fi
+
+    elif [ "$_OS" = "Linux" ]; then
+        if command -v apt-get &>/dev/null; then
+            # Debian / Ubuntu
+            info "Installing gh via apt (Debian/Ubuntu)..."
+            (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) &&
+                mkdir -p -m 755 /etc/apt/keyrings &&
+                wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                    | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null &&
+                chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg &&
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+                    | tee /etc/apt/sources.list.d/github-cli.list >/dev/null &&
+                apt-get update &&
+                apt-get install -y gh && _GH_INSTALLED=true
+
+        elif command -v dnf &>/dev/null; then
+            # Fedora / RHEL 8+
+            info "Installing gh via dnf (Fedora/RHEL)..."
+            dnf install -y 'dnf-command(config-manager)' &&
+                dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo &&
+                dnf install -y gh && _GH_INSTALLED=true
+
+        elif command -v yum &>/dev/null; then
+            # CentOS / RHEL 7
+            info "Installing gh via yum (CentOS/RHEL)..."
+            yum install -y yum-utils &&
+                yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo &&
+                yum install -y gh && _GH_INSTALLED=true
+
+        elif command -v zypper &>/dev/null; then
+            # openSUSE
+            info "Installing gh via zypper (openSUSE)..."
+            zypper addrepo https://cli.github.com/packages/rpm/gh-cli.repo &&
+                zypper ref &&
+                zypper install -y gh && _GH_INSTALLED=true
+
+        elif command -v pacman &>/dev/null; then
+            # Arch Linux
+            info "Installing gh via pacman (Arch)..."
+            pacman -Sy --noconfirm github-cli && _GH_INSTALLED=true
+
+        else
+            # Generic Linux fallback: download binary directly
+            info "Trying generic binary install for Linux (${_ARCH})..."
+            _GH_VERSION=$(curl -sf https://api.github.com/repos/cli/cli/releases/latest \
+                | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))" 2>/dev/null || echo "")
+            if [ -n "$_GH_VERSION" ]; then
+                case "$_ARCH" in
+                    x86_64)  _GH_ARCH="amd64" ;;
+                    aarch64) _GH_ARCH="arm64" ;;
+                    armv6*)  _GH_ARCH="armv6" ;;
+                    *)       _GH_ARCH="amd64" ;;
+                esac
+                _GH_URL="https://github.com/cli/cli/releases/download/v${_GH_VERSION}/gh_${_GH_VERSION}_linux_${_GH_ARCH}.tar.gz"
+                _GH_TMP=$(mktemp -d)
+                curl -sSL "$_GH_URL" | tar -xz -C "$_GH_TMP" &&
+                    install -m 755 "$_GH_TMP/gh_${_GH_VERSION}_linux_${_GH_ARCH}/bin/gh" /usr/local/bin/gh &&
+                    rm -rf "$_GH_TMP" && _GH_INSTALLED=true
+            fi
+        fi
+    fi
+
+    if [ "$_GH_INSTALLED" = true ] && command -v gh &>/dev/null; then
+        ok "GitHub CLI installed: $(gh --version | head -1)"
+    else
+        echo ""
+        echo -e "  ${RED}${BOLD}Auto-install failed or unsupported on this platform.${NC}"
+        echo -e "  Install GitHub CLI manually, then re-run this script:"
+        echo ""
+        echo -e "  ${BOLD}macOS:${NC}   brew install gh"
+        echo -e "  ${BOLD}Ubuntu:${NC}  ${GREEN}https://github.com/cli/cli/blob/trunk/docs/install_linux.md${NC}"
+        echo -e "  ${BOLD}Other:${NC}   ${GREEN}https://cli.github.com${NC}"
+        echo ""
+        exit 1
+    fi
 fi
 
 # 2. gh authenticated
@@ -44,15 +135,44 @@ if ! gh auth status &>/dev/null; then
     fail "GitHub CLI not authenticated. Run: gh auth login"
 fi
 
-# 3. Inside a git repo
+# 3. Inside a git repo — if not, offer to clone or cd into one
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-    fail "Not inside a git repository. Run this from your project root."
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Not inside a git repository.${NC}"
+    echo -e "  Flaiwheel needs to be run from your project root."
+    echo ""
+    echo -e "  Options:"
+    echo -e "    ${BOLD}1)${NC} Enter the path to an existing local project"
+    echo -e "    ${BOLD}2)${NC} Clone a GitHub repo now"
+    echo ""
+    read -p "  Choose [1/2]: " -n 1 -r _REPO_CHOICE
+    echo ""
+
+    if [[ "$_REPO_CHOICE" == "2" ]]; then
+        read -p "  GitHub repo URL (e.g. https://github.com/owner/repo.git): " _CLONE_URL
+        _CLONE_DIR=$(basename "${_CLONE_URL%.git}")
+        info "Cloning ${_CLONE_URL}..."
+        git clone "$_CLONE_URL" "$_CLONE_DIR" || fail "Clone failed. Check the URL and your access."
+        cd "$_CLONE_DIR" || fail "Could not enter cloned directory."
+        ok "Cloned and entered: $(pwd)"
+    else
+        read -p "  Path to your project directory: " _PROJECT_PATH
+        _PROJECT_PATH="${_PROJECT_PATH/#\~/$HOME}"
+        if [ ! -d "$_PROJECT_PATH" ]; then
+            fail "Directory not found: ${_PROJECT_PATH}"
+        fi
+        cd "$_PROJECT_PATH" || fail "Could not cd into ${_PROJECT_PATH}"
+        if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+            fail "Still not inside a git repo at: $(pwd)\nRun: git init && git remote add origin <your-github-url>"
+        fi
+        ok "Using project at: $(pwd)"
+    fi
 fi
 
 # 4. Has a remote
 REMOTE_URL=$(git remote get-url origin 2>/dev/null || true)
 if [ -z "$REMOTE_URL" ]; then
-    fail "No git remote 'origin' found. Push your project to GitHub first."
+    fail "No git remote 'origin' found. Push your project to GitHub first.\n  Run: git remote add origin https://github.com/YOUR_ORG/YOUR_REPO.git"
 fi
 
 # 5. Docker installed and running
