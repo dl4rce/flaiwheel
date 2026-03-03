@@ -26,7 +26,7 @@ class Config(BaseSettings):
 
     # ── Embeddings ───────────────────────────────
     embedding_provider: Literal["local", "openai"] = "local"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "all-MiniLM-L12-v2"
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
 
@@ -47,8 +47,8 @@ class Config(BaseSettings):
 
     # ── Search ───────────────────────────────────
     hybrid_search: bool = True
-    reranker_enabled: bool = False
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_enabled: bool = True
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
     rrf_k: int = 60
     rrf_vector_weight: float = 1.0
     rrf_bm25_weight: float = 1.0

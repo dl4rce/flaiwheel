@@ -32,10 +32,22 @@ if [ ! -d "$_MODEL_CACHE" ] && [ "${MCP_EMBEDDING_PROVIDER:-local}" = "local" ];
     echo "  Downloading embedding model '${_MODEL}' to /data/models (first run only)..."
     python -c "
 from sentence_transformers import SentenceTransformer
-import os
 SentenceTransformer('${_MODEL}', cache_folder='/data/models')
-print('  Model cached at /data/models')
-" || echo "  Warning: model download failed — will retry on first search"
+print('  Embedding model cached.')
+" || echo "  Warning: embedding model download failed — will retry on first search"
+    echo ""
+fi
+
+# Pre-download reranker model if enabled
+_RERANKER_MODEL="${MCP_RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-12-v2}"
+_RERANKER_CACHE="/data/models/$(echo "$_RERANKER_MODEL" | tr '/' '_')"
+if [ "${MCP_RERANKER_ENABLED:-true}" = "true" ] && [ ! -d "$_RERANKER_CACHE" ]; then
+    echo "  Downloading reranker model '${_RERANKER_MODEL}' (first run only)..."
+    python -c "
+from sentence_transformers import CrossEncoder
+CrossEncoder('${_RERANKER_MODEL}', cache_folder='/data/models')
+print('  Reranker model cached.')
+" || echo "  Warning: reranker model download failed — reranking disabled until available"
     echo ""
 fi
 

@@ -122,8 +122,8 @@ class TestRerankerConfig:
     def indexer(self, config):
         return DocsIndexer(config)
 
-    def test_reranker_off_by_default(self, config):
-        assert config.reranker_enabled is False
+    def test_reranker_on_by_default(self, config):
+        assert config.reranker_enabled is True
 
     def test_rrf_k_configurable(self, config, indexer):
         config.rrf_k = 30
