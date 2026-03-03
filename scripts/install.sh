@@ -1038,7 +1038,7 @@ if 'flaiwheel' in servers:
 else:
     servers['flaiwheel'] = {
         'command': 'npx',
-        'args': ['-y', 'mcp-proxy', 'http://localhost:8081/sse']
+        'args': ['-y', 'mcp-remote', 'http://localhost:8081/sse']
     }
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2)
@@ -1054,7 +1054,7 @@ else:
     else
         warn "Claude Desktop found but npx is not installed — cannot configure mcp-proxy"
         warn "  Install Node.js, then add to claude_desktop_config.json manually:"
-        warn '  "flaiwheel": {"command":"npx","args":["-y","mcp-proxy","http://localhost:8081/sse"]}'
+        warn '  "flaiwheel": {"command":"npx","args":["-y","mcp-remote","http://localhost:8081/sse"]}'
     fi
 fi
 

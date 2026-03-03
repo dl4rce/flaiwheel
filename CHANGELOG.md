@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.7] — 2026-03-03
+
+### Fixed
+- **Claude Desktop**: switched from `mcp-proxy` to `mcp-remote` as the stdio→SSE bridge. `mcp-proxy` treated the URL as a command to spawn (`ENOENT`). `mcp-remote` correctly connects to a remote SSE endpoint and exposes it as a local stdio server — which is what Claude Desktop requires.
+
+---
+
 ## [3.4.6] — 2026-03-03
 
 ### Fixed
