@@ -14,7 +14,30 @@ echo "  Web-UI:     http://0.0.0.0:${MCP_WEB_PORT:-8080}"
 echo "  MCP SSE:    http://0.0.0.0:${MCP_SSE_PORT:-8081}"
 echo "================================================"
 
-mkdir -p /data/vectorstore
+mkdir -p /data/vectorstore /data/models
+
+# ── Embedding model cache ────────────────────────────────────────────────────
+# Models are stored on the persistent /data volume so they survive restarts.
+# First start downloads once (~80 MB for all-MiniLM-L6-v2); subsequent starts
+# are instant. SENTENCE_TRANSFORMERS_HOME points the library at the cache dir.
+export SENTENCE_TRANSFORMERS_HOME=/data/models
+export HF_HOME=/data/models/huggingface
+export TRANSFORMERS_CACHE=/data/models/huggingface
+
+_MODEL="${MCP_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
+_MODEL_CACHE="/data/models/sentence-transformers_${_MODEL//\//__}"
+
+if [ ! -d "$_MODEL_CACHE" ] && [ "${MCP_EMBEDDING_PROVIDER:-local}" = "local" ]; then
+    echo ""
+    echo "  Downloading embedding model '${_MODEL}' to /data/models (first run only)..."
+    python -c "
+from sentence_transformers import SentenceTransformer
+import os
+SentenceTransformer('${_MODEL}', cache_folder='/data/models')
+print('  Model cached at /data/models')
+" || echo "  Warning: model download failed — will retry on first search"
+    echo ""
+fi
 
 # Derive project name from git repo URL (strip -knowledge suffix)
 PROJ_NAME=""

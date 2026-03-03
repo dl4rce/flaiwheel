@@ -17,8 +17,9 @@ COPY scripts/ scripts/
 RUN pip install --no-cache-dir . && \
     chmod +x scripts/*.sh
 
-# Pre-load default embedding model so first start is fast
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+# Model is NOT baked into the image — it is downloaded on first container
+# start and cached on the persistent /data volume. This keeps the image
+# small (~200 MB vs ~1.5 GB) and avoids OOM during docker build on low-RAM hosts.
 
 # /docs = your markdown docs (mount or git clone)
 # /data = vector index + config (persistent!)
