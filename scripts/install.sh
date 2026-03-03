@@ -745,25 +745,37 @@ else
     echo -e "  ${BOLD}Embedding model${NC} (cached on /data volume after first download):"
     if [ -n "$_CURRENT_MODEL" ]; then
         echo -e "  ${GREEN}Currently using:${NC} ${BOLD}${_CURRENT_MODEL}${NC} (from ${_DETECTED_FROM})"
-        echo -e "  Press Enter to keep it, or choose a different one:"
+        echo -e "  Press ${BOLD}Enter${NC} to keep it, or pick a different one:"
     else
-        echo -e "  No existing installation detected — choose a model:"
+        echo -e "  Press ${BOLD}Enter${NC} for default, or pick a model:"
     fi
     echo ""
-    echo -e "    ${BOLD}1)${NC} all-MiniLM-L12-v2     — fast, good quality"
-    echo -e "    ${BOLD}2)${NC} all-MiniLM-L6-v2      — fastest, smaller (~80MB)"
-    echo -e "    ${BOLD}3)${NC} all-mpnet-base-v2      — best quality, slower (~420MB)"
+    echo -e "    ${BOLD}1)${NC} all-MiniLM-L12-v2         — fast, good quality (~130MB)"
+    echo -e "    ${BOLD}2)${NC} all-MiniLM-L6-v2          — fastest, smallest (~80MB)"
+    echo -e "    ${BOLD}3)${NC} all-mpnet-base-v2          — good quality (~420MB)"
+    echo -e "    ${BOLD}4)${NC} BAAI/bge-base-en-v1.5      — best value English (~420MB)"
+    echo -e "    ${BOLD}5)${NC} nomic-ai/nomic-embed-text-v1.5 — best English quality (~520MB)"
+    echo -e "    ${BOLD}6)${NC} intfloat/multilingual-e5-base  — DE/EN/Multi (~1.1GB)"
+    echo -e "    ${BOLD}7)${NC} BAAI/bge-m3                — best multilingual (~2.2GB)"
+    echo -e "    ${BOLD}c)${NC} Enter custom model name"
     echo ""
     if [ -n "$_CURRENT_MODEL" ]; then
-        read -p "  Choose [1/2/3, Enter=keep current (${_CURRENT_MODEL})]: " -n 1 -r _MODEL_CHOICE </dev/tty
+        read -p "  Choose [1-7/c, Enter=keep current]: " -n 1 -r _MODEL_CHOICE </dev/tty
     else
-        read -p "  Choose [1/2/3, Enter=default (all-MiniLM-L12-v2)]: " -n 1 -r _MODEL_CHOICE </dev/tty
+        read -p "  Choose [1-7/c, Enter=default (all-MiniLM-L12-v2)]: " -n 1 -r _MODEL_CHOICE </dev/tty
     fi
     echo ""
     case "$_MODEL_CHOICE" in
         1) EMBEDDING_MODEL="all-MiniLM-L12-v2" ;;
         2) EMBEDDING_MODEL="all-MiniLM-L6-v2" ;;
         3) EMBEDDING_MODEL="all-mpnet-base-v2" ;;
+        4) EMBEDDING_MODEL="BAAI/bge-base-en-v1.5" ;;
+        5) EMBEDDING_MODEL="nomic-ai/nomic-embed-text-v1.5" ;;
+        6) EMBEDDING_MODEL="intfloat/multilingual-e5-base" ;;
+        7) EMBEDDING_MODEL="BAAI/bge-m3" ;;
+        c|C)
+            read -p "  Custom model (HuggingFace ID): " EMBEDDING_MODEL </dev/tty
+            ;;
         *) EMBEDDING_MODEL="$_DEFAULT_MODEL" ;;
     esac
     ok "Embedding model: ${EMBEDDING_MODEL}"
