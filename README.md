@@ -1,25 +1,67 @@
 # Flaiwheel
 
-> **Flywheel with AI, for AI.** A self-improving knowledge base that makes AI coding agents smarter with every bug fixed and every decision documented.
+> Self-hosted memory & governance layer for AI coding agents.
+> Turn every bug fix into permanent knowledge. Zero cloud. Zero lock-in.
+
+## 🚀 Why Flaiwheel Exists
+
+AI coding agents forget everything between sessions.
+That leads to repeated bugs, lost architectural decisions, and knowledge decay.
+
+Flaiwheel ensures:
+- Agents search before coding
+- Agents document after fixing
+- Commits automatically capture knowledge
+- Memory compounds over time
+
+**Every bug fixed makes the next bug cheaper.**
+
+## 🧠 How Flaiwheel Is Different
+
+- **Persistent AI Memory That Compounds** — knowledge doesn't reset between sessions.
+- **Git-Native Automation** — commits automatically become structured knowledge.
+- **Governance, Not Just Storage** — quality gates + enforced documentation.
+- **Hybrid Search + Reranking** — high-precision context for real codebases.
+- **Fully Self-Hosted** — single Docker container, no external infrastructure.
+- **Zero Lock-In** — all knowledge stored as structured flat files in Git.
+
+## ✅ Who Flaiwheel Is For
+
+- Engineering teams using AI coding assistants in real projects
+- Codebases where repeated bugs are expensive
+- Teams requiring full data control
+- AI-native development environments
+
+## ❌ Not For
+
+- Small hobby projects under a few thousand lines
+- Developers who just want better autocomplete
+- Pure SaaS workflows with no interest in self-hosting
+
+## 🆚 Where Flaiwheel Fits
+
+- AI coding tools generate code.
+- RAG tools retrieve documents.
+- **Flaiwheel governs and compounds structured engineering knowledge inside your own infrastructure.**
+
+It does not replace your AI assistant. **It makes it reliable at scale.**
 
 ---
 
-## What is Flaiwheel?
+## ⚙️ Key Technical Features
 
-Flaiwheel is a self-contained Docker service that turns AI coding agents from amnesiac assistants into an always-learning engineering platform. It operates on three levels:
-
+Flaiwheel is a self-contained Docker service that operates on three levels:
 **Pull** — agents search before they code (`search_docs`, `get_file_context`)  
 **Push** — agents document as they work (`write_bugfix_summary`, `write_architecture_doc`, …)  
 **Capture** — git commits auto-capture knowledge via a post-commit hook, even without an AI agent
 
-Features:
 - **Indexes** your project documentation (`.md`, `.pdf`, `.html`, `.docx`, `.rst`, `.txt`, `.json`, `.yaml`, `.csv`) into a vector database
 - **Provides an MCP server** that AI agents (Cursor, Claude Code, VS Code Copilot) connect to
 - **Hybrid search** — combines semantic vector search with BM25 keyword search via Reciprocal Rank Fusion (RRF) for best-of-both-worlds retrieval
-- **Cross-encoder reranker** — optional reranking step that rescores candidates with a cross-encoder model for significantly higher precision on vocabulary-mismatch queries (e.g. "auth bypass" finds "client-side auth flag")
+- **Cross-encoder reranker** — optional reranking step that rescores candidates with a cross-encoder model for significantly higher precision on vocabulary-mismatch queries
 - **Behavioral Directives** — AI agents silently search Flaiwheel before every response, auto-document after every task, and reuse before recreating — all without being asked
 - **`get_file_context(filename)`** — pre-loads spatial knowledge for any file the agent is about to edit (complements `get_recent_sessions` for full temporal + spatial context)
-- **post-commit git hook** — captures every `fix:`, `feat:`, `refactor:`, `perf:`, `docs:` commit as a structured knowledge doc automatically — no agent needed, IDE-agnostic, no credentials required (localhost trust)
+- **post-commit git hook** — captures every `fix:`, `feat:`, `refactor:`, `perf:`, `docs:` commit as a structured knowledge doc automatically
 - **Living Architecture** — AI agents are instructed to maintain self-updating Mermaid.js diagrams for system components and flows
 - **Executable Test Flows** — test scenarios are documented in machine-readable BDD/Gherkin format (`Given`, `When`, `Then`) for QA automation
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
@@ -33,8 +75,6 @@ Features:
 - **Knowledge Bootstrap** — "This is the Way": analyse messy repos, classify files, detect duplicates, propose a cleanup plan, execute with user approval (never deletes files)
 - **Multi-project support** — one container manages multiple knowledge repos with per-project isolation
 - **Includes a Web UI** for configuration, monitoring, and testing
-
-The flywheel effect: **every bug fixed makes the next bug cheaper to fix**. Knowledge compounds.
 
 ---
 
