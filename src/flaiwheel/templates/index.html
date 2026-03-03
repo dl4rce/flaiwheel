@@ -582,16 +582,29 @@
                 </div>
                 <div class="tab-row">
                     <button class="tab-btn active" onclick="showTab(this, 'tab-cursor')">Cursor</button>
+                    <button class="tab-btn" onclick="showTab(this, 'tab-vscode')">VS Code</button>
                     <button class="tab-btn" onclick="showTab(this, 'tab-claude')">Claude Desktop</button>
+                    <button class="tab-btn" onclick="showTab(this, 'tab-claudecode')">Claude Code CLI</button>
                     <button class="tab-btn" onclick="showTab(this, 'tab-docker')">Docker (stdio)</button>
                 </div>
                 <div id="tab-cursor" class="connection-info">
                     <strong>.cursor/mcp.json</strong>
                     <code id="config-cursor"></code>
                 </div>
+                <div id="tab-vscode" class="connection-info" style="display:none;">
+                    <strong>.vscode/mcp.json</strong>
+                    <p style="font-size:12px; color:var(--text-dim); margin:6px 0 8px;">Requires VS Code 1.99+ with GitHub Copilot. Native SSE — no bridge needed.</p>
+                    <code id="config-vscode"></code>
+                </div>
                 <div id="tab-claude" class="connection-info" style="display:none;">
-                    <strong>claude_desktop_config.json</strong>
+                    <strong>~/Library/Application Support/Claude/claude_desktop_config.json</strong>
+                    <p style="font-size:12px; color:var(--text-dim); margin:6px 0 8px;">Requires Node.js (uses <code>mcp-remote</code> as stdio→SSE bridge). Restart Claude for Mac after editing.</p>
                     <code id="config-claude"></code>
+                </div>
+                <div id="tab-claudecode" class="connection-info" style="display:none;">
+                    <strong>Run once in your project directory:</strong>
+                    <p style="font-size:12px; color:var(--text-dim); margin:6px 0 8px;">Registers Flaiwheel as a project-scoped MCP server. Verify with <code>/mcp</code> inside Claude Code.</p>
+                    <code id="config-claudecode"></code>
                 </div>
                 <div id="tab-docker" class="connection-info" style="display:none;">
                     <strong>.cursor/mcp.json (Docker stdio)</strong>
@@ -1215,23 +1228,43 @@
         var host = (hostInput && hostInput.value.trim()) || window.location.hostname;
         hostInput.placeholder = window.location.hostname;
         var ssePort = currentConfig.sse_port || 8081;
+        var sseUrl = 'http://' + host + ':' + ssePort + '/sse';
 
+        // Cursor — SSE (type field optional but included for clarity)
         document.getElementById('config-cursor').textContent = JSON.stringify({
             "mcpServers": {
                 "flaiwheel": {
-                    "url": "http://" + host + ":" + ssePort + "/sse"
+                    "type": "sse",
+                    "url": sseUrl
                 }
             }
         }, null, 2);
 
+        // VS Code 1.99+ — native SSE, uses "servers" key
+        document.getElementById('config-vscode').textContent = JSON.stringify({
+            "servers": {
+                "flaiwheel": {
+                    "type": "sse",
+                    "url": sseUrl
+                }
+            }
+        }, null, 2);
+
+        // Claude Desktop — stdio only, needs mcp-remote bridge via npx
         document.getElementById('config-claude').textContent = JSON.stringify({
             "mcpServers": {
                 "flaiwheel": {
-                    "url": "http://" + host + ":" + ssePort + "/sse"
+                    "command": "npx",
+                    "args": ["-y", "mcp-remote", sseUrl]
                 }
             }
         }, null, 2);
 
+        // Claude Code CLI — one-time terminal command
+        document.getElementById('config-claudecode').textContent =
+            'claude mcp add --transport sse --scope project flaiwheel ' + sseUrl;
+
+        // Docker stdio
         document.getElementById('config-docker').textContent = JSON.stringify({
             "mcpServers": {
                 "flaiwheel": {
@@ -1250,7 +1283,7 @@
     function showTab(btn, tabId) {
         btn.parentElement.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
         btn.classList.add('active');
-        ['tab-cursor', 'tab-claude', 'tab-docker'].forEach(function(id) {
+        ['tab-cursor', 'tab-vscode', 'tab-claude', 'tab-claudecode', 'tab-docker'].forEach(function(id) {
             document.getElementById(id).style.display = id === tabId ? 'block' : 'none';
         });
     }
