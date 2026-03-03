@@ -1175,8 +1175,9 @@
             var writeRatio = t.total_calls > 0
                 ? Math.round((t.writes + t.bugfix_writes) / t.total_calls * 100) : 0;
             var barColor = writeRatio > 0 ? 'var(--success)' : 'var(--warning)';
-            var missRate = t.searches > 0
-                ? Math.round(t.search_misses / t.searches * 100) : 0;
+            var totalSearches = t.searches + t.bugfix_searches;
+            var missRate = totalSearches > 0
+                ? Math.round(t.search_misses / totalSearches * 100) : 0;
 
             return '<div style="background:var(--bg-input); border-radius:var(--radius); padding:16px;">'
                 + '<div style="font-weight:600; font-size:14px; margin-bottom:12px; color:var(--text);">' + escapeHtml(label) + '</div>'

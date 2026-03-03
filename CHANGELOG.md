@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.1] — 2026-03-03
+
+### Fixed
+- Search miss rate in the telemetry dashboard could exceed 100% because `search_bugfixes` calls were counted in the miss numerator but excluded from the denominator (`t.searches` only). Denominator now uses `t.searches + t.bugfix_searches`, consistent with the "Searches" stat box display.
+
+---
+
 ## [3.4.0] — 2026-03-02
 
 ### Fixed
