@@ -1145,8 +1145,10 @@ if [ "$FAST_PATH" = true ]; then
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
-    echo -e "    2. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
-    echo -e "    3. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
+    echo -e "    2. Claude Code: run once to trust the project MCP:"
+    echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    echo -e "    3. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
+    echo -e "    4. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
 elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Update Complete                       ║${NC}"
@@ -1159,7 +1161,9 @@ elif [ "$UPDATE_MODE" = true ]; then
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to reconnect MCP"
-    echo -e "    2. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    2. Claude Code: re-run trust if needed:"
+    echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    echo -e "    3. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
 else
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Setup Complete                       ║${NC}"
@@ -1177,8 +1181,10 @@ else
     echo -e "    1. Restart Cursor"
     echo -e "    2. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
     echo -e "    3. Wait for the green ${GREEN}connected${NC} indicator"
-    echo -e "    4. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
-    echo -e "    5. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
+    echo -e "    4. Claude Code: run once to trust the project MCP:"
+    echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    echo -e "    5. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    6. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 fi
 echo ""
 if [ "$MD_COUNT" -gt 2 ]; then

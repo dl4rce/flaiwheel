@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.3] — 2026-03-03
+
+### Fixed
+- `install.sh` and `CLAUDE.md` now include the one-time Claude Code trust command (`claude mcp add --transport sse --scope project flaiwheel ...`) in the post-install instructions. Without this step the `.mcp.json` is silently ignored by Claude Code due to its project-scope security approval requirement.
+
+---
+
 ## [3.4.2] — 2026-03-03
 
 ### Added

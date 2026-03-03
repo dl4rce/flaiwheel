@@ -11,6 +11,8 @@
 ## Flaiwheel MCP
 
 - **Endpoint:** `http://localhost:8081/sse` (configured in `.mcp.json`)
+- **First-time trust:** run once → `claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse`
+- **Verify connected:** type `/mcp` inside Claude Code — `flaiwheel` should appear with 27 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call `write_bugfix_summary()`. No exceptions.
 - **Rule:** End every session with `save_session_summary()`.
