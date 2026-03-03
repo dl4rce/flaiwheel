@@ -2,6 +2,25 @@
 # Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.
 # BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
 
+# ── Stage 1: build deps ───────────────────────────────────────────────────
+# Heavy pip install happens here. This layer is cached after the first build
+# and only rebuilds when pyproject.toml changes.
+FROM python:3.12-slim AS builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src/ src/
+
+# Install into an isolated prefix so we can copy just the site-packages
+RUN pip install --no-cache-dir --prefix=/install .
+
+# ── Stage 2: runtime image ────────────────────────────────────────────────
+# Only copies the installed packages — no build tools, no compiler, no cache.
+# Fewer files = much faster layer export.
 FROM python:3.12-slim
 
 RUN apt-get update && \
@@ -10,19 +29,19 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+# Copy installed Python packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy application source and scripts
 COPY src/ src/
 COPY scripts/ scripts/
+RUN chmod +x scripts/*.sh
 
-RUN pip install --no-cache-dir . && \
-    chmod +x scripts/*.sh
+# Model is NOT baked into the image — downloaded on first start to /data volume.
+# This keeps the image small and avoids OOM during docker build on low-RAM hosts.
 
-# Model is NOT baked into the image — it is downloaded on first container
-# start and cached on the persistent /data volume. This keeps the image
-# small (~200 MB vs ~1.5 GB) and avoids OOM during docker build on low-RAM hosts.
-
-# /docs = your markdown docs (mount or git clone)
-# /data = vector index + config (persistent!)
+# /docs = per-project knowledge repos (git cloned at runtime)
+# /data = vectorstore + config + models (persistent volume)
 VOLUME ["/docs", "/data"]
 
 ENV MCP_DOCS_PATH=/docs \
