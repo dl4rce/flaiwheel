@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.7.3"
+_FW_VERSION="3.7.4"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -721,18 +721,50 @@ else
     }
 
     # ── Embedding model selection ──────────────────────────────────────────
+    # Detect currently configured model from a running container (update mode)
+    # or from an existing container's env vars (any mode).
+    _CURRENT_MODEL=""
+    _DETECTED_FROM=""
+    if [ -n "${EXISTING_CONTAINER:-}" ]; then
+        _CURRENT_MODEL=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            "$EXISTING_CONTAINER" 2>/dev/null \
+            | grep "^MCP_EMBEDDING_MODEL=" | cut -d= -f2- || true)
+        [ -n "$_CURRENT_MODEL" ] && _DETECTED_FROM="existing container"
+    fi
+    # Also check any running flaiwheel container on this host
+    if [ -z "$_CURRENT_MODEL" ] && [ -n "${RUNNING_FW:-}" ]; then
+        _CURRENT_MODEL=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            "$RUNNING_FW" 2>/dev/null \
+            | grep "^MCP_EMBEDDING_MODEL=" | cut -d= -f2- || true)
+        [ -n "$_CURRENT_MODEL" ] && _DETECTED_FROM="running container"
+    fi
+    # Default if nothing detected
+    _DEFAULT_MODEL="${_CURRENT_MODEL:-all-MiniLM-L12-v2}"
+
     echo ""
-    echo -e "  ${BOLD}Embedding model${NC} (downloaded on first start, cached on /data volume):"
-    echo -e "    ${BOLD}1)${NC} all-MiniLM-L12-v2     — fast, good quality  [default]"
+    echo -e "  ${BOLD}Embedding model${NC} (cached on /data volume after first download):"
+    if [ -n "$_CURRENT_MODEL" ]; then
+        echo -e "  ${GREEN}Currently using:${NC} ${BOLD}${_CURRENT_MODEL}${NC} (from ${_DETECTED_FROM})"
+        echo -e "  Press Enter to keep it, or choose a different one:"
+    else
+        echo -e "  No existing installation detected — choose a model:"
+    fi
+    echo ""
+    echo -e "    ${BOLD}1)${NC} all-MiniLM-L12-v2     — fast, good quality"
     echo -e "    ${BOLD}2)${NC} all-MiniLM-L6-v2      — fastest, smaller (~80MB)"
     echo -e "    ${BOLD}3)${NC} all-mpnet-base-v2      — best quality, slower (~420MB)"
     echo ""
-    read -p "  Choose [1/2/3, Enter=default]: " -n 1 -r _MODEL_CHOICE </dev/tty
+    if [ -n "$_CURRENT_MODEL" ]; then
+        read -p "  Choose [1/2/3, Enter=keep current (${_CURRENT_MODEL})]: " -n 1 -r _MODEL_CHOICE </dev/tty
+    else
+        read -p "  Choose [1/2/3, Enter=default (all-MiniLM-L12-v2)]: " -n 1 -r _MODEL_CHOICE </dev/tty
+    fi
     echo ""
     case "$_MODEL_CHOICE" in
+        1) EMBEDDING_MODEL="all-MiniLM-L12-v2" ;;
         2) EMBEDDING_MODEL="all-MiniLM-L6-v2" ;;
         3) EMBEDDING_MODEL="all-mpnet-base-v2" ;;
-        *) EMBEDDING_MODEL="all-MiniLM-L12-v2" ;;
+        *) EMBEDDING_MODEL="$_DEFAULT_MODEL" ;;
     esac
     ok "Embedding model: ${EMBEDDING_MODEL}"
     echo ""
