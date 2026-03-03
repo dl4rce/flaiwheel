@@ -1016,6 +1016,48 @@ else
     ok "Created CLAUDE.md (Claude Code instructions)"
 fi
 
+# Auto-configure Claude Desktop (macOS) if installed
+CLAUDE_DESKTOP_REGISTERED=false
+CLAUDE_DESKTOP_CONFIG="${HOME}/Library/Application Support/Claude/claude_desktop_config.json"
+if [ -f "$CLAUDE_DESKTOP_CONFIG" ]; then
+    info "Claude Desktop detected — adding Flaiwheel to claude_desktop_config.json..."
+    # Claude Desktop only supports stdio servers — use mcp-proxy as a stdio→SSE bridge.
+    # Requires npx (Node.js). If npx is not available, skip and print instructions.
+    if command -v npx >/dev/null 2>&1; then
+        RESULT=$(python3 -c "
+import json
+path = '$CLAUDE_DESKTOP_CONFIG'
+try:
+    with open(path, encoding='utf-8') as f:
+        cfg = json.load(f)
+except Exception:
+    cfg = {}
+servers = cfg.setdefault('mcpServers', {})
+if 'flaiwheel' in servers:
+    print('already_configured')
+else:
+    servers['flaiwheel'] = {
+        'command': 'npx',
+        'args': ['-y', 'mcp-proxy', 'http://localhost:8081/sse']
+    }
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=2)
+        f.write('\n')
+    print('configured')
+" 2>/dev/null)
+        if [ "$RESULT" = "already_configured" ]; then
+            ok "Claude Desktop: flaiwheel MCP already configured"
+        else
+            ok "Claude Desktop: flaiwheel added — restart Claude for Mac to connect"
+        fi
+        CLAUDE_DESKTOP_REGISTERED=true
+    else
+        warn "Claude Desktop found but npx is not installed — cannot configure mcp-proxy"
+        warn "  Install Node.js, then add to claude_desktop_config.json manually:"
+        warn '  "flaiwheel": {"command":"npx","args":["-y","mcp-proxy","http://localhost:8081/sse"]}'
+    fi
+fi
+
 # Auto-register with Claude Code CLI if available
 CLAUDE_MCP_REGISTERED=false
 CLAUDE_CLI_MISSING=false
@@ -1195,14 +1237,17 @@ if [ "$FAST_PATH" = true ]; then
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
+    if [ "$CLAUDE_DESKTOP_REGISTERED" = true ]; then
+        echo -e "    2. Claude Desktop: restart Claude for Mac to connect ${GREEN}✓${NC}"
+    fi
     if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
-        echo -e "    2. Claude Code: MCP already registered ${GREEN}✓${NC}"
+        echo -e "    3. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
-        echo -e "    2. Claude Code: run once to register MCP:"
+        echo -e "    3. Claude Code CLI: run once to register MCP:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
-    echo -e "    3. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
-    echo -e "    4. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
+    echo -e "    4. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
+    echo -e "    5. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
 elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Update Complete                       ║${NC}"
@@ -1215,13 +1260,16 @@ elif [ "$UPDATE_MODE" = true ]; then
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to reconnect MCP"
+    if [ "$CLAUDE_DESKTOP_REGISTERED" = true ]; then
+        echo -e "    2. Claude Desktop: restart Claude for Mac to reconnect ${GREEN}✓${NC}"
+    fi
     if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
-        echo -e "    2. Claude Code: MCP already registered ${GREEN}✓${NC}"
+        echo -e "    3. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
-        echo -e "    2. Claude Code: re-run if needed:"
+        echo -e "    3. Claude Code CLI: re-run if needed:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
-    echo -e "    3. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    4. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
 else
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Setup Complete                       ║${NC}"
@@ -1231,18 +1279,21 @@ else
     echo -e "    Knowledge repo:  ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
     echo -e "    Container:       ${GREEN}${CONTAINER_NAME}${NC}"
     echo -e "    Cursor config:   ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC}"
-    echo -e "    Claude Code:     ${GREEN}.mcp.json${NC} + ${GREEN}CLAUDE.md${NC}"
+    echo -e "    Claude Desktop:  ${GREEN}~/Library/Application Support/Claude/claude_desktop_config.json${NC}"
+    echo -e "    Claude Code CLI: ${GREEN}.mcp.json${NC} + ${GREEN}CLAUDE.md${NC}"
     echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
     echo -e "    Git hook:        ${GREEN}.git/hooks/post-commit${NC} (auto-captures commits)"
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor"
     echo -e "    2. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
-    echo -e "    3. Wait for the green ${GREEN}connected${NC} indicator"
+    if [ "$CLAUDE_DESKTOP_REGISTERED" = true ]; then
+        echo -e "    3. Restart ${BOLD}Claude for Mac${NC} to connect Flaiwheel ${GREEN}✓${NC}"
+    fi
     if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
-        echo -e "    4. Claude Code: MCP already registered ${GREEN}✓${NC}"
+        echo -e "    4. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
-        echo -e "    4. Claude Code: run once to register MCP:"
+        echo -e "    4. Claude Code CLI: run once to register MCP:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
     echo -e "    5. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"

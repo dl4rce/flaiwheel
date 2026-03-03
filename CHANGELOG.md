@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.6] — 2026-03-03
+
+### Fixed
+- **Claude Desktop crash on launch** — the previous release used `{"type":"sse","url":"..."}` which is not a valid format for Claude Desktop's `claude_desktop_config.json`. Claude Desktop only supports `stdio` servers. The installer now uses `mcp-proxy` as a stdio→SSE bridge: `{"command":"npx","args":["-y","mcp-proxy","http://localhost:8081/sse"]}`. Requires Node.js/npx; gracefully skipped with instructions if not available.
+
+---
+
 ## [3.4.5] — 2026-03-03
 
 ### Improved
