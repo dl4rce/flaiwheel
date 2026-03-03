@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "flaiwheel": {
+      "type": "sse",
+      "url": "http://localhost:8081/sse"
+    }
+  }
+}

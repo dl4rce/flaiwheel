@@ -924,6 +924,85 @@ else
 fi
 
 # ══════════════════════════════════════════════════════
+#  PHASE 7c: Create .mcp.json + CLAUDE.md (for Claude Code)
+# ══════════════════════════════════════════════════════
+
+MCP_JSON_ROOT="${PROJECT_DIR}/.mcp.json"
+
+if [ -f "$MCP_JSON_ROOT" ]; then
+    if grep -q "flaiwheel" "$MCP_JSON_ROOT" 2>/dev/null; then
+        ok ".mcp.json already has flaiwheel configured"
+    else
+        info "Adding flaiwheel to existing .mcp.json..."
+        python3 -c "
+import json, sys
+with open('$MCP_JSON_ROOT', encoding='utf-8') as f:
+    cfg = json.load(f)
+cfg.setdefault('mcpServers', {})['flaiwheel'] = {'type': 'sse', 'url': 'http://localhost:8081/sse'}
+with open('$MCP_JSON_ROOT', 'w', encoding='utf-8') as f:
+    json.dump(cfg, f, indent=2)
+    f.write('\n')
+"
+        ok "Added flaiwheel to .mcp.json (existing config preserved)"
+    fi
+else
+    cat > "$MCP_JSON_ROOT" << MCPEOF
+{
+  "mcpServers": {
+    "flaiwheel": {
+      "type": "sse",
+      "url": "http://localhost:8081/sse"
+    }
+  }
+}
+MCPEOF
+    ok "Created .mcp.json (Claude Code MCP config)"
+fi
+
+CLAUDE_FILE="${PROJECT_DIR}/CLAUDE.md"
+FLAIWHEEL_CLAUDE_BLOCK=$(cat << CLAUDEEOF
+## Flaiwheel — Project Knowledge Base (MCP) — YOUR FIRST STOP
+
+> Full AI agent instructions (including Flaiwheel workflow) are in **AGENTS.md** — read it fully before doing anything else.
+
+### Session Start — ALWAYS DO THIS FIRST
+
+1. Read \`AGENTS.md\` in this project root
+2. Call \`set_project("${PROJECT}")\` via the Flaiwheel MCP tool
+3. Call \`get_recent_sessions()\` to restore context from the last session
+
+### Flaiwheel MCP
+
+- **Endpoint:** \`http://localhost:8081/sse\` (configured in \`.mcp.json\`)
+- **Rule:** Search Flaiwheel BEFORE reading source code. Always.
+- **Rule:** After every bugfix, call \`write_bugfix_summary()\`. No exceptions.
+- **Rule:** End every session with \`save_session_summary()\`.
+CLAUDEEOF
+)
+
+if [ -f "$CLAUDE_FILE" ]; then
+    if grep -q "flaiwheel\|Flaiwheel" "$CLAUDE_FILE" 2>/dev/null; then
+        python3 -c "
+import re
+content = open('$CLAUDE_FILE', encoding='utf-8').read()
+content = re.sub(
+    r'(?:^---\n+)?^## Flaiwheel.*?(?=^## (?!Flaiwheel)|\Z)',
+    '', content, flags=re.MULTILINE | re.DOTALL
+).rstrip()
+open('$CLAUDE_FILE', 'w', encoding='utf-8').write(content + '\n')
+"
+        printf '\n---\n\n%s\n' "$FLAIWHEEL_CLAUDE_BLOCK" >> "$CLAUDE_FILE"
+        ok "Updated Flaiwheel section in CLAUDE.md"
+    else
+        printf '\n---\n\n%s\n' "$FLAIWHEEL_CLAUDE_BLOCK" >> "$CLAUDE_FILE"
+        ok "Appended Flaiwheel section to existing CLAUDE.md"
+    fi
+else
+    printf '# Claude Code — Project Instructions\n\n%s\n' "$FLAIWHEEL_CLAUDE_BLOCK" > "$CLAUDE_FILE"
+    ok "Created CLAUDE.md (Claude Code instructions)"
+fi
+
+# ══════════════════════════════════════════════════════
 #  PHASE 8: Detect existing docs and create migration guide
 # ══════════════════════════════════════════════════════
 
@@ -1062,7 +1141,7 @@ if [ "$FAST_PATH" = true ]; then
     echo -e "  ${BOLD}Container:${NC}     ${GREEN}${CONTAINER_NAME}${NC} (already running)"
     echo -e "  ${BOLD}This project:${NC}  ${GREEN}${PROJECT}${NC} (registered)"
     echo -e "  ${BOLD}Knowledge:${NC}     ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
-    echo -e "  ${BOLD}Config:${NC}        ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC} + ${GREEN}AGENTS.md${NC}"
+    echo -e "  ${BOLD}Config:${NC}        ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC} + ${GREEN}AGENTS.md${NC} + ${GREEN}CLAUDE.md${NC}"
     echo ""
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
@@ -1090,6 +1169,7 @@ else
     echo -e "    Knowledge repo:  ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
     echo -e "    Container:       ${GREEN}${CONTAINER_NAME}${NC}"
     echo -e "    Cursor config:   ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC}"
+    echo -e "    Claude Code:     ${GREEN}.mcp.json${NC} + ${GREEN}CLAUDE.md${NC}"
     echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
     echo -e "    Git hook:        ${GREEN}.git/hooks/post-commit${NC} (auto-captures commits)"
     echo ""

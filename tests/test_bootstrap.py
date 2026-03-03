@@ -539,7 +539,7 @@ class TestExecution:
         bootstrap._report = {"proposed_actions": [action]}
         result = bootstrap.execute(["a1"])
 
-        git_add_calls = [c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ("git", "add")]
+        git_add_calls = [c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["git", "add"]]
         assert len(git_add_calls) == 1
         assert "--" in git_add_calls[0]
         assert "-A" not in git_add_calls[0]

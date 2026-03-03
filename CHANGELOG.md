@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.4.2] — 2026-03-03
+
+### Added
+- `install.sh` now generates `.mcp.json` and `CLAUDE.md` in the project root so Claude Code connects to Flaiwheel and follows the same behavioral workflow as Cursor — both agents share one knowledge base out of the box.
+
+### Fixed
+- Test `test_execute_move_stages_targeted_paths`: filter used tuple comparison against a list (`[:2] == ("git", "add")`), always returning empty — corrected to list comparison.
+- Test `test_setup_keyword_path`: expected `"docs"` for `ops/install-guide.md` which contains the `install` token; corrected expectation to `"setup"` to match actual classifier behaviour.
+
+---
+
 ## [3.4.1] — 2026-03-03
 
 ### Fixed

@@ -225,7 +225,7 @@ class TestDetectCategory:
 
     def test_setup_keyword_path(self):
         from flaiwheel.quality import _detect_category
-        assert _detect_category("ops/install-guide.md") == "docs"
+        assert _detect_category("ops/install-guide.md") == "setup"
         assert _detect_category("ops/setup/docker.md") == "setup"
 
 
