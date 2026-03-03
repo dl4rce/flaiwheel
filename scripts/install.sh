@@ -145,18 +145,19 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
     echo -e "    ${BOLD}1)${NC} Enter the path to an existing local project"
     echo -e "    ${BOLD}2)${NC} Clone a GitHub repo now"
     echo ""
-    read -p "  Choose [1/2]: " -n 1 -r _REPO_CHOICE
+    # Read from /dev/tty so interactive prompts work even when piped through curl | bash
+    read -p "  Choose [1/2]: " -n 1 -r _REPO_CHOICE </dev/tty
     echo ""
 
     if [[ "$_REPO_CHOICE" == "2" ]]; then
-        read -p "  GitHub repo URL (e.g. https://github.com/owner/repo.git): " _CLONE_URL
+        read -p "  GitHub repo URL (e.g. https://github.com/owner/repo.git): " _CLONE_URL </dev/tty
         _CLONE_DIR=$(basename "${_CLONE_URL%.git}")
         info "Cloning ${_CLONE_URL}..."
         git clone "$_CLONE_URL" "$_CLONE_DIR" || fail "Clone failed. Check the URL and your access."
         cd "$_CLONE_DIR" || fail "Could not enter cloned directory."
         ok "Cloned and entered: $(pwd)"
     else
-        read -p "  Path to your project directory: " _PROJECT_PATH
+        read -p "  Path to your project directory: " _PROJECT_PATH </dev/tty
         _PROJECT_PATH="${_PROJECT_PATH/#\~/$HOME}"
         if [ ! -d "$_PROJECT_PATH" ]; then
             fail "Directory not found: ${_PROJECT_PATH}"
@@ -282,7 +283,7 @@ if [ "$FAST_PATH" = false ]; then
         echo -e "  Created:    ${CREATED_AT}"
         echo ""
 
-        read -p "  Update to latest version? [Y/n] " -n 1 -r REPLY
+        read -p "  Update to latest version? [Y/n] " -n 1 -r REPLY </dev/tty
         echo ""
 
         if [[ "$REPLY" =~ ^[Nn]$ ]]; then
