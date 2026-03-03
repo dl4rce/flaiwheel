@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.7.7"
+_FW_VERSION="3.7.8"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1818,7 +1818,7 @@ else
     echo -e "    7. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 fi
 echo ""
-if [ "$MD_COUNT" -gt 2 ]; then
+if [ "${MD_COUNT:-0}" -gt 2 ]; then
     echo -e "  ${YELLOW}Tip:${NC} Tell Cursor AI: \"migrate docs\" to organize existing"
     echo -e "       documentation into the knowledge repo."
     echo ""
@@ -1827,40 +1827,33 @@ echo -e "  ${BOLD}Endpoints:${NC}"
 echo -e "    Web UI:     ${GREEN}http://localhost:8080${NC}"
 echo -e "    MCP (SSE):  ${GREEN}http://localhost:8081/sse${NC}"
 echo ""
-if [ "$FAST_PATH" = true ]; then
-    echo -e "  ${BOLD}Web UI Login:${NC} existing credentials are preserved."
-    echo -e "  If you forgot them: ${YELLOW}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
-elif [ "$UPDATE_MODE" = true ]; then
-    echo -e "  ${BOLD}Web UI Login:${NC} your existing credentials are preserved."
-    echo -e "  If you forgot them: ${YELLOW}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
-elif [ -n "${ADMIN_PASS:-}" ]; then
+
+# Always try to show credentials — consolidate all sources here in the summary.
+# FAST_PATH/UPDATE_MODE: password unchanged, try to read from running container.
+# Fresh install: ADMIN_PASS was set during health-check polling.
+# Fallback: one final read attempt in case container just finished starting.
+_DISPLAY_PASS="${ADMIN_PASS:-}"
+if [ -z "$_DISPLAY_PASS" ]; then
+    _DISPLAY_PASS=$(docker exec "${CONTAINER_NAME}" cat /data/.admin_password 2>/dev/null || true)
+fi
+if [ -z "$_DISPLAY_PASS" ]; then
+    _DISPLAY_PASS=$(docker logs "${CONTAINER_NAME}" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
+fi
+
+if [ -n "$_DISPLAY_PASS" ]; then
     echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
     echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"
+    echo -e "  ${BOLD}║  URL:       ${GREEN}http://localhost:8080${NC}${BOLD}         ║${NC}"
     echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
-    echo -e "  ${BOLD}║  Password:  ${GREEN}${ADMIN_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
+    echo -e "  ${BOLD}║  Password:  ${GREEN}${_DISPLAY_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"
     echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}     ║${NC}"
     echo -e "  ${BOLD}╚════════════════════════════════════════════╝${NC}"
 else
-    # Container may still be starting (model download in progress).
-    # Try one more time to get the password before giving up.
-    _LATE_PASS=$(docker exec "${CONTAINER_NAME}" cat /data/.admin_password 2>/dev/null || \
-                 docker logs "${CONTAINER_NAME}" 2>&1 | grep -m1 "Password:" | awk '{print $NF}' || true)
-    if [ -n "$_LATE_PASS" ]; then
-        echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
-        echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
-        echo -e "  ${BOLD}║                                            ║${NC}"
-        echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
-        echo -e "  ${BOLD}║  Password:  ${GREEN}${_LATE_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
-        echo -e "  ${BOLD}║                                            ║${NC}"
-        echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}     ║${NC}"
-        echo -e "  ${BOLD}╚════════════════════════════════════════════╝${NC}"
-    else
-        echo -e "  ${YELLOW}${BOLD}Container is still starting (embedding model download in progress).${NC}"
-        echo -e "  Watch progress:  ${GREEN}docker logs -f ${CONTAINER_NAME}${NC}"
-        echo -e "  Get credentials: ${GREEN}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
-        echo -e "  Or read file:    ${GREEN}docker exec ${CONTAINER_NAME} cat /data/.admin_password${NC}"
-    fi
+    echo -e "  ${YELLOW}${BOLD}Container is still starting (embedding model download in progress).${NC}"
+    echo -e "  Watch progress:  ${GREEN}docker logs -f ${CONTAINER_NAME}${NC}"
+    echo -e "  Get credentials: ${GREEN}docker logs ${CONTAINER_NAME} 2>&1 | grep 'Password:'${NC}"
+    echo -e "  Or read file:    ${GREEN}docker exec ${CONTAINER_NAME} cat /data/.admin_password${NC}"
 fi
 echo ""
