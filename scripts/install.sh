@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.7.6"
+_FW_VERSION="3.7.7"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -374,7 +374,7 @@ RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-'
 
 if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
     RUNNING_VERSION=$(curl -sf http://localhost:8080/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','0.0.0'))" 2>/dev/null || echo "0.0.0")
-    LATEST_VERSION=$(curl -sf "https://raw.githubusercontent.com/dl4rce/flaiwheel/main/src/flaiwheel/__init__.py?t=$(date +%s)" | grep '__version__' | cut -d'"' -f2 2>/dev/null || echo "0.0.0")
+    LATEST_VERSION=$(curl -sf "https://raw.githubusercontent.com/dl4rce/flaiwheel/v${_FW_VERSION}/src/flaiwheel/__init__.py" | grep '__version__' | cut -d'"' -f2 2>/dev/null || echo "0.0.0")
 
     if [ "$RUNNING_VERSION" = "$LATEST_VERSION" ]; then
         FAST_PATH=true
@@ -827,7 +827,12 @@ else
         ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
 
         docker rmi "$IMAGE_NAME" 2>/dev/null || true
-        build_image
+        # Only rebuild if the image was actually removed (i.e. not reused)
+        if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+            build_image
+        else
+            ok "Docker image ${IMAGE_NAME} already up to date — skipping rebuild"
+        fi
 
         info "Recreating container as ${CONTAINER_NAME}..."
         start_container \
