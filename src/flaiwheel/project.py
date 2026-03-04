@@ -274,10 +274,14 @@ class ProjectRegistry:
             ctx.watcher.start()
 
     def setup_new_project(self, project_config: ProjectConfig) -> ProjectContext:
-        """Add a project, clone its repo if needed, index, and start watcher."""
+        """Add a project, clone its repo if needed, and start watcher.
+
+        Indexing is intentionally skipped here — the user must trigger it
+        explicitly (e.g. via 'Git Pull + Reindex' or the reindex() MCP tool).
+        This keeps the DB clean until the knowledge repo has been reviewed.
+        """
         ctx = self.add(project_config, start_watcher=False)
         ctx.watcher.clone_if_needed()
-        _initial_index(ctx)
         ctx.watcher.start()
         self.save()
         return ctx

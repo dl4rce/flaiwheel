@@ -78,14 +78,14 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.5.0
+## What’s New in v3.6.2
 
-- **VS Code / GitHub Copilot support** — the installer writes `.vscode/mcp.json` (native SSE, no bridge needed, requires VS Code 1.99+) and `.github/copilot-instructions.md` with Flaiwheel behavioral rules.
-- **Claude Desktop support** — the installer auto-configures `~/Library/Application Support/Claude/claude_desktop_config.json` using `mcp-remote` as a stdio→SSE bridge. Claude for Mac connects to Flaiwheel out of the box — just restart the app after install.
-- **Claude Code CLI support** — the installer auto-registers Flaiwheel via `claude mcp add` if the `claude` CLI is on PATH. Falls back with a prominent `ACTION REQUIRED` prompt if not.
-- **`CLAUDE.md` + `.mcp.json`** — generated in the project root for Claude Code CLI. Includes a first-session MCP connection check that the agent enforces automatically.
-- **`AGENTS.md`** — written to the project root for all other agents.
-- **One installer, all agents** — Cursor, VS Code Copilot, Claude Desktop, Claude Code CLI all connected in a single `curl | bash`.
+- **No auto-index on project add** — adding a project via the web UI no longer immediately pulls and embeds the knowledge repo. Indexing is now deferred until explicitly triggered (“Git Pull + Reindex” or `reindex()` MCP tool), keeping the vector DB clean until the repo has been reviewed.
+
+### Previous: v3.6.x
+- VS Code / GitHub Copilot support — installer writes `.vscode/mcp.json` and `.github/copilot-instructions.md`.
+- Claude Desktop support — installer auto-configures Claude Desktop via `mcp-remote`.
+- Web UI Client Configuration panel — VS Code and Claude Code CLI tabs added.
 
 ### Previous: v3.5.x
 - Claude Desktop + Claude Code CLI support added.

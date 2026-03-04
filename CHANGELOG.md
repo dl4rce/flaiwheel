@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.6.2] — 2026-03-04
+
+### Fixed
+- Project creation via web UI no longer auto-indexes on add. `setup_new_project()` previously called `_initial_index()` immediately after cloning the knowledge repo, polluting the vector DB before the user had a chance to review content. Indexing is now intentionally deferred — the user must trigger it explicitly via "Git Pull + Reindex" or the `reindex()` MCP tool. Bootstrap indexing on server restart (existing projects) is unaffected.
+- Aligned `__version__` in `src/flaiwheel/__init__.py` with `pyproject.toml` (was `3.8.0`, now `3.6.2`).
+
+---
+
 ## [3.6.1] — 2026-03-03
 
 ### Fixed
