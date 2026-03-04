@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.8.2"
+_FW_VERSION="3.8.3"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -679,16 +679,24 @@ if [ "$FAST_PATH" = true ]; then
 
     MULTI_PROJECT_REGISTERED=false
     if [ -n "$REG_PASS" ]; then
-        REG_RESULT=$(curl -sf -X POST -u "admin:${REG_PASS}" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
+        # Check first — avoid noisy 409 conflict errors in the output
+        _EXISTING=$(curl -sf -u "admin:${REG_PASS}" \
             http://localhost:8080/api/projects 2>/dev/null || true)
-
-        if echo "$REG_RESULT" | grep -q '"status"'; then
-            ok "Project '${PROJECT}' registered with running Flaiwheel (${RUNNING_FW})"
+        if echo "$_EXISTING" | python3 -c \
+            "import sys,json; ps=json.load(sys.stdin).get('projects',[]); exit(0 if any(p['name']=='${PROJECT}' for p in ps) else 1)" \
+            2>/dev/null; then
+            ok "Project '${PROJECT}' already registered with running Flaiwheel (${RUNNING_FW})"
             MULTI_PROJECT_REGISTERED=true
         else
-            warn "API registration returned unexpected response — project may already exist"
+            REG_RESULT=$(curl -sf -X POST -u "admin:${REG_PASS}" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
+                http://localhost:8080/api/projects 2>/dev/null || true)
+            if echo "$REG_RESULT" | grep -q '"success"'; then
+                ok "Project '${PROJECT}' registered with running Flaiwheel (${RUNNING_FW})"
+            else
+                warn "Could not register project '${PROJECT}' — add it manually in the Web UI"
+            fi
             MULTI_PROJECT_REGISTERED=true
         fi
     else
@@ -909,6 +917,29 @@ else
     if [ -n "$ADMIN_PASS" ]; then
         ok "Credentials extracted"
         if [ "$HEALTHY" = true ]; then
+            # ── Reconcile: ensure the current project is registered ──────────
+            # After an update (or if the user removed it via the Web UI), the
+            # project may be missing from projects.json. Re-register it now so
+            # the installer always leaves the container in a consistent state.
+            info "Ensuring project '${PROJECT}' is registered..."
+            _PROJ_CHECK=$(curl -sf -u "admin:${ADMIN_PASS}" \
+                http://localhost:8080/api/projects 2>/dev/null || true)
+            if echo "$_PROJ_CHECK" | python3 -c \
+                "import sys,json; ps=json.load(sys.stdin).get('projects',[]); exit(0 if any(p['name']=='${PROJECT}' for p in ps) else 1)" \
+                2>/dev/null; then
+                ok "Project '${PROJECT}' already registered"
+            else
+                _REG=$(curl -sf -X POST -u "admin:${ADMIN_PASS}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
+                    http://localhost:8080/api/projects 2>/dev/null || true)
+                if echo "$_REG" | grep -q '"success"'; then
+                    ok "Project '${PROJECT}' re-registered (was missing from registry)"
+                else
+                    warn "Could not re-register project '${PROJECT}' — add it manually in the Web UI"
+                fi
+            fi
+
             info "Indexing Flaiwheel reference docs..."
             if curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null; then
                 ok "Flaiwheel docs indexed"

@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.8.3] — 2026-03-04
+
+### Fixed
+- Installer now reconciles project registration in all paths (fast-path, update mode, fresh install). Previously, if a project was removed via the Web UI and `install.sh` was re-run, the container came back healthy but the project was silently missing from the registry. The installer now checks the `/api/projects` list and re-registers the current project if it is absent, in both the fast-path and the post-update-rebuild path.
+- Fast-path project check now checks existence before POSTing, eliminating spurious "project may already exist" warnings on re-runs.
+
+---
+
 ## [3.8.2] — 2026-03-04
 
 ### Fixed

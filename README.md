@@ -78,7 +78,7 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.8.2
+## What’s New in v3.8.3
 
 - **No auto-index on project add** — adding a project via the web UI no longer immediately pulls and embeds the knowledge repo. Indexing is now deferred until explicitly triggered (“Git Pull + Reindex” or `reindex()` MCP tool), keeping the vector DB clean until the repo has been reviewed.
 
