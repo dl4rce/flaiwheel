@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.8.1"
+_FW_VERSION="3.8.2"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -16,7 +16,10 @@ _FW_VERSION="3.8.1"
 # IMPORTANT: re-exec from THIS script's own path (already on disk or $0),
 # never re-download — that would fetch a potentially stale CDN-cached version.
 if [ ! -t 0 ]; then
-    _TMP_SCRIPT=$(mktemp /tmp/flaiwheel-install-XXXXXX.sh)
+    # Clean up any stale temp files from previous crashed runs before creating a new one
+    rm -f /tmp/flaiwheel-install-*.sh 2>/dev/null || true
+    # Include PID in name to avoid collisions when multiple installs run concurrently
+    _TMP_SCRIPT=$(mktemp "/tmp/flaiwheel-install-$$-XXXXXX.sh")
     # If we were piped in, $0 is "bash" — read ourselves from stdin via /proc or re-download pinned tag
     if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "/bin/bash" ]; then
         # Running as a file (e.g. bash /tmp/fw-install.sh) — just re-exec with stdin from /dev/tty
@@ -26,8 +29,12 @@ if [ ! -t 0 ]; then
         _PINNED_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/v${_FW_VERSION}/scripts/install.sh"
         if curl -sSL "$_PINNED_URL" -o "$_TMP_SCRIPT" 2>/dev/null && [ -s "$_TMP_SCRIPT" ]; then
             chmod +x "$_TMP_SCRIPT"
+            # Remove the temp file after exec loads it into memory — the running process
+            # holds an open fd so it continues fine; this prevents stale-file buildup.
+            { sleep 1 && rm -f "$_TMP_SCRIPT" 2>/dev/null; } &
             exec bash "$_TMP_SCRIPT" "$@" </dev/tty
         else
+            rm -f "$_TMP_SCRIPT" 2>/dev/null || true
             echo "Error: could not download installer. Try: bash <(curl -sSL ${_PINNED_URL})" >&2
             exit 1
         fi

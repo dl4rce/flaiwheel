@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.8.2] — 2026-03-04
+
+### Fixed
+- Installer temp file (`/tmp/flaiwheel-install-*.sh`) left behind after `curl | bash` could cause `mktemp: mkstemp failed: File exists` on subsequent runs. Now cleans up stale temp files before creating a new one, includes PID in the filename to prevent concurrent-run collisions, and schedules deletion of the temp file immediately after `exec` (the running process holds an open fd so execution continues unaffected).
+
+---
+
 ## [3.8.1] — 2026-03-04
 
 ### Fixed
