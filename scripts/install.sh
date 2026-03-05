@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.8"
+_FW_VERSION="3.9.9"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1823,6 +1823,9 @@ if [ "$FAST_PATH" = true ]; then
     fi
     echo -e "    5. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
     echo -e "    6. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
+    echo ""
+    # Fast-path: also offer/run cold-start for this project
+    _run_coldstart
 elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Update Complete                       ║${NC}"
@@ -1888,31 +1891,81 @@ if [ "${MD_COUNT:-0}" -gt 2 ]; then
     echo ""
 fi
 
-# ── Cold-Start Source Code Analysis (execute if user said y earlier) ─────
-_COLDSTART_ANSWER="${_COLDSTART_ANSWER:-n}"
-if [[ "${_COLDSTART_ANSWER,,}" == "y" ]]; then
-    _SOURCE_REPO_URL="https://github.com/${OWNER}/${PROJECT}.git"
-    _SRC_PATH="/src/${PROJECT}"
+# ── Cold-Start Source Code Analysis ──────────────────────────────────────
+# Shared logic for all paths (fast-path, update, fresh install).
+# Smart behaviour:
+#   - Cache exists         → report instantly, skip re-analysis
+#   - Source cloned, no cache → run analysis immediately (no prompt needed)
+#   - Nothing exists       → prompt user (default N for updates, default Y for new projects)
+_run_coldstart() {
+    local _SRC_PATH="/src/${PROJECT}"
+    local _CACHE_FILE="/data/coldstart-${PROJECT}.md"
+    local _SOURCE_REPO_URL="https://github.com/${OWNER}/${PROJECT}.git"
 
-    info "Cloning ${OWNER}/${PROJECT} into container at ${_SRC_PATH} ..."
-
-    # Inject GH token into URL for private repos
-    _AUTHED_SOURCE_URL="$_SOURCE_REPO_URL"
+    # Inject GH token for private repos
+    local _AUTHED_SOURCE_URL="$_SOURCE_REPO_URL"
     if [ -n "${GH_TOKEN:-}" ] && [[ "$_SOURCE_REPO_URL" == https://github.com/* ]]; then
         _AUTHED_SOURCE_URL="${_SOURCE_REPO_URL/https:\/\//https:\/\/${GH_TOKEN}@}"
     fi
 
-    # Remove stale clone if present, then do a shallow clone
-    docker exec "${CONTAINER_NAME}" rm -rf "$_SRC_PATH" 2>/dev/null || true
-    if docker exec "${CONTAINER_NAME}" \
-        git clone --depth 1 "$_AUTHED_SOURCE_URL" "$_SRC_PATH" 2>/dev/null; then
-        ok "Source repo cloned to ${_SRC_PATH} inside container"
+    local _SRC_EXISTS=false
+    local _CACHE_EXISTS=false
+    docker exec "${CONTAINER_NAME}" test -d "$_SRC_PATH" 2>/dev/null && _SRC_EXISTS=true
+    docker exec "${CONTAINER_NAME}" test -f "$_CACHE_FILE" 2>/dev/null && _CACHE_EXISTS=true
 
-        # Run analyze_codebase directly inside the container via docker exec.
-        # Port 8081 is MCP-SSE (not REST), so curl POST doesn't work.
-        # docker exec runs the analyzer with the same code the MCP tool uses.
-        info "Running cold-start analysis inside container (this may take 30-120s on first run) ..."
-        _REPORT=$(docker exec "${CONTAINER_NAME}" python3 -c "
+    # Case 1: cache already exists → nothing to do
+    if [ "$_CACHE_EXISTS" = true ]; then
+        ok "Cold-start report already cached. Call ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP for instant results."
+        return
+    fi
+
+    # Case 2: source cloned but no cache → run analysis silently (no prompt)
+    if [ "$_SRC_EXISTS" = true ] && [ "$_CACHE_EXISTS" = false ]; then
+        info "Source repo found at ${_SRC_PATH} but no cached report — running analysis ..."
+        _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
+        return
+    fi
+
+    # Case 3: nothing exists → ask (default N on fast/update path, already asked on install path)
+    local _DEFAULT_LABEL="y/N"
+    local _ANSWER="${_COLDSTART_ANSWER:-}"
+    if [ -z "$_ANSWER" ]; then
+        echo ""
+        echo -e "  ${BOLD}Cold-Start Analysis${NC} (optional, one-time source repo scan)"
+        echo -e "  Clones source repo into container and runs ${GREEN}analyze_codebase()${NC}"
+        echo -e "  Report cached for instant reads on every future agent session."
+        echo ""
+        printf "  Run cold-start source code analysis? (%s): " "$_DEFAULT_LABEL"
+        read -r _ANSWER </dev/tty || _ANSWER="n"
+        echo ""
+    fi
+
+    if [[ "${_ANSWER,,}" == "y" ]]; then
+        info "Cloning ${OWNER}/${PROJECT} into container at ${_SRC_PATH} ..."
+        docker exec "${CONTAINER_NAME}" rm -rf "$_SRC_PATH" 2>/dev/null || true
+        if docker exec "${CONTAINER_NAME}" \
+            git clone --depth 1 "$_AUTHED_SOURCE_URL" "$_SRC_PATH" 2>/dev/null; then
+            ok "Source repo cloned to ${_SRC_PATH} inside container"
+            _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
+        else
+            warn "Could not clone ${OWNER}/${PROJECT}. Check repo visibility and GitHub auth."
+            echo -e "  Run manually later:"
+            echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
+            echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+        fi
+    else
+        echo -e "  Skipped. To run later:"
+        echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
+        echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+    fi
+    echo ""
+}
+
+_do_coldstart_analysis() {
+    local _SRC_PATH="$1"
+    local _CACHE_FILE="$2"
+    info "Running cold-start analysis inside container (this may take 30-120s on first run) ..."
+    _REPORT=$(docker exec "${CONTAINER_NAME}" python3 -c "
 from pathlib import Path
 from flaiwheel.config import Config
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
@@ -1921,35 +1974,24 @@ cfg = Config.load()
 ef = SentenceTransformerEmbeddingFunction(model_name=cfg.embedding_model)
 a = CodebaseAnalyzer(embedding_fn=ef)
 report = format_codebase_report(a.analyze('${_SRC_PATH}'))
-Path('/data/coldstart-${PROJECT}.md').write_text(report, encoding='utf-8')
+Path('${_CACHE_FILE}').write_text(report, encoding='utf-8')
 print(report)
 " 2>/dev/null || true)
 
-        if [ -n "$_REPORT" ]; then
-            echo ""
-            echo -e "${BOLD}── Cold-Start Report ────────────────────────────────${NC}"
-            echo "$_REPORT"
-            echo -e "${BOLD}─────────────────────────────────────────────────────${NC}"
-            echo ""
-            ok "analyze_codebase complete. Call analyze_codebase(\"${_SRC_PATH}\") anytime via MCP."
-        else
-            warn "Report not available yet (container may still be loading embedding model)."
-            echo -e "  Run manually via MCP once ready:"
-            echo -e "    ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC}"
-        fi
+    if [ -n "$_REPORT" ]; then
+        echo ""
+        echo -e "${BOLD}── Cold-Start Report ────────────────────────────────${NC}"
+        echo "$_REPORT"
+        echo -e "${BOLD}─────────────────────────────────────────────────────${NC}"
+        echo ""
+        ok "analyze_codebase complete. Call analyze_codebase(\"${_SRC_PATH}\") anytime via MCP."
     else
-        warn "Could not clone ${OWNER}/${PROJECT}. Check repo visibility and GitHub auth."
-        echo -e "  You can run manually later:"
-        echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
-        echo -e "  Then call: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+        warn "Analysis failed. Run manually:"
+        echo -e "  ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
     fi
-    echo ""
-else
-    echo -e "  Skipped. To run later:"
-    echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 https://github.com/${OWNER}/${PROJECT}.git /src/${PROJECT}${NC}"
-    echo -e "  Then call: ${GREEN}analyze_codebase(\"/src/${PROJECT}\")${NC} via MCP"
-    echo ""
-fi
+}
+
+_run_coldstart
 echo -e "  ${BOLD}Endpoints:${NC}"
 echo -e "    Web UI:     ${GREEN}http://localhost:8080${NC}"
 echo -e "    MCP (SSE):  ${GREEN}http://localhost:8081/sse${NC}"

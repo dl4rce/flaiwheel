@@ -7,6 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.9] — 2026-03-05
+
+### Fixed
+- **Cold-start runs on fast-path and for additional projects** — previously the cold-start question and analysis only ran on the full install/update path. When `install.sh` detected the correct version already running (fast-path), no cold-start was offered. Same issue when running from a different project directory: the source repo was never cloned and analysis never ran.
+
+### Changed
+- Cold-start logic extracted into a shared `_run_coldstart()` function called from **all three paths** (fast-path, update, fresh install).
+- **Smart detection** — `_run_coldstart` now checks three states before deciding what to do:
+  1. Cache `/data/coldstart-<project>.md` exists → report it's ready, skip silently
+  2. `/src/<project>` cloned but no cache → run analysis immediately (no prompt)
+  3. Nothing exists → ask the question (default N)
+
+---
+
 ## [3.9.8] — 2026-03-05
 
 ### Added
