@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .bootstrap import (
-    CATEGORY_TEMPLATES,
     DUPLICATE_THRESHOLD,
     _cosine_similarity,
 )
@@ -52,6 +51,93 @@ _ENTRY_POINT_PATTERNS: tuple[str, ...] = (
     "api", "handler", "controller", "service", "middleware",
     "gateway", "cli", "__main__",
 )
+
+# ── Code-specific category templates ──────────────────────────────────────
+# Intentionally different from CATEGORY_TEMPLATES in bootstrap.py, which is
+# tuned for documentation files. These describe what source *code* looks like.
+
+_CODE_CATEGORY_TEMPLATES: dict[str, str] = {
+    "api": (
+        "HTTP route handler REST endpoint FastAPI Express router controller "
+        "request response schema authentication middleware gateway service"
+    ),
+    "architecture": (
+        "core service orchestrator dependency injection class hierarchy "
+        "design pattern main entry point application bootstrap lifespan"
+    ),
+    "setup": (
+        "configuration environment variable deployment Docker database "
+        "connection string CLI entrypoint settings secrets credentials"
+    ),
+    "tests": (
+        "test function assert mock fixture pytest jest describe it expect "
+        "unit test integration test spec beforeEach afterEach"
+    ),
+    "best-practices": (
+        "utility helper validation sanitization formatter shared constants "
+        "common patterns reusable library type definitions interfaces"
+    ),
+    "bugfix-log": (
+        "error handler exception retry logic fallback patch workaround "
+        "traceback logging warning error recovery circuit breaker"
+    ),
+    "changelog": (
+        "version history release notes migration breaking change upgrade "
+        "CHANGELOG what is new deprecated removed added"
+    ),
+}
+
+# ── Path-based heuristics (Option B) ──────────────────────────────────────
+# Applied before the embedding classifier; high-confidence path signals
+# override the nearest-centroid result.
+
+_PATH_API_PATTERNS = (
+    "route", "router", "routes", "handler", "controller", "endpoint",
+    "api", "gateway", "service", "middleware", "main", "server", "app",
+    "jump-host", "proxy",
+)
+_PATH_TEST_PATTERNS = ("test_", "_test", ".spec.", ".test.", "/tests/", "/test/", "/spec/")
+_PATH_SETUP_PATTERNS = (
+    "config", "settings", "env", "deploy", "docker", "makefile",
+    "setup", "install", "migrate", "migration", "seed", "seed_",
+)
+_PATH_BEST_PRACTICE_PATTERNS = (
+    "util", "utils", "helper", "helpers", "shared", "common",
+    "lib", "types", "constants", "validators", "formatters",
+)
+_PATH_BUGFIX_PATTERNS = ("error", "exception", "retry", "fallback", "patch")
+_PATH_SUPABASE_FUNCTION = "supabase/functions/"
+
+
+def _code_path_hint(rel_path: str) -> str:
+    """Return a high-confidence category based on file path alone, or '' if unsure."""
+    p = rel_path.lower().replace("\\", "/")
+    stem = Path(rel_path).stem.lower()
+
+    # Supabase edge functions are always API
+    if _PATH_SUPABASE_FUNCTION in p:
+        return "api"
+
+    # Test files
+    if any(pat in p for pat in _PATH_TEST_PATTERNS):
+        return "tests"
+
+    # Entry-point / API files by stem
+    if any(stem == pat or stem.endswith(pat) or stem.startswith(pat)
+           for pat in _PATH_API_PATTERNS):
+        return "api"
+
+    if any(pat in stem for pat in _PATH_SETUP_PATTERNS):
+        return "setup"
+
+    if any(pat in stem for pat in _PATH_BEST_PRACTICE_PATTERNS):
+        return "best-practices"
+
+    if any(pat in stem for pat in _PATH_BUGFIX_PATTERNS):
+        return "bugfix-log"
+
+    return ""
+
 
 _PREVIEW_CHARS = 500
 _MAX_FILE_SIZE = 500_000  # 500KB — skip very large generated files
@@ -232,8 +318,8 @@ def _score_documentability(unit: CodeUnit) -> float:
 def _build_category_embeddings(
     embedding_fn: Callable[[list[str]], list[list[float]]],
 ) -> dict[str, list[float]]:
-    cats = list(CATEGORY_TEMPLATES.keys())
-    texts = [CATEGORY_TEMPLATES[c] for c in cats]
+    cats = list(_CODE_CATEGORY_TEMPLATES.keys())
+    texts = [_CODE_CATEGORY_TEMPLATES[c] for c in cats]
     try:
         vecs = embedding_fn(texts)
         return dict(zip(cats, vecs))
@@ -275,16 +361,27 @@ class CodebaseAnalyzer:
     def _embed_and_classify(
         self, units: list[CodeUnit],
     ) -> None:
-        """Embed unit signatures and classify via nearest-centroid."""
-        if not self._embedding_fn:
+        """Classify units: path heuristics first, embedding fallback for the rest."""
+        # Pass 1 — path heuristics (zero-cost, high precision)
+        needs_embedding: list[CodeUnit] = []
+        for u in units:
+            hint = _code_path_hint(u.path)
+            if hint:
+                u.category = hint
+                u.category_confidence = 0.9
+            else:
+                needs_embedding.append(u)
+
+        if not needs_embedding or not self._embedding_fn:
             return
 
+        # Pass 2 — embedding nearest-centroid for remaining files
         self._ensure_category_embeddings()
         if not self._category_embeddings:
             return
 
         texts = []
-        for u in units:
+        for u in needs_embedding:
             if u.docstring_preview:
                 rep = f"{Path(u.path).stem} {u.docstring_preview}"
             elif u.symbols:
@@ -298,7 +395,7 @@ class CodebaseAnalyzer:
         except Exception:
             return
 
-        for unit, vec in zip(units, all_vecs):
+        for unit, vec in zip(needs_embedding, all_vecs):
             cat, conf = _classify_unit(vec, self._category_embeddings)
             unit.category = cat
             unit.category_confidence = conf

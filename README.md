@@ -79,12 +79,15 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.12
+## What’s New in v3.9.13
 
 - **Cold-start report cached in `/data/`** — `analyze_codebase()` saves the report to `/data/coldstart-<project>.md` after the first run. Subsequent calls return the cached report instantly (<1s). The installer also writes the cache during install so the very first MCP call by any agent is instant. Call with `force=True` to regenerate after major codebase changes.
 - **`analyze_codebase()` in all agent Session Setup templates** — `AGENTS.md`, `.cursor/rules/flaiwheel.mdc`, `CLAUDE.md`, and `.github/copilot-instructions.md` all now include it as step 3 of Session Setup. Agents automatically get the codebase overview before starting work.
 - **Cold-start prompt asked before Docker rebuild** — all interactive questions (embedding model + cold-start) are now batched upfront, then the rebuild runs unattended.
 - **Fix: used `docker exec` for cold-start** — replaced broken HTTP calls to the MCP SSE endpoint with direct `docker exec python3`. Analysis now works reliably in ~20s.
+
+### Previous: v3.9.12
+- **Fix: y/n answer respected before cache check** — explicit `y` now always re-runs analysis even when cached report exists.
 
 ### Previous: v3.9.11
 - **Fix: coldstart functions in global scope** — moved `_run_coldstart`/`_do_coldstart_analysis` to top of script so fast-path can call them.
