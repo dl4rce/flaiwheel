@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.11"
+_FW_VERSION="3.9.12"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -102,22 +102,33 @@ _run_coldstart() {
     docker exec "${CONTAINER_NAME}" test -d "$_SRC_PATH" 2>/dev/null && _SRC_EXISTS=true
     docker exec "${CONTAINER_NAME}" test -f "$_CACHE_FILE" 2>/dev/null && _CACHE_EXISTS=true
 
-    # Case 1: cache exists → instant, nothing to do
-    if [ "$_CACHE_EXISTS" = true ]; then
-        ok "Cold-start report already cached. Call ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP for instant results."
-        return
-    fi
-
-    # Case 2: source cloned but no cache → run silently, no prompt
-    if [ "$_SRC_EXISTS" = true ]; then
-        info "Source repo found at ${_SRC_PATH} but no cached report — running analysis ..."
-        _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
-        return
-    fi
-
-    # Case 3: nothing exists → ask (uses _COLDSTART_ANSWER if already set by upfront prompt)
+    # Resolve the answer:
+    #   y   → always run (explicit re-run request, ignore cache)
+    #   n   → always skip (user said no)
+    #   ""  → smart: cache→skip, src→run, nothing→ask
     local _ANSWER="${_COLDSTART_ANSWER:-}"
-    if [ -z "$_ANSWER" ]; then
+
+    if [[ "${_ANSWER,,}" == "n" ]]; then
+        # User explicitly said no — skip entirely
+        echo -e "  Skipped. To run later:"
+        echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
+        echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+        echo ""
+        return
+    fi
+
+    if [[ "${_ANSWER,,}" != "y" ]]; then
+        # Not asked yet (fast-path) — smart detection
+        if [ "$_CACHE_EXISTS" = true ]; then
+            ok "Cold-start report already cached. Call ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP for instant results."
+            return
+        fi
+        if [ "$_SRC_EXISTS" = true ]; then
+            info "Source repo found at ${_SRC_PATH} but no cached report — running analysis ..."
+            _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
+            return
+        fi
+        # Nothing exists — ask
         echo ""
         echo -e "  ${BOLD}Cold-Start Analysis${NC} (optional, one-time source repo scan)"
         echo -e "  Clones source repo into container and runs ${GREEN}analyze_codebase()${NC}"
@@ -126,23 +137,25 @@ _run_coldstart() {
         printf "  Run cold-start source code analysis? (y/N): "
         read -r _ANSWER </dev/tty || _ANSWER="n"
         echo ""
-    fi
-
-    if [[ "${_ANSWER,,}" == "y" ]]; then
-        info "Cloning ${OWNER}/${PROJECT} into container at ${_SRC_PATH} ..."
-        docker exec "${CONTAINER_NAME}" rm -rf "$_SRC_PATH" 2>/dev/null || true
-        if docker exec "${CONTAINER_NAME}" \
-            git clone --depth 1 "$_AUTHED_SOURCE_URL" "$_SRC_PATH" 2>/dev/null; then
-            ok "Source repo cloned to ${_SRC_PATH} inside container"
-            _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
-        else
-            warn "Could not clone ${OWNER}/${PROJECT}. Check repo visibility and GitHub auth."
-            echo -e "  Run manually later:"
+        if [[ "${_ANSWER,,}" != "y" ]]; then
+            echo -e "  Skipped. To run later:"
             echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
             echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+            echo ""
+            return
         fi
+    fi
+
+    # _ANSWER is y — run (re-)analysis regardless of cache
+    info "Cloning ${OWNER}/${PROJECT} into container at ${_SRC_PATH} ..."
+    docker exec "${CONTAINER_NAME}" rm -rf "$_SRC_PATH" 2>/dev/null || true
+    if docker exec "${CONTAINER_NAME}" \
+        git clone --depth 1 "$_AUTHED_SOURCE_URL" "$_SRC_PATH" 2>/dev/null; then
+        ok "Source repo cloned to ${_SRC_PATH} inside container"
+        _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
     else
-        echo -e "  Skipped. To run later:"
+        warn "Could not clone ${OWNER}/${PROJECT}. Check repo visibility and GitHub auth."
+        echo -e "  Run manually later:"
         echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
         echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
     fi

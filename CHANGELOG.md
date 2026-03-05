@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.12] — 2026-03-05
+
+### Fixed
+- Cold-start `y` answer was ignored when a cached report already existed. The cache check ran before checking `_COLDSTART_ANSWER`, so `y` (explicit re-run) was silently overridden by Case 1 (cache exists → skip). Fixed decision order:
+  - `n` → always skip, print manual commands
+  - not set (fast-path) → smart: cache→skip, src+no cache→run, nothing→ask
+  - `y` → always run regardless of cache (re-clone + re-analyze)
+
+---
+
 ## [3.9.11] — 2026-03-05
 
 ### Fixed
