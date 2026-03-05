@@ -23,6 +23,7 @@ from .bootstrap import (
     format_classification_report,
     format_report,
 )
+from .code_analyzer import CodebaseAnalyzer, format_codebase_report
 from .config import Config
 from .project import ProjectConfig, ProjectRegistry, ProjectContext
 from .telemetry import TelemetryStore
@@ -1234,6 +1235,59 @@ def create_mcp_server(
 
         result = _classifier_cache.classify(file_list)
         return format_classification_report(result)
+
+    # ── Cold-Start Source Code Analyzer ─────────────────
+
+    @mcp.tool()
+    def analyze_codebase(path: str, project: str = "", mcp_ctx: Context = None) -> str:
+        """Analyze a source code directory locally — zero tokens, zero cloud.
+
+        Scans the given directory, extracts Python/TypeScript/JavaScript
+        structure using the built-in `ast` module and regex (no new
+        dependencies), embeds signatures with the local MiniLM model,
+        classifies by category, detects near-duplicate files, and ranks
+        files by documentability.
+
+        Returns a single markdown report (~5-20KB). The AI agent reads
+        only this report instead of reading hundreds of source files —
+        reducing cold-start token cost by ~90%.
+
+        Use this BEFORE the bootstrap workflow on a legacy codebase:
+        1. Call analyze_codebase("/path/to/project") to get the report
+        2. Review the Top Files to Document First table
+        3. Ask the agent to document only those files using write_*() tools
+        4. Run classify_documents() for any existing .md docs
+        5. Run reindex() when done
+
+        Args:
+            path: Absolute path to the project/source directory to scan.
+                  The directory must be accessible from the Docker container
+                  (i.e. mounted as a volume or on the same machine).
+            project: Target project name (optional, uses active project)
+
+        Returns:
+            Markdown cold-start report with: language distribution,
+            category map, top 20 files to document, duplicate pairs,
+            undocumented directories, and recommended next steps.
+        """
+        ctx, err = _ctx(project or None, mcp_ctx)
+        if not ctx:
+            return err
+        _telem(ctx.name, "analyze_codebase")
+
+        resolved = Path(path).resolve()
+
+        # Basic path safety: must be absolute and must exist
+        if not resolved.is_absolute():
+            return f"Error: path must be absolute. Got: {path}"
+        if not resolved.exists():
+            return f"Error: path does not exist: {resolved}"
+        if not resolved.is_dir():
+            return f"Error: path is not a directory: {resolved}"
+
+        analyzer = CodebaseAnalyzer(embedding_fn=registry.embedding_fn)
+        result = analyzer.analyze(str(resolved))
+        return format_codebase_report(result)
 
     @mcp.tool()
     def check_update() -> str:

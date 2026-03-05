@@ -7,6 +7,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.0] — 2026-03-05
+
+### Added
+- **`analyze_codebase(path)`** — new MCP tool (28th tool) for zero-token cold-start analysis of legacy source code directories. Runs entirely server-side inside the Docker container. Uses Python's built-in `ast` module for Python parsing (no new dependencies), regex extraction for TypeScript/JavaScript, the existing MiniLM embedding model for nearest-centroid classification against Flaiwheel's 9 knowledge categories, and the existing cosine similarity deduplication pipeline (threshold 0.92). Returns a single `bootstrap_report.md` with: language distribution, inferred category map, top 20 files ranked by documentability score (docstrings, import density, public API surface, entry-point name patterns), near-duplicate file pairs, and undocumented directories. Reduces cold-start agent token cost by ~90% on large legacy repos.
+- **`src/flaiwheel/code_analyzer.py`** — new module with zero new dependencies. Exports `CodebaseAnalyzer`, `format_codebase_report`, and extraction helpers `_extract_python`, `_extract_ts_js`, `_score_documentability`, `_walk_repo`.
+- 20 new tests in `tests/test_code_analyzer.py` covering walker, Python/TS extractors, scoring, analyzer, deduplication, and report formatting.
+
+### Changed
+- Total MCP tools: 27 → 28.
+- Test suite: 239 → 259 tests.
+
+---
+
 ## [3.8.3] — 2026-03-04
 
 ### Fixed

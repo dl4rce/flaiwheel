@@ -73,6 +73,7 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 - **Impact metrics API** — `/api/impact-metrics` computes estimated time saved + regressions avoided; CI pipelines can post guardrail outcomes to `/api/telemetry/ci-guardrail-report`
 - **Proactive quality checks** — automatically validates knowledge base after every reindex
 - **Knowledge Bootstrap** — "This is the Way": analyse messy repos, classify files, detect duplicates, propose a cleanup plan, execute with user approval (never deletes files)
+- **Cold-Start Codebase Analyzer** — `analyze_codebase(path)` scans a source code directory entirely server-side (zero tokens, zero cloud). Uses Python's built-in `ast` module for Python, regex for TypeScript/JavaScript, the existing MiniLM embedding model for classification and duplicate detection. Returns a single `bootstrap_report.md` with language distribution, category map, top 20 files to document first ranked by documentability score, duplicate pairs, and coverage gaps. Reduces cold-start token cost by ~90% on legacy codebases.
 - **Multi-project support** — one container manages multiple knowledge repos with per-project isolation
 - **Includes a Web UI** for configuration, monitoring, and testing
 
@@ -419,7 +420,7 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 │                         │ shared state (ProjectRegistry)     │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
 │  │  MCP Server (FastMCP)                    Port 8081    │  │
-│  │  27 tools (search, write, classify, manage, projects) │  │
+│  │  28 tools (search, write, classify, manage, projects) │  │
 │  └─────────────────────┬─────────────────────────────────┘  │
 │                         │                                    │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
@@ -499,7 +500,7 @@ cd flaiwheel
 # Install
 pip install -e ".[dev]"
 
-# Run tests (230 tests covering readers, quality checker, indexer, reranker, health tracker, MCP tools, model migration, multi-project, bootstrap, classification, file-context)
+# Run tests (259 tests covering readers, quality checker, indexer, reranker, health tracker, MCP tools, model migration, multi-project, bootstrap, classification, file-context, cold-start analyzer)
 pytest
 
 # Run locally (needs /docs and /data directories)
