@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.3] — 2026-03-05
+
+### Fixed
+- `LATEST_VERSION` in the fast-path check was fetched from the pinned tag (`v${_FW_VERSION}`) instead of `main`. If the user ran a cached installer from a previous session (with an older `_FW_VERSION`), `LATEST_VERSION` matched the running container and the fast-path triggered — silently skipping the update prompt even when a newer version existed. Now always fetches from `main` so the comparison reflects the true latest release.
+
+---
+
 ## [3.9.2] — 2026-03-05
 
 ### Fixed
