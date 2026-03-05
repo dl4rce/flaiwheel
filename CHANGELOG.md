@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.2] — 2026-03-05
+
+### Fixed
+- Cold-start analysis prompt was placed after the final summary block, meaning it appeared **after** the long Docker rebuild — the user had already left by then. The prompt is now asked upfront (right after the embedding model selection), before the rebuild starts. All questions are gathered interactively first; the clone/analyze executes at the very end once the container is healthy.
+
+---
+
 ## [3.9.1] — 2026-03-05
 
 ### Added

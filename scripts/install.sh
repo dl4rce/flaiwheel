@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.1"
+_FW_VERSION="3.9.2"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -812,6 +812,15 @@ else
         *) EMBEDDING_MODEL="$_DEFAULT_MODEL" ;;
     esac
     ok "Embedding model: ${EMBEDDING_MODEL}"
+    echo ""
+
+    # ── Cold-start question: ask now, execute later (after container is ready) ──
+    echo -e "  ${BOLD}Cold-Start Analysis${NC} (optional, one-time source repo scan)"
+    echo -e "  Clones your source repo into the container and runs ${GREEN}analyze_codebase()${NC}"
+    echo -e "  to produce a zero-token bootstrap report. Skipped by default."
+    echo ""
+    printf "  Run cold-start source code analysis? (y/N): "
+    read -r _COLDSTART_ANSWER </dev/tty || _COLDSTART_ANSWER="n"
     echo ""
 
     start_container() {
@@ -1875,15 +1884,8 @@ if [ "${MD_COUNT:-0}" -gt 2 ]; then
     echo ""
 fi
 
-# ── Cold-Start Source Code Analysis (optional, default N) ────────────────
-echo -e "  ${BOLD}Cold-Start Analysis${NC}"
-echo -e "  Clone your source repo into the container once and run"
-echo -e "  ${GREEN}analyze_codebase()${NC} to get a zero-token bootstrap report."
-echo ""
-printf "  Run cold-start source code analysis? (y/N): "
-read -r _COLDSTART_ANSWER </dev/tty || _COLDSTART_ANSWER="n"
-echo ""
-
+# ── Cold-Start Source Code Analysis (execute if user said y earlier) ─────
+_COLDSTART_ANSWER="${_COLDSTART_ANSWER:-n}"
 if [[ "${_COLDSTART_ANSWER,,}" == "y" ]]; then
     _SOURCE_REPO_URL="https://github.com/${OWNER}/${PROJECT}.git"
     _SRC_PATH="/src/${PROJECT}"
