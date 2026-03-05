@@ -7,6 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.15] — 2026-03-05
+
+### Improved
+- **Cold-start classifier: extension + filename heuristics for non-code files** — the "other" bucket (YAML, TOML, SQL, env, Prisma, etc.) now gets classified by extension before the embedding classifier runs:
+  - `.yml/.yaml/.toml/.env/.ini/.conf/.cfg` → `setup`
+  - `.sql/.prisma/.graphql/.proto` → `architecture`
+  - `CHANGELOG.md`, `HISTORY.md`, `RELEASES.md` (by stem) → `changelog`
+  - `Dockerfile`, `docker-compose` (by stem) → `setup`
+  - Markdown in `docs/` or `documentation/` dirs → `architecture`
+  - Other markdown → embedding fallback (not forced into changelog)
+- Eliminates the main cause of `changelog` over-classification on large mixed codebases.
+
+---
+
 ## [3.9.14] — 2026-03-05
 
 ### Fixed

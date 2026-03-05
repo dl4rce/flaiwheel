@@ -108,19 +108,57 @@ _PATH_BEST_PRACTICE_PATTERNS = (
 _PATH_BUGFIX_PATTERNS = ("error", "exception", "retry", "fallback", "patch")
 _PATH_SUPABASE_FUNCTION = "supabase/functions/"
 
+# Extension → category for non-code "other" files
+_EXT_CATEGORY: dict[str, str] = {
+    # Config / infra
+    ".yml": "setup", ".yaml": "setup", ".toml": "setup",
+    ".env": "setup", ".ini": "setup", ".conf": "setup",
+    ".cfg": "setup", ".properties": "setup", ".dockerfile": "setup",
+    # Schema / data model
+    ".sql": "architecture", ".prisma": "architecture",
+    ".graphql": "architecture", ".gql": "architecture",
+    ".proto": "architecture",
+    # Docs / markdown handled by stem checks below
+}
+
+# Filenames (lowercased stem) that are definitively changelog
+_CHANGELOG_STEMS = {"changelog", "changes", "history", "releases", "release-notes"}
+
 
 def _code_path_hint(rel_path: str) -> str:
-    """Return a high-confidence category based on file path alone, or '' if unsure."""
+    """Return a high-confidence category based on file path/extension, or '' if unsure."""
     p = rel_path.lower().replace("\\", "/")
     stem = Path(rel_path).stem.lower()
+    ext = Path(rel_path).suffix.lower()
 
     # Supabase edge functions are always API
     if _PATH_SUPABASE_FUNCTION in p:
         return "api"
 
+    # Dockerfile / docker-compose by name
+    if stem in ("dockerfile", "docker-compose", "compose"):
+        return "setup"
+
+    # Definitive changelog filenames
+    if stem in _CHANGELOG_STEMS:
+        return "changelog"
+
     # Test files
     if any(pat in p for pat in _PATH_TEST_PATTERNS):
         return "tests"
+
+    # Extension-based for non-code files (covers all the "other" bucket)
+    if ext in _EXT_CATEGORY:
+        return _EXT_CATEGORY[ext]
+
+    # Markdown: only flag as changelog if name matches, otherwise let embedding decide
+    if ext == ".md":
+        if stem in _CHANGELOG_STEMS:
+            return "changelog"
+        # docs/ or documentation/ dirs → architecture (high-level content)
+        if "/docs/" in p or "/documentation/" in p or p.startswith("docs/") or p.startswith("documentation/"):
+            return "architecture"
+        return ""  # let embedding handle other markdown
 
     # Entry-point / API files by stem
     if any(stem == pat or stem.endswith(pat) or stem.startswith(pat)
