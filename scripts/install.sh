@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.7"
+_FW_VERSION="3.9.8"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1913,13 +1913,16 @@ if [[ "${_COLDSTART_ANSWER,,}" == "y" ]]; then
         # docker exec runs the analyzer with the same code the MCP tool uses.
         info "Running cold-start analysis inside container (this may take 30-120s on first run) ..."
         _REPORT=$(docker exec "${CONTAINER_NAME}" python3 -c "
+from pathlib import Path
 from flaiwheel.config import Config
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from flaiwheel.code_analyzer import CodebaseAnalyzer, format_codebase_report
 cfg = Config.load()
 ef = SentenceTransformerEmbeddingFunction(model_name=cfg.embedding_model)
 a = CodebaseAnalyzer(embedding_fn=ef)
-print(format_codebase_report(a.analyze('${_SRC_PATH}')))
+report = format_codebase_report(a.analyze('${_SRC_PATH}'))
+Path('/data/coldstart-${PROJECT}.md').write_text(report, encoding='utf-8')
+print(report)
 " 2>/dev/null || true)
 
         if [ -n "$_REPORT" ]; then

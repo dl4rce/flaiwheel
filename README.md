@@ -79,9 +79,12 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.7
+## What’s New in v3.9.8
 
 - **Cold-start source analysis integrated into installer** — `install.sh` now prompts once at the end: `Run cold-start source code analysis? (y/N)`. Default is **N** so routine updates are unaffected. If confirmed, the installer clones the project’s own source repo (`git clone --depth 1`) into `/src/<project>` inside the Docker container, then immediately calls `analyze_codebase()` and prints the bootstrap report inline. GitHub token reused automatically for private repos. Manual fallback commands are always printed.
+
+### Previous: v3.9.7
+- **Agent Session Setup** — all instruction templates now include `analyze_codebase()` as a first-session step.
 
 ### Previous: v3.9.6
 - **Fix: use docker exec** — replaced broken HTTP calls to MCP SSE endpoint with direct `docker exec python3` invocation. Cold-start report now actually works (~20s).

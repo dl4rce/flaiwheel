@@ -1239,7 +1239,9 @@ def create_mcp_server(
     # ── Cold-Start Source Code Analyzer ─────────────────
 
     @mcp.tool()
-    def analyze_codebase(path: str, project: str = "", mcp_ctx: Context = None) -> str:
+    def analyze_codebase(
+        path: str, force: bool = False, project: str = "", mcp_ctx: Context = None
+    ) -> str:
         """Analyze a source code directory locally — zero tokens, zero cloud.
 
         Scans the given directory, extracts Python/TypeScript/JavaScript
@@ -1252,6 +1254,10 @@ def create_mcp_server(
         only this report instead of reading hundreds of source files —
         reducing cold-start token cost by ~90%.
 
+        The report is cached in /data/ after the first run. Subsequent
+        calls return the cached report instantly (<1s). Call with
+        force=True to regenerate after significant codebase changes.
+
         Use this BEFORE the bootstrap workflow on a legacy codebase:
         1. Call analyze_codebase("/path/to/project") to get the report
         2. Review the Top Files to Document First table
@@ -1263,6 +1269,7 @@ def create_mcp_server(
             path: Absolute path to the project/source directory to scan.
                   The directory must be accessible from the Docker container
                   (i.e. mounted as a volume or on the same machine).
+            force: If True, re-run analysis even if a cached report exists.
             project: Target project name (optional, uses active project)
 
         Returns:
@@ -1277,7 +1284,6 @@ def create_mcp_server(
 
         resolved = Path(path).resolve()
 
-        # Basic path safety: must be absolute and must exist
         if not resolved.is_absolute():
             return f"Error: path must be absolute. Got: {path}"
         if not resolved.exists():
@@ -1285,9 +1291,25 @@ def create_mcp_server(
         if not resolved.is_dir():
             return f"Error: path is not a directory: {resolved}"
 
+        cache_dir = Path("/data")
+        if not cache_dir.exists():
+            cache_dir = Path.home() / ".flaiwheel"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"coldstart-{ctx.name}.md"
+
+        if not force and cache_file.exists():
+            return cache_file.read_text(encoding="utf-8")
+
         analyzer = CodebaseAnalyzer(embedding_fn=registry.embedding_fn)
         result = analyzer.analyze(str(resolved))
-        return format_codebase_report(result)
+        report = format_codebase_report(result)
+
+        try:
+            cache_file.write_text(report, encoding="utf-8")
+        except OSError:
+            pass
+
+        return report
 
     @mcp.tool()
     def check_update() -> str:

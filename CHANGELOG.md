@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.8] — 2026-03-05
+
+### Added
+- **Cold-start report caching** — `analyze_codebase()` now caches the report to `/data/coldstart-<project>.md` after the first run. Subsequent calls return the cached report instantly (<1s) instead of re-running the full 20-30s analysis. Call with `force=True` to regenerate after significant codebase changes.
+- Installer now also writes the cache file during the initial cold-start run, so the first MCP call by any agent is instant.
+
+### Changed
+- `analyze_codebase()` now accepts an optional `force` parameter (default `False`).
+
+---
+
 ## [3.9.7] — 2026-03-05
 
 ### Added
