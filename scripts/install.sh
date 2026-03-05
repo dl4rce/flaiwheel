@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.6"
+_FW_VERSION="3.9.7"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1065,11 +1065,12 @@ It is cloned and served by Flaiwheel inside a Docker container.
 
 ## Session Setup — ALWAYS DO THIS FIRST
 
-At the **start of every conversation**, call:
-\`\`\`
-set_project("${PROJECT}")
-\`\`\`
-This binds all subsequent Flaiwheel calls to **this project** so nothing goes to the wrong repo.
+At the **start of every conversation**, run these steps in order:
+
+1. \`set_project("${PROJECT}")\` — bind this session to the project
+2. \`get_recent_sessions()\` — restore context from previous sessions
+3. \`analyze_codebase("/src/${PROJECT}")\` — **first session only**: returns a zero-token structural overview of the codebase (top files, categories, duplicates, coverage gaps). Read it before diving into code. On subsequent sessions, skip this step unless the codebase has changed significantly.
+
 If the project is not registered, call \`setup_project(name="${PROJECT}", git_repo_url="${KNOWLEDGE_REPO_URL}")\` first.
 
 ## Step 1: Flaiwheel — Step 2: Native tools
@@ -1236,11 +1237,12 @@ Use the MCP tools to search, and commit/push to the knowledge repo to add docs.
 
 ### Session Setup — ALWAYS DO THIS FIRST
 
-At the **start of every conversation**, call:
-\`\`\`
-set_project("${PROJECT}")
-\`\`\`
-This binds all subsequent Flaiwheel calls to **this project**.
+At the **start of every conversation**, run these steps in order:
+
+1. \`set_project("${PROJECT}")\` — bind this session to the project
+2. \`get_recent_sessions()\` — restore context from previous sessions
+3. \`analyze_codebase("/src/${PROJECT}")\` — **first session only**: returns a zero-token structural overview of the codebase (top files, categories, duplicates, coverage gaps). Read it before diving into code. On subsequent sessions, skip this step unless the codebase has changed significantly.
+
 If the project is not registered, call \`setup_project(name="${PROJECT}", git_repo_url="${KNOWLEDGE_REPO_URL}")\` first.
 
 ### Step 1: Flaiwheel — Step 2: Native tools
@@ -1429,12 +1431,13 @@ FLAIWHEEL_CLAUDE_BLOCK=$(cat << CLAUDEEOF
 2. Read \`AGENTS.md\` in this project root
 3. Call \`set_project("${PROJECT}")\` via the Flaiwheel MCP tool
 4. Call \`get_recent_sessions()\` to restore context from the last session
+5. **First session only:** Call \`analyze_codebase("/src/${PROJECT}")\` for a zero-token structural overview of the codebase (top files, categories, duplicates). Read it before diving into code.
 
 ### Flaiwheel MCP
 
 - **Endpoint:** \`http://localhost:8081/sse\` (configured in \`.mcp.json\`)
 - **Register once:** \`claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse\`
-- **Verify:** type \`/mcp\` — \`flaiwheel\` should appear with 27 tools
+- **Verify:** type \`/mcp\` — \`flaiwheel\` should appear with 28 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call \`write_bugfix_summary()\`. No exceptions.
 - **Rule:** End every session with \`save_session_summary()\`.
@@ -1609,6 +1612,7 @@ If it is not running:
 2. Read \`AGENTS.md\` in this project root
 3. Call \`set_project("${PROJECT}")\` via Flaiwheel MCP
 4. Call \`get_recent_sessions()\` to restore context from the last session
+5. **First session only:** Call \`analyze_codebase("/src/${PROJECT}")\` for a zero-token structural overview of the codebase before diving into code.
 
 ### Rules
 

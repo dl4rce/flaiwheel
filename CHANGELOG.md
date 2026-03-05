@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.7] — 2026-03-05
+
+### Added
+- **Cold-start report in agent Session Setup** — all four instruction templates (`AGENTS.md`, `.cursor/rules/flaiwheel.mdc`, `CLAUDE.md`, `.github/copilot-instructions.md`) now include a step in the Session Setup that tells the agent to call `analyze_codebase("/src/<project>")` on its first session. This gives every connected AI agent (Cursor, Claude Code, VS Code Copilot) an automatic structural overview of the codebase before it starts working — zero tokens, zero manual setup.
+
+### Changed
+- Tool count reference in `CLAUDE.md` template updated from 27 to 28.
+
+---
+
 ## [3.9.6] — 2026-03-05
 
 ### Fixed
