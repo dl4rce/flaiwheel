@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.3"
+_FW_VERSION="3.9.4"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1905,11 +1905,22 @@ if [[ "${_COLDSTART_ANSWER,,}" == "y" ]]; then
         ok "Source repo cloned to ${_SRC_PATH} inside container"
 
         # Run analyze_codebase via the MCP HTTP endpoint
-        info "Running analyze_codebase — this takes 5-30 seconds ..."
-        _REPORT=$(curl -s -X POST "http://localhost:8081/tools/analyze_codebase" \
-            -H "Content-Type: application/json" \
-            -d "{\"path\": \"${_SRC_PATH}\"}" 2>/dev/null | \
-            python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))" 2>/dev/null || true)
+        # Retry for up to 90s — embedding model may still be loading after a fresh install
+        info "Running analyze_codebase — waiting for embedding model to be ready ..."
+        _REPORT=""
+        _MAX_TRIES=18
+        _TRY=0
+        while [ $_TRY -lt $_MAX_TRIES ] && [ -z "$_REPORT" ]; do
+            _TRY=$((_TRY + 1))
+            _REPORT=$(curl -s --max-time 15 -X POST "http://localhost:8081/tools/analyze_codebase" \
+                -H "Content-Type: application/json" \
+                -d "{\"path\": \"${_SRC_PATH}\"}" 2>/dev/null | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))" 2>/dev/null || true)
+            if [ -z "$_REPORT" ] && [ $_TRY -lt $_MAX_TRIES ]; then
+                printf "  Waiting for model... (%ds)\r" $((_TRY * 5))
+                sleep 5
+            fi
+        done
 
         if [ -n "$_REPORT" ]; then
             echo ""

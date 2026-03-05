@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.4] — 2026-03-05
+
+### Fixed
+- Cold-start `analyze_codebase()` call in the installer now retries for up to 90 seconds (18 × 5s) instead of giving up immediately. On a fresh install the embedding model may still be downloading/loading when the call is made — the previous single-shot attempt would always fail and print "Report not available yet". Now prints a progress line and retries until the model is ready.
+
+---
+
 ## [3.9.3] — 2026-03-05
 
 ### Fixed
