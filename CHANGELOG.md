@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.6] — 2026-03-05
+
+### Fixed
+- Cold-start `analyze_codebase()` in the installer was calling `curl -X POST http://localhost:8081/tools/...` — but port 8081 is the **MCP SSE endpoint**, not a REST API. Every curl call returned "Not Found", the Python JSON parser failed silently, and the result was always empty. That's why the warm-up loop and analyze call both timed out after 180 seconds despite the model being ready.
+- Replaced the entire HTTP approach with `docker exec python3 -c "..."` which runs the analyzer directly inside the container using the same code the MCP tool uses. No HTTP, no protocol mismatch, no warm-up needed — the embedding model is loaded inline as part of the exec. Tested: completes in ~20 seconds on a running container.
+
+---
+
 ## [3.9.5] — 2026-03-05
 
 ### Fixed
