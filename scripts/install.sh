@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.13"
+_FW_VERSION="3.9.14"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -118,29 +118,35 @@ _run_coldstart() {
     fi
 
     if [[ "${_ANSWER,,}" != "y" ]]; then
-        # Not asked yet (fast-path) — smart detection
+        # Not asked upfront (fast-path) — always ask, phrasing depends on state
+        echo ""
         if [ "$_CACHE_EXISTS" = true ]; then
-            ok "Cold-start report already cached. Call ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP for instant results."
-            return
+            echo -e "  ${BOLD}Cold-Start Analysis${NC} — cached report found for ${GREEN}${PROJECT}${NC}"
+            echo -e "  Call ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP for instant results."
+            echo -e "  Re-run to refresh the report with the latest code."
+            echo ""
+            printf "  Re-run cold-start analysis? (y/N): "
+        elif [ "$_SRC_EXISTS" = true ]; then
+            echo -e "  ${BOLD}Cold-Start Analysis${NC} — source cloned, no report yet."
+            echo ""
+            printf "  Run cold-start analysis now? (y/N): "
+        else
+            echo -e "  ${BOLD}Cold-Start Analysis${NC} (optional, one-time source repo scan)"
+            echo -e "  Clones source repo into container and runs ${GREEN}analyze_codebase()${NC}"
+            echo -e "  Report cached for instant reads on every future agent session."
+            echo ""
+            printf "  Run cold-start source code analysis? (y/N): "
         fi
-        if [ "$_SRC_EXISTS" = true ]; then
-            info "Source repo found at ${_SRC_PATH} but no cached report — running analysis ..."
-            _do_coldstart_analysis "$_SRC_PATH" "$_CACHE_FILE"
-            return
-        fi
-        # Nothing exists — ask
-        echo ""
-        echo -e "  ${BOLD}Cold-Start Analysis${NC} (optional, one-time source repo scan)"
-        echo -e "  Clones source repo into container and runs ${GREEN}analyze_codebase()${NC}"
-        echo -e "  Report cached for instant reads on every future agent session."
-        echo ""
-        printf "  Run cold-start source code analysis? (y/N): "
         read -r _ANSWER </dev/tty || _ANSWER="n"
         echo ""
         if [[ "${_ANSWER,,}" != "y" ]]; then
-            echo -e "  Skipped. To run later:"
-            echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
-            echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+            if [ "$_CACHE_EXISTS" = true ]; then
+                ok "Using cached report. Call ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP."
+            else
+                echo -e "  Skipped. To run later:"
+                echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
+                echo -e "  Then: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+            fi
             echo ""
             return
         fi
@@ -1932,8 +1938,6 @@ if [ "$FAST_PATH" = true ]; then
     echo -e "    5. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
     echo -e "    6. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
     echo ""
-    # Fast-path: also offer/run cold-start for this project
-    _run_coldstart
 elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Update Complete                       ║${NC}"

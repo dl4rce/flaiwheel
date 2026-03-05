@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.14] — 2026-03-05
+
+### Fixed
+- **Fast-path no longer silently skips cold-start** — on fast-path (correct version already running), `_run_coldstart` now always prompts the user instead of silently returning when a cached report exists. Three prompt variants depending on state:
+  - Cache exists → "Re-run to refresh? (y/N)" with pointer to cached report
+  - Source cloned but no cache → "Run analysis now? (y/N)"
+  - Nothing exists → full cold-start intro + "Run? (y/N)"
+- **Removed duplicate `_run_coldstart` call** — was being called twice on fast-path (once inside the fast-path block, once at the global footer); consolidated to the single footer call.
+
+---
+
 ## [3.9.13] — 2026-03-05
 
 ### Improved
