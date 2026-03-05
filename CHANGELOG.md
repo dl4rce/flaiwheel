@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.11] — 2026-03-05
+
+### Fixed
+- `_run_coldstart: command not found` on fast-path. Both cold-start functions (`_run_coldstart`, `_do_coldstart_analysis`) were defined inside the `else` branch of the full install/update path, so they were not in scope when the fast-path called `_run_coldstart`. Moved both definitions to the top of the script (after the helper functions), before any conditional logic.
+
+---
+
 ## [3.9.10] — 2026-03-05
 
 ### Fixed
