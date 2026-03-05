@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.10] — 2026-03-05
+
+### Fixed
+- `LATEST_VERSION` was fetched from `https://raw.githubusercontent.com/.../main/...` which is served by GitHub's CDN with a cache TTL of several minutes. After a push, the CDN still served the old version, so `RUNNING_VERSION == LATEST_VERSION` and the fast-path triggered even though a newer version existed. Removed the HTTP fetch entirely — `LATEST_VERSION` is now simply `$_FW_VERSION` (the version embedded in the installer script itself). The installer is always re-pinned to the latest tag via the `curl|bash` self-update at startup, so `_FW_VERSION` is always the true latest. No HTTP call, no cache issue, no false fast-path.
+
+---
+
 ## [3.9.9] — 2026-03-05
 
 ### Fixed

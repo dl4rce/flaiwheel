@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.9"
+_FW_VERSION="3.9.10"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -381,7 +381,7 @@ RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-'
 
 if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
     RUNNING_VERSION=$(curl -sf http://localhost:8080/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','0.0.0'))" 2>/dev/null || echo "0.0.0")
-    LATEST_VERSION=$(curl -sf "https://raw.githubusercontent.com/dl4rce/flaiwheel/main/src/flaiwheel/__init__.py" | grep '__version__' | cut -d'"' -f2 2>/dev/null || echo "0.0.0")
+    LATEST_VERSION="$_FW_VERSION"
 
     if [ "$RUNNING_VERSION" = "$LATEST_VERSION" ]; then
         FAST_PATH=true
