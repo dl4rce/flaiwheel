@@ -13,7 +13,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Cold-start classification quality** — two-pass classifier in `code_analyzer.py`:
   - **Pass 1 (path heuristics):** high-confidence pattern matching on filename/path before any embedding call. Supabase edge functions → `api`, `test_*` / `*.spec.*` → `tests`, `config`/`settings` → `setup`, `utils`/`helpers` → `best-practices`, etc. Zero model cost, ~90% confidence.
   - **Pass 2 (embedding):** only runs for files not resolved by path heuristics. Uses new code-specific category templates tuned to what source code looks like (not documentation), replacing the doc-oriented `CATEGORY_TEMPLATES` that caused `changelog` over-classification.
-- Result: `changelog` bucket should drop from implausible 366/823 to a realistic handful of actual release note files.
+- Result: `changelog` bucket correctly narrows to actual release note files instead of dominating the distribution on large mixed codebases.
 
 ---
 
