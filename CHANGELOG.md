@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.5] — 2026-03-05
+
+### Fixed
+- Cold-start `analyze_codebase()` was retrying the tool call but the embedding model was never actually loaded. `SentenceTransformerEmbeddingFunction` (ChromaDB) lazy-loads the model weights on the **first embed call**, not at container startup. The `/health` endpoint returns 200 as soon as the web server is up — long before the model is ready. The installer now explicitly **warms up the model** first by calling `search_docs("warmup")` and waiting until it returns a valid result (up to 3 minutes / 36 × 5s). Only then is `analyze_codebase()` called, guaranteeing the model is loaded and the report is generated.
+
+---
+
 ## [3.9.4] — 2026-03-05
 
 ### Fixed

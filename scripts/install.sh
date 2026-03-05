@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.4"
+_FW_VERSION="3.9.5"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1904,23 +1904,35 @@ if [[ "${_COLDSTART_ANSWER,,}" == "y" ]]; then
         git clone --depth 1 "$_AUTHED_SOURCE_URL" "$_SRC_PATH" 2>/dev/null; then
         ok "Source repo cloned to ${_SRC_PATH} inside container"
 
+        # Wait for the embedding model to be fully loaded before calling analyze_codebase.
+        # SentenceTransformer lazy-loads on first embed call — the /health endpoint returns
+        # 200 as soon as the web server starts, long before the model is ready. We trigger
+        # a warm-up search and wait until it returns a non-error result (up to 3 minutes).
+        info "Warming up embedding model (first load downloads weights, ~60-120s) ..."
+        _MODEL_READY=false
+        for _W in $(seq 1 36); do  # 36 × 5s = 180s = 3 min
+            _WARMUP=$(curl -s --max-time 10 -X POST "http://localhost:8081/tools/search_docs" \
+                -H "Content-Type: application/json" \
+                -d '{"query":"warmup","top_k":1}' 2>/dev/null | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if 'result' in d else '')" 2>/dev/null || true)
+            if [ "$_WARMUP" = "ok" ]; then
+                _MODEL_READY=true
+                break
+            fi
+            printf "  Loading embedding model... (%ds elapsed)\r" $((_W * 5))
+            sleep 5
+        done
+        echo ""
+
         # Run analyze_codebase via the MCP HTTP endpoint
-        # Retry for up to 90s — embedding model may still be loading after a fresh install
-        info "Running analyze_codebase — waiting for embedding model to be ready ..."
+        info "Running analyze_codebase ..."
         _REPORT=""
-        _MAX_TRIES=18
-        _TRY=0
-        while [ $_TRY -lt $_MAX_TRIES ] && [ -z "$_REPORT" ]; do
-            _TRY=$((_TRY + 1))
-            _REPORT=$(curl -s --max-time 15 -X POST "http://localhost:8081/tools/analyze_codebase" \
+        if [ "$_MODEL_READY" = true ]; then
+            _REPORT=$(curl -s --max-time 60 -X POST "http://localhost:8081/tools/analyze_codebase" \
                 -H "Content-Type: application/json" \
                 -d "{\"path\": \"${_SRC_PATH}\"}" 2>/dev/null | \
                 python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))" 2>/dev/null || true)
-            if [ -z "$_REPORT" ] && [ $_TRY -lt $_MAX_TRIES ]; then
-                printf "  Waiting for model... (%ds)\r" $((_TRY * 5))
-                sleep 5
-            fi
-        done
+        fi
 
         if [ -n "$_REPORT" ]; then
             echo ""
