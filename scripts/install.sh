@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.8.3"
+_FW_VERSION="3.9.1"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -1872,6 +1872,66 @@ echo ""
 if [ "${MD_COUNT:-0}" -gt 2 ]; then
     echo -e "  ${YELLOW}Tip:${NC} Tell Cursor AI: \"migrate docs\" to organize existing"
     echo -e "       documentation into the knowledge repo."
+    echo ""
+fi
+
+# ── Cold-Start Source Code Analysis (optional, default N) ────────────────
+echo -e "  ${BOLD}Cold-Start Analysis${NC}"
+echo -e "  Clone your source repo into the container once and run"
+echo -e "  ${GREEN}analyze_codebase()${NC} to get a zero-token bootstrap report."
+echo ""
+printf "  Run cold-start source code analysis? (y/N): "
+read -r _COLDSTART_ANSWER </dev/tty || _COLDSTART_ANSWER="n"
+echo ""
+
+if [[ "${_COLDSTART_ANSWER,,}" == "y" ]]; then
+    _SOURCE_REPO_URL="https://github.com/${OWNER}/${PROJECT}.git"
+    _SRC_PATH="/src/${PROJECT}"
+
+    info "Cloning ${OWNER}/${PROJECT} into container at ${_SRC_PATH} ..."
+
+    # Inject GH token into URL for private repos
+    _AUTHED_SOURCE_URL="$_SOURCE_REPO_URL"
+    if [ -n "${GH_TOKEN:-}" ] && [[ "$_SOURCE_REPO_URL" == https://github.com/* ]]; then
+        _AUTHED_SOURCE_URL="${_SOURCE_REPO_URL/https:\/\//https:\/\/${GH_TOKEN}@}"
+    fi
+
+    # Remove stale clone if present, then do a shallow clone
+    docker exec "${CONTAINER_NAME}" rm -rf "$_SRC_PATH" 2>/dev/null || true
+    if docker exec "${CONTAINER_NAME}" \
+        git clone --depth 1 "$_AUTHED_SOURCE_URL" "$_SRC_PATH" 2>/dev/null; then
+        ok "Source repo cloned to ${_SRC_PATH} inside container"
+
+        # Run analyze_codebase via the MCP HTTP endpoint
+        info "Running analyze_codebase — this takes 5-30 seconds ..."
+        _REPORT=$(curl -s -X POST "http://localhost:8081/tools/analyze_codebase" \
+            -H "Content-Type: application/json" \
+            -d "{\"path\": \"${_SRC_PATH}\"}" 2>/dev/null | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))" 2>/dev/null || true)
+
+        if [ -n "$_REPORT" ]; then
+            echo ""
+            echo -e "${BOLD}── Cold-Start Report ────────────────────────────────${NC}"
+            echo "$_REPORT"
+            echo -e "${BOLD}─────────────────────────────────────────────────────${NC}"
+            echo ""
+            ok "analyze_codebase complete. Call analyze_codebase(\"${_SRC_PATH}\") anytime via MCP."
+        else
+            warn "Report not available yet (container may still be loading embedding model)."
+            echo -e "  Run manually via MCP once ready:"
+            echo -e "    ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC}"
+        fi
+    else
+        warn "Could not clone ${OWNER}/${PROJECT}. Check repo visibility and GitHub auth."
+        echo -e "  You can run manually later:"
+        echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 ${_SOURCE_REPO_URL} ${_SRC_PATH}${NC}"
+        echo -e "  Then call: ${GREEN}analyze_codebase(\"${_SRC_PATH}\")${NC} via MCP"
+    fi
+    echo ""
+else
+    echo -e "  Skipped. To run later:"
+    echo -e "    ${GREEN}docker exec ${CONTAINER_NAME} git clone --depth 1 https://github.com/${OWNER}/${PROJECT}.git /src/${PROJECT}${NC}"
+    echo -e "  Then call: ${GREEN}analyze_codebase(\"/src/${PROJECT}\")${NC} via MCP"
     echo ""
 fi
 echo -e "  ${BOLD}Endpoints:${NC}"

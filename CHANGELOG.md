@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.1] — 2026-03-05
+
+### Added
+- **Cold-start one-time source repo clone** — `install.sh` now prompts at the end of install/update: `Run cold-start source code analysis? (y/N)`. Default is **N** so routine updates are unaffected. If confirmed, the installer performs a clean `git clone --depth 1` of the project's own source repo (derived from the already-known `OWNER/PROJECT` git remote) into `/src/<project>` inside the Docker container. GitHub token is reused automatically for private repos. After cloning, `analyze_codebase("/src/<project>")` is invoked via the MCP HTTP endpoint and the bootstrap report is printed inline.
+- Manual fallback instructions are printed on skip or clone failure so the user always knows how to run it later.
+
+### Changed
+- `_FW_VERSION` in `install.sh` updated to `3.9.1` (was stuck at `3.8.3`).
+
+---
+
 ## [3.9.0] — 2026-03-05
 
 ### Added
