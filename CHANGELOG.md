@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.16] — 2026-03-07
+
+### Fixed
+- **installer: sudo support for WSL and non-root Linux** — all Linux package manager commands (`apt-get`, `dnf`, `yum`, `zypper`, `pacman`), Docker install script, and `systemctl` calls now prefix with `sudo` when `id -u` is non-zero. Fixes `Permission denied` / lock file errors for WSL users and standard Linux desktop users who run the installer without root.
+
+---
+
 ## [3.9.15] — 2026-03-05
 
 ### Improved

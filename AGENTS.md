@@ -16,11 +16,12 @@ Use the MCP tools to search, and commit/push to the knowledge repo to add docs.
 
 ### Session Setup — ALWAYS DO THIS FIRST
 
-At the **start of every conversation**, call:
-```
-set_project("flaiwheel")
-```
-This binds all subsequent Flaiwheel calls to **this project**.
+At the **start of every conversation**, run these steps in order:
+
+1. `set_project("flaiwheel")` — bind this session to the project
+2. `get_recent_sessions()` — restore context from previous sessions
+3. `analyze_codebase("/src/flaiwheel")` — **first session only**: returns a zero-token structural overview of the codebase (top files, categories, duplicates, coverage gaps). Read it before diving into code. On subsequent sessions, skip this step unless the codebase has changed significantly.
+
 If the project is not registered, call `setup_project(name="flaiwheel", git_repo_url="https://github.com/dl4rce/flaiwheel-knowledge.git")` first.
 
 ### Step 1: Flaiwheel — Step 2: Native tools

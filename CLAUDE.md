@@ -43,12 +43,13 @@
 2. Read `AGENTS.md` in this project root
 3. Call `set_project("flaiwheel")` via the Flaiwheel MCP tool
 4. Call `get_recent_sessions()` to restore context from the last session
+5. **First session only:** Call `analyze_codebase("/src/flaiwheel")` for a zero-token structural overview of the codebase (top files, categories, duplicates). Read it before diving into code.
 
 ### Flaiwheel MCP
 
 - **Endpoint:** `http://localhost:8081/sse` (configured in `.mcp.json`)
 - **Register once:** `claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse`
-- **Verify:** type `/mcp` — `flaiwheel` should appear with 27 tools
+- **Verify:** type `/mcp` — `flaiwheel` should appear with 28 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call `write_bugfix_summary()`. No exceptions.
 - **Rule:** End every session with `save_session_summary()`.

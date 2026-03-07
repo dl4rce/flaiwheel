@@ -1,5 +1,7 @@
 # Copilot Instructions
 
+---
+
 ## Flaiwheel — Project Knowledge Base (MCP)
 
 > Full AI agent instructions are in **AGENTS.md** in the project root — read it at session start.
@@ -21,6 +23,7 @@ If it is not running:
 2. Read `AGENTS.md` in this project root
 3. Call `set_project("flaiwheel")` via Flaiwheel MCP
 4. Call `get_recent_sessions()` to restore context from the last session
+5. **First session only:** Call `analyze_codebase("/src/flaiwheel")` for a zero-token structural overview of the codebase before diving into code.
 
 ### Rules
 

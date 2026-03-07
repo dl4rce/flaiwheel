@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.15
+## What’s New in v3.9.16
+
+- **Fix: installer works on WSL and non-root Linux** — all Linux package manager commands (`apt-get`, `dnf`, `yum`, `zypper`, `pacman`), Docker convenience script, and `systemctl` calls now automatically use `sudo` when the installer is not running as root. Root installs are unaffected. Fixes `Permission denied` / lock file errors on WSL and standard Linux desktop users.
+
+### Previous: v3.9.15
 
 - **Cold-start report cached in `/data/`** — `analyze_codebase()` saves the report to `/data/coldstart-<project>.md` after the first run. Subsequent calls return the cached report instantly (<1s). The installer also writes the cache during install so the very first MCP call by any agent is instant. Call with `force=True` to regenerate after major codebase changes.
 - **`analyze_codebase()` in all agent Session Setup templates** — `AGENTS.md`, `.cursor/rules/flaiwheel.mdc`, `CLAUDE.md`, and `.github/copilot-instructions.md` all now include it as step 3 of Session Setup. Agents automatically get the codebase overview before starting work.

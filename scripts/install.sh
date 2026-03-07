@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.15"
+_FW_VERSION="3.9.16"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -241,44 +241,47 @@ if ! command -v gh &>/dev/null; then
         fi
 
     elif [ "$_OS" = "Linux" ]; then
+        # Use sudo when not running as root (WSL, regular Linux users, etc.)
+        if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
+
         if command -v apt-get &>/dev/null; then
             # Debian / Ubuntu
             info "Installing gh via apt (Debian/Ubuntu)..."
-            (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) &&
-                mkdir -p -m 755 /etc/apt/keyrings &&
+            (type -p wget >/dev/null || (${_SUDO} apt-get update && ${_SUDO} apt-get install -y wget)) &&
+                ${_SUDO} mkdir -p -m 755 /etc/apt/keyrings &&
                 wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-                    | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null &&
-                chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg &&
+                    | ${_SUDO} tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null &&
+                ${_SUDO} chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg &&
                 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-                    | tee /etc/apt/sources.list.d/github-cli.list >/dev/null &&
-                apt-get update &&
-                apt-get install -y gh && _GH_INSTALLED=true
+                    | ${_SUDO} tee /etc/apt/sources.list.d/github-cli.list >/dev/null &&
+                ${_SUDO} apt-get update &&
+                ${_SUDO} apt-get install -y gh && _GH_INSTALLED=true
 
         elif command -v dnf &>/dev/null; then
             # Fedora / RHEL 8+
             info "Installing gh via dnf (Fedora/RHEL)..."
-            dnf install -y 'dnf-command(config-manager)' &&
-                dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo &&
-                dnf install -y gh && _GH_INSTALLED=true
+            ${_SUDO} dnf install -y 'dnf-command(config-manager)' &&
+                ${_SUDO} dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo &&
+                ${_SUDO} dnf install -y gh && _GH_INSTALLED=true
 
         elif command -v yum &>/dev/null; then
             # CentOS / RHEL 7
             info "Installing gh via yum (CentOS/RHEL)..."
-            yum install -y yum-utils &&
-                yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo &&
-                yum install -y gh && _GH_INSTALLED=true
+            ${_SUDO} yum install -y yum-utils &&
+                ${_SUDO} yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo &&
+                ${_SUDO} yum install -y gh && _GH_INSTALLED=true
 
         elif command -v zypper &>/dev/null; then
             # openSUSE
             info "Installing gh via zypper (openSUSE)..."
-            zypper addrepo https://cli.github.com/packages/rpm/gh-cli.repo &&
-                zypper ref &&
-                zypper install -y gh && _GH_INSTALLED=true
+            ${_SUDO} zypper addrepo https://cli.github.com/packages/rpm/gh-cli.repo &&
+                ${_SUDO} zypper ref &&
+                ${_SUDO} zypper install -y gh && _GH_INSTALLED=true
 
         elif command -v pacman &>/dev/null; then
             # Arch Linux
             info "Installing gh via pacman (Arch)..."
-            pacman -Sy --noconfirm github-cli && _GH_INSTALLED=true
+            ${_SUDO} pacman -Sy --noconfirm github-cli && _GH_INSTALLED=true
 
         else
             # Generic Linux fallback: download binary directly
@@ -295,7 +298,7 @@ if ! command -v gh &>/dev/null; then
                 _GH_URL="https://github.com/cli/cli/releases/download/v${_GH_VERSION}/gh_${_GH_VERSION}_linux_${_GH_ARCH}.tar.gz"
                 _GH_TMP=$(mktemp -d)
                 curl -sSL "$_GH_URL" | tar -xz -C "$_GH_TMP" &&
-                    install -m 755 "$_GH_TMP/gh_${_GH_VERSION}_linux_${_GH_ARCH}/bin/gh" /usr/local/bin/gh &&
+                    ${_SUDO} install -m 755 "$_GH_TMP/gh_${_GH_VERSION}_linux_${_GH_ARCH}/bin/gh" /usr/local/bin/gh &&
                     rm -rf "$_GH_TMP" && _GH_INSTALLED=true
             fi
         fi
@@ -418,12 +421,14 @@ if ! command -v docker &>/dev/null; then
     elif [ "$_OS" = "Linux" ]; then
         # Linux — use Docker's official convenience script (works on all major distros)
         info "Installing Docker via official install script..."
-        curl -fsSL https://get.docker.com | sh && _DOCKER_INSTALLED=true
+        # Use sudo when not running as root (WSL, regular Linux users, etc.)
+        if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
+        curl -fsSL https://get.docker.com | ${_SUDO} sh && _DOCKER_INSTALLED=true
 
         if [ "$_DOCKER_INSTALLED" = true ]; then
             # Start and enable Docker daemon
-            systemctl enable docker 2>/dev/null || true
-            systemctl start  docker 2>/dev/null || true
+            ${_SUDO} systemctl enable docker 2>/dev/null || true
+            ${_SUDO} systemctl start  docker 2>/dev/null || true
         fi
     fi
 
@@ -442,11 +447,12 @@ if ! docker info &>/dev/null 2>&1; then
     _OS="$(uname -s)"
     if [ "$_OS" = "Linux" ]; then
         info "Docker daemon not running — attempting to start..."
-        systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
+        if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
+        ${_SUDO} systemctl start docker 2>/dev/null || ${_SUDO} service docker start 2>/dev/null || true
         sleep 3
     fi
     if ! docker info &>/dev/null 2>&1; then
-        fail "Docker is not running. Start it with: systemctl start docker"
+        fail "Docker is not running. Start it with: sudo systemctl start docker"
     fi
 fi
 
@@ -845,9 +851,10 @@ else
 
         _INGEST_DIR="/var/lib/containerd/io.containerd.content.v1.content/ingest"
         if [ -d "$_INGEST_DIR" ] && [ "$(ls -A "$_INGEST_DIR" 2>/dev/null | wc -l)" -gt 0 ]; then
-            systemctl stop docker 2>/dev/null || true
-            rm -rf "${_INGEST_DIR:?}"/*
-            systemctl start docker
+            if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
+            ${_SUDO} systemctl stop docker 2>/dev/null || true
+            ${_SUDO} rm -rf "${_INGEST_DIR:?}"/*
+            ${_SUDO} systemctl start docker
             sleep 2
         fi
 
