@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.24] — 2026-03-07
+
+### Fixed
+- **installer: auto-install python3 as prerequisite #0** — minimal WSL2/Linux systems may not have python3. Added pre-flight check with auto-install via apt/dnf/yum/pacman/brew before any python3 calls are made.
+
+---
+
 ## [3.9.23] — 2026-03-07
 
 ### Fixed

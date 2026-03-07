@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.23
+## What’s New in v3.9.24
+
+- **Fix: auto-install python3 if missing** — the installer uses `python3` extensively for JSON manipulation. On minimal Linux/WSL2 systems without python3, config file writes silently failed (`/dev/fd/63: line N: python3: command not found`). python3 is now checked as prerequisite #0 and auto-installed via apt/dnf/yum/pacman/brew if missing.
+
+### Previous: v3.9.23
 
 - **Fix: Docker daemon start on WSL2 with iptables-legacy** — Docker on WSL2 often fails to start silently because the default `iptables-nft` backend is not supported. The installer now switches to `iptables-legacy` via `update-alternatives` before starting Docker. Also adds the current user to the `docker` group automatically.
 - **All install commands updated to `bash <(curl ...)`** — every displayed install/re-run command throughout the script (error messages, AGENTS.md, Cursor rules, etc.) now uses process substitution to avoid WSL2 pipe issues.

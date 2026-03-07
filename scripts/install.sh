@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.23"
+_FW_VERSION="3.9.24"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -249,6 +249,36 @@ echo ""
 # ══════════════════════════════════════════════════════
 
 info "Checking prerequisites..."
+
+# 0. python3 — required for JSON manipulation throughout the installer
+if ! command -v python3 &>/dev/null; then
+    warn "python3 not found. Attempting auto-install..."
+    if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
+    if command -v apt-get &>/dev/null; then
+        ${_SUDO} apt-get update -qq && ${_SUDO} apt-get install -y python3 && ok "python3 installed"
+    elif command -v dnf &>/dev/null; then
+        ${_SUDO} dnf install -y python3 && ok "python3 installed"
+    elif command -v yum &>/dev/null; then
+        ${_SUDO} yum install -y python3 && ok "python3 installed"
+    elif command -v pacman &>/dev/null; then
+        ${_SUDO} pacman -Sy --noconfirm python && ok "python3 installed"
+    elif command -v brew &>/dev/null; then
+        brew install python3 && ok "python3 installed"
+    else
+        echo ""
+        echo -e "  ${RED}${BOLD}python3 is required but could not be auto-installed.${NC}"
+        echo -e "  Install it manually (e.g. sudo apt-get install python3) then re-run."
+        echo ""
+        exit 1
+    fi
+    if ! command -v python3 &>/dev/null; then
+        echo ""
+        echo -e "  ${RED}${BOLD}python3 install failed.${NC}"
+        echo -e "  Install it manually (e.g. sudo apt-get install python3) then re-run."
+        echo ""
+        exit 1
+    fi
+fi
 
 # 1. gh CLI installed — auto-install if missing
 if ! command -v gh &>/dev/null; then
