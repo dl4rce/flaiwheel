@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.17
+## What’s New in v3.9.18
+
+- **Fix: block `sudo curl | bash` and `sudo bash install.sh`** — running the installer as root via `sudo` breaks GitHub CLI authentication: `gh auth` stores credentials in `/root/.config/gh/` instead of the real user's home, making every subsequent `gh` call fail. Also caused `curl: (23) Failure writing output` pipe errors on WSL. The installer now detects `SUDO_USER` at startup and exits immediately with a clear message telling the user to re-run without `sudo`. Privilege escalation for package installs is handled internally.
+
+### Previous: v3.9.17
 
 - **Fix: `gh auth login` must not be run with sudo** — after auto-installing `gh` on Linux/WSL, the installer now explicitly tells the user to run `gh auth login` **without** `sudo`. If auth was previously done with `sudo`, credentials ended up in `/root/.config/gh/` and were invisible to the current user, causing the auth check to fail. The error messages at both the post-install and the auth-check step now clearly warn: do not use sudo for `gh auth`.
 

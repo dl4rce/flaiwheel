@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.18] — 2026-03-07
+
+### Fixed
+- **installer: block sudo invocation at startup** — detect `SUDO_USER` immediately after color/function setup; exit with clear message if the entire installer was launched via `sudo`. Prevents `/root/.config/gh/` credential misplacement and `curl: (23)` pipe write failures on WSL.
+
+---
+
 ## [3.9.17] — 2026-03-07
 
 ### Fixed
