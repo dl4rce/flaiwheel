@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.18"
+_FW_VERSION="3.9.19"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -484,9 +484,15 @@ if ! command -v docker &>/dev/null; then
         curl -fsSL https://get.docker.com | ${_SUDO} sh && _DOCKER_INSTALLED=true
 
         if [ "$_DOCKER_INSTALLED" = true ]; then
-            # Start and enable Docker daemon
-            ${_SUDO} systemctl enable docker 2>/dev/null || true
-            ${_SUDO} systemctl start  docker 2>/dev/null || true
+            # Start Docker — WSL2 lacks systemd, use service instead
+            _IS_WSL=false
+            grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL=true
+            if [ "$_IS_WSL" = true ]; then
+                ${_SUDO} service docker start 2>/dev/null || true
+            else
+                ${_SUDO} systemctl enable docker 2>/dev/null || true
+                ${_SUDO} systemctl start  docker 2>/dev/null || true
+            fi
         fi
     fi
 
@@ -506,11 +512,39 @@ if ! docker info &>/dev/null 2>&1; then
     if [ "$_OS" = "Linux" ]; then
         info "Docker daemon not running — attempting to start..."
         if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
-        ${_SUDO} systemctl start docker 2>/dev/null || ${_SUDO} service docker start 2>/dev/null || true
-        sleep 3
+        # WSL2 typically lacks systemd — try service first, then systemctl
+        _IS_WSL=false
+        grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL=true
+
+        if [ "$_IS_WSL" = true ]; then
+            info "WSL2 detected — starting Docker via service..."
+            ${_SUDO} service docker start 2>/dev/null || true
+        else
+            ${_SUDO} systemctl start docker 2>/dev/null || ${_SUDO} service docker start 2>/dev/null || true
+        fi
+        # WSL2 Docker daemon needs a few more seconds to be ready
+        sleep 5
     fi
     if ! docker info &>/dev/null 2>&1; then
-        fail "Docker is not running. Start it with: sudo systemctl start docker"
+        _IS_WSL2=false
+        grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL2=true
+        if [ "$_IS_WSL2" = true ]; then
+            echo ""
+            echo -e "  ${RED}${BOLD}Docker daemon is not running on WSL2.${NC}"
+            echo ""
+            echo -e "  Start it with:"
+            echo -e "  ${GREEN}sudo service docker start${NC}"
+            echo ""
+            echo -e "  Then re-run the Flaiwheel installer:"
+            echo -e "  ${GREEN}curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash${NC}"
+            echo ""
+            echo -e "  ${BOLD}Tip:${NC} To start Docker automatically on WSL2 login, add this to your ~/.bashrc or ~/.profile:"
+            echo -e "  ${GREEN}sudo service docker start > /dev/null 2>&1${NC}"
+            echo ""
+            exit 1
+        else
+            fail "Docker is not running. Start it with: sudo systemctl start docker"
+        fi
     fi
 fi
 

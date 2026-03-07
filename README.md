@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.18
+## What’s New in v3.9.19
+
+- **Fix: Docker daemon start on WSL2** — WSL2 typically has no `systemd`, so `systemctl start docker` silently failed. The installer now detects WSL2 via `/proc/version` and uses `sudo service docker start` instead. If Docker still isn't running after install, a clear WSL2-specific error is shown with the exact fix command and a tip to add it to `~/.bashrc` for auto-start on login.
+
+### Previous: v3.9.18
 
 - **Fix: block `sudo curl | bash` and `sudo bash install.sh`** — running the installer as root via `sudo` breaks GitHub CLI authentication: `gh auth` stores credentials in `/root/.config/gh/` instead of the real user's home, making every subsequent `gh` call fail. Also caused `curl: (23) Failure writing output` pipe errors on WSL. The installer now detects `SUDO_USER` at startup and exits immediately with a clear message telling the user to re-run without `sudo`. Privilege escalation for package installs is handled internally.
 

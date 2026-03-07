@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.19] — 2026-03-07
+
+### Fixed
+- **installer: Docker daemon start on WSL2** — detect WSL2 via `/proc/version`; use `service docker start` instead of `systemctl` (no systemd on WSL2). Better wait time (5s). Clear WSL2-specific error message with fix command and auto-start tip.
+
+---
+
 ## [3.9.18] — 2026-03-07
 
 ### Fixed
