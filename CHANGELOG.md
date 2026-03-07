@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.25] — 2026-03-07
+
+### Added
+- **WSL2 pre-flight block** — automatic WSL2 detection + iptables-legacy switch + docker group membership + daemon start + ~/.bashrc auto-start. All WSL2 setup is now zero-touch.
+
+---
+
 ## [3.9.24] — 2026-03-07
 
 ### Fixed

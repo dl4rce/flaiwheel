@@ -79,7 +79,16 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.24
+## What’s New in v3.9.25
+
+- **WSL2 automatic pre-flight setup** — WSL2 is now detected automatically and a dedicated pre-flight block runs before the main installer flow. No manual steps required:
+  1. Switches `iptables` to legacy backend (fixes Docker networking / DNAT errors)
+  2. Adds the current user to the `docker` group (no more `permission denied`)
+  3. Starts the Docker daemon via `service` (no systemd on WSL2)
+  4. Adds a Docker auto-start snippet to `~/.bashrc` (idempotent, runs on every WSL2 login)
+- Scattered WSL2 checks throughout the script consolidated into the single pre-flight block.
+
+### Previous: v3.9.24
 
 - **Fix: auto-install python3 if missing** — the installer uses `python3` extensively for JSON manipulation. On minimal Linux/WSL2 systems without python3, config file writes silently failed (`/dev/fd/63: line N: python3: command not found`). python3 is now checked as prerequisite #0 and auto-installed via apt/dnf/yum/pacman/brew if missing.
 

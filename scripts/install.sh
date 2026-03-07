@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.24"
+_FW_VERSION="3.9.25"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -243,6 +243,106 @@ echo -e "${BOLD}║         Flaiwheel Install / Update            ║${NC}"
 echo -e "${BOLD}║   Flywheel with AI, for AI                   ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
+
+# ══════════════════════════════════════════════════════
+#  WSL2 PRE-FLIGHT
+#  Runs automatically when WSL2 is detected.
+#  Handles everything Docker needs on WSL2 before the
+#  main installer flow — no manual steps required.
+# ══════════════════════════════════════════════════════
+
+_IS_WSL=false
+grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL=true
+
+if [ "$_IS_WSL" = true ]; then
+    echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║  WSL2 detected — running pre-flight setup    ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
+
+    # 1. Switch iptables to legacy backend
+    #    WSL2 kernel does not support nftables — Docker networking
+    #    silently fails (DNAT errors) unless legacy backend is used.
+    if command -v update-alternatives &>/dev/null; then
+        if update-alternatives --query iptables 2>/dev/null | grep -q "Value: .*legacy" ||
+           update-alternatives --query iptables 2>/dev/null | grep -q "best.*legacy"; then
+            ok "iptables-legacy already active"
+        else
+            info "Switching iptables to legacy backend (required for Docker on WSL2)..."
+            ${_SUDO} update-alternatives --set iptables  /usr/sbin/iptables-legacy  2>/dev/null && \
+            ${_SUDO} update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null && \
+            ok "iptables-legacy activated"
+        fi
+    fi
+
+    # 2. Add current user to the docker group
+    #    Without this, every docker command requires sudo.
+    if groups "$(whoami)" 2>/dev/null | grep -q '\bdocker\b'; then
+        ok "User '$(whoami)' already in docker group"
+    else
+        info "Adding '$(whoami)' to docker group..."
+        ${_SUDO} groupadd docker 2>/dev/null || true
+        ${_SUDO} usermod -aG docker "$(whoami)" && \
+            ok "User added to docker group"
+        warn "Docker group membership takes effect in new shells."
+        warn "If docker commands fail with 'permission denied', run: newgrp docker"
+    fi
+
+    # 3. Start Docker daemon via service (not systemctl — no systemd on WSL2)
+    if docker info &>/dev/null 2>&1; then
+        ok "Docker daemon already running"
+    else
+        info "Starting Docker daemon (WSL2)..."
+        ${_SUDO} service docker start 2>&1 | grep -Ev "^[[:space:]]*$" || true
+        # Poll up to 30s
+        _DOCKER_READY=false
+        for _i in $(seq 1 15); do
+            if docker info &>/dev/null 2>&1; then
+                _DOCKER_READY=true; break
+            fi
+            # Try with sudo in case group membership not yet active
+            if ${_SUDO} docker info &>/dev/null 2>&1; then
+                _DOCKER_READY=true; break
+            fi
+            sleep 2
+        done
+        if [ "$_DOCKER_READY" = true ]; then
+            ok "Docker daemon started"
+        else
+            echo ""
+            echo -e "  ${RED}${BOLD}Docker daemon failed to start on WSL2.${NC}"
+            echo ""
+            echo -e "  Run these commands, then re-run the installer:"
+            echo -e "  ${GREEN}sudo iptables -t nat -F && sudo iptables -t filter -F${NC}"
+            echo -e "  ${GREEN}sudo service docker start${NC}"
+            echo -e "  ${GREEN}bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)${NC}"
+            echo ""
+            exit 1
+        fi
+    fi
+
+    # 4. Add Docker auto-start to ~/.bashrc (silent, idempotent)
+    _BASHRC="${HOME}/.bashrc"
+    _AUTOSTART_MARKER="# flaiwheel: auto-start docker on WSL2"
+    if [ -f "$_BASHRC" ] && grep -q "$_AUTOSTART_MARKER" "$_BASHRC" 2>/dev/null; then
+        ok "Docker auto-start already in ~/.bashrc"
+    else
+        {
+            echo ""
+            echo "$_AUTOSTART_MARKER"
+            echo 'if grep -qi microsoft /proc/version 2>/dev/null; then'
+            echo '  service docker status > /dev/null 2>&1 || sudo service docker start > /dev/null 2>&1'
+            echo 'fi'
+        } >> "$_BASHRC"
+        ok "Docker auto-start added to ~/.bashrc (runs on every WSL2 login)"
+    fi
+
+    echo ""
+    ok "WSL2 pre-flight complete"
+    echo ""
+fi
 
 # ══════════════════════════════════════════════════════
 #  PHASE 1: Prerequisites (fail fast)
@@ -518,18 +618,9 @@ if ! command -v docker &>/dev/null; then
         curl -fsSL https://get.docker.com | ${_SUDO} sh && _DOCKER_INSTALLED=true
 
         if [ "$_DOCKER_INSTALLED" = true ]; then
-            # Start Docker — WSL2 lacks systemd, use service instead
-            _IS_WSL=false
-            grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL=true
-            if [ "$_IS_WSL" = true ]; then
-                # WSL2: switch to iptables-legacy (nft backend causes silent failures)
-                if command -v update-alternatives &>/dev/null; then
-                    ${_SUDO} update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
-                    ${_SUDO} update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
-                fi
-                ${_SUDO} usermod -aG docker "$(whoami)" 2>/dev/null || true
-                ${_SUDO} service docker start 2>/dev/null || true
-            else
+            # WSL2 pre-flight already started Docker and configured iptables/groups.
+            # On non-WSL2 Linux, start via systemctl.
+            if [ "$_IS_WSL" != true ]; then
                 ${_SUDO} systemctl enable docker 2>/dev/null || true
                 ${_SUDO} systemctl start  docker 2>/dev/null || true
             fi
@@ -549,53 +640,26 @@ fi
 
 if ! docker info &>/dev/null 2>&1; then
     _OS="$(uname -s)"
-    _IS_WSL=false
-    grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL=true
-
     if [ "$_OS" = "Linux" ]; then
         info "Docker daemon not running — attempting to start..."
         if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
-
+        # WSL2: pre-flight already ran; try service as last resort
+        # Non-WSL2: use systemctl
         if [ "$_IS_WSL" = true ]; then
-            info "WSL2 detected — starting Docker via service..."
-            # WSL2 often needs iptables-legacy — nft backend causes dockerd to fail silently
-            if command -v update-alternatives &>/dev/null; then
-                ${_SUDO} update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
-                ${_SUDO} update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
-            fi
-            # Add current user to docker group so docker commands work without sudo
-            ${_SUDO} usermod -aG docker "$(whoami)" 2>/dev/null || true
-            ${_SUDO} service docker start 2>&1 | grep -v "^$" || true
+            ${_SUDO} service docker start 2>/dev/null || true
         else
             ${_SUDO} systemctl start docker 2>/dev/null || ${_SUDO} service docker start 2>/dev/null || true
         fi
-
-        # Poll up to 30s for daemon to be ready (WSL2 is slower than native Linux)
-        info "Waiting for Docker daemon to be ready..."
+        # Poll up to 30s
         _DOCKER_READY=false
         for _i in $(seq 1 15); do
-            if docker info &>/dev/null 2>&1; then
-                _DOCKER_READY=true
-                break
-            fi
+            docker info &>/dev/null 2>&1 && { _DOCKER_READY=true; break; }
             sleep 2
         done
-        [ "$_DOCKER_READY" = true ] || true  # fall through to check below
     fi
-
     if ! docker info &>/dev/null 2>&1; then
         if [ "$_IS_WSL" = true ]; then
-            echo ""
-            echo -e "  ${RED}${BOLD}Docker daemon is not running on WSL2.${NC}"
-            echo ""
-            echo -e "  Start it manually, then re-run the installer:"
-            echo -e "  ${GREEN}sudo service docker start${NC}"
-            echo -e "  ${GREEN}bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)${NC}"
-            echo ""
-            echo -e "  ${BOLD}Tip:${NC} Add this to ${GREEN}~/.bashrc${NC} so Docker starts automatically on WSL2 login:"
-            echo -e "  ${GREEN}sudo service docker start > /dev/null 2>&1${NC}"
-            echo ""
-            exit 1
+            fail "Docker is not running. Try: sudo service docker start  — then re-run the installer."
         else
             fail "Docker is not running. Start it with: sudo systemctl start docker"
         fi
