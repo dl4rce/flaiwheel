@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.22] — 2026-03-07
+
+### Fixed
+- **installer: use `bash <(curl ...)` to avoid WSL2 pipe write errors** — README updated to use process substitution as primary install form. re-exec falls back to `$HOME` tmp dir if `/tmp` write fails. Error message recommends `bash <(curl ...)` on curl:23.
+
+---
+
 ## [3.9.21] — 2026-03-07
 
 ### Fixed

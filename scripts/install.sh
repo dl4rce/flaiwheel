@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.21"
+_FW_VERSION="3.9.22"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -48,6 +48,10 @@ if [ ! -t 0 ]; then
     else
         # Truly piped via curl | bash — download pinned to current version tag
         _PINNED_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/v${_FW_VERSION}/scripts/install.sh"
+        # Try /tmp first; fall back to $HOME on WSL2 where /tmp writes may fail
+        for _TMP_DIR in /tmp "$HOME" "${TMPDIR:-/tmp}"; do
+            _TMP_SCRIPT=$(mktemp "${_TMP_DIR}/flaiwheel-install-$$-XXXXXX.sh" 2>/dev/null) && break || true
+        done
         if curl -sSL "$_PINNED_URL" -o "$_TMP_SCRIPT" 2>/dev/null && [ -s "$_TMP_SCRIPT" ]; then
             chmod +x "$_TMP_SCRIPT"
             # Remove the temp file after exec loads it into memory — the running process
@@ -56,7 +60,11 @@ if [ ! -t 0 ]; then
             exec bash "$_TMP_SCRIPT" "$@" </dev/tty
         else
             rm -f "$_TMP_SCRIPT" 2>/dev/null || true
-            echo "Error: could not download installer. Try: bash <(curl -sSL ${_PINNED_URL})" >&2
+            echo "" >&2
+            echo "  If you see 'curl: (23)' errors, use this form instead (recommended for WSL2):" >&2
+            echo "" >&2
+            echo "  bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)" >&2
+            echo "" >&2
             exit 1
         fi
     fi

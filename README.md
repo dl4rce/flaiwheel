@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.21
+## What’s New in v3.9.22
+
+- **Fix: `curl | bash` pipe write failures on WSL2** — `curl | bash` can fail with `curl: (23) Failure writing output` on WSL2 due to pipe/tmp permission issues. The primary install command in README is now `bash <(curl ...)` (process substitution), which avoids the pipe entirely. The re-exec block also tries `$HOME` as a fallback temp dir when `/tmp` writes fail. Error message explicitly recommends the `bash <(curl ...)` form.
+
+### Previous: v3.9.21
 
 - **Fix: sudo guard moved before re-exec block** — when `sudo curl | bash` was used, the `curl: (23)` pipe error truncated the script before the previous sudo guard (which was after colors/functions) was ever reached. The guard is now the very first executable line (`set -euo pipefail` aside), so it fires even on a truncated download. Duplicate guard after colors removed.
 
@@ -183,8 +187,10 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 Run this from inside your project directory:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 ```
+
+> **WSL2 / Linux note:** Use the `bash <(curl ...)` form above — it avoids `curl: (23)` pipe write errors that occur with `curl | bash` on some WSL2 setups. Never prefix with `sudo`.
 
 **That's it.** The installer automatically:
 
@@ -218,7 +224,7 @@ Once connected, the AI has access to all Flaiwheel tools. If you have existing d
 Run the same install command again from your project directory:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 ```
 
 The installer detects the existing container, asks for confirmation, then:
