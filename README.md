@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.20
+## What’s New in v3.9.21
+
+- **Fix: sudo guard moved before re-exec block** — when `sudo curl | bash` was used, the `curl: (23)` pipe error truncated the script before the previous sudo guard (which was after colors/functions) was ever reached. The guard is now the very first executable line (`set -euo pipefail` aside), so it fires even on a truncated download. Duplicate guard after colors removed.
+
+### Previous: v3.9.20
 
 - **Fix: Docker daemon startup poll on WSL2** — instead of a fixed 5-second sleep, the installer now polls `docker info` every 2 seconds for up to 30 seconds after `service docker start`. Also shows the actual output of `service docker start` so startup errors are visible instead of silently swallowed.
 

@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.21] — 2026-03-07
+
+### Fixed
+- **installer: sudo guard moved to line 3 (before re-exec)** — `curl: (23)` from `sudo curl|bash` truncated the script before the previous guard was reached. Guard now fires on the first bytes received. Duplicate guard removed.
+
+---
+
 ## [3.9.20] — 2026-03-07
 
 ### Fixed

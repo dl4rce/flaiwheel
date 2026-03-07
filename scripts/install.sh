@@ -7,8 +7,29 @@
 # Usage: bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 set -euo pipefail
 
+# ── Sudo guard (MUST be first — before re-exec, before everything) ──────────
+# 'sudo curl|bash' causes curl: (23) pipe write failure AND stores gh auth
+# credentials under /root instead of the real user's home.
+# Check both SUDO_USER (set by sudo) and id -u so we catch it even when the
+# re-exec child process no longer has SUDO_USER in its environment.
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    echo ""
+    echo -e "\033[1;33m╔══════════════════════════════════════════════════════════╗\033[0m"
+    echo -e "\033[1;33m║  ⚠️  Do NOT run this installer with sudo                 ║\033[0m"
+    echo -e "\033[1;33m╚══════════════════════════════════════════════════════════╝\033[0m"
+    echo ""
+    echo -e "  \033[1mRemove 'sudo' from the front of the command.\033[0m"
+    echo -e "  The installer uses sudo internally only where needed."
+    echo ""
+    echo -e "  Run this instead:"
+    echo ""
+    echo -e "  \033[0;32mcurl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash\033[0m"
+    echo ""
+    exit 1
+fi
+
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.20"
+_FW_VERSION="3.9.21"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -53,31 +74,6 @@ info()  { echo -e "${BLUE}[flaiwheel]${NC} $1"; }
 ok()    { echo -e "${GREEN}[✓]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 
-# ── Sudo guard — must run as normal user, NOT as root via sudo ───────────────
-# Running the whole installer as root (sudo curl|bash or sudo bash install.sh)
-# causes two problems:
-#   1. gh auth login stores credentials in /root/.config/gh — invisible to the
-#      real user, so every subsequent gh call fails.
-#   2. curl|bash pipe under sudo can fail with "Failure writing output" (exit 23)
-#      because the pipe's write end is owned by root but bash reads as another user.
-# The installer handles privilege escalation internally via $_SUDO where needed.
-if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-    echo ""
-    echo -e "\033[1;33m╔══════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[1;33m║  ⚠️  Do NOT run this installer with sudo                 ║\033[0m"
-    echo -e "\033[1;33m╚══════════════════════════════════════════════════════════╝\033[0m"
-    echo ""
-    echo -e "  Running as root via sudo breaks GitHub CLI authentication."
-    echo -e "  \033[1mgh auth\033[0m stores credentials in your home directory — not root's."
-    echo ""
-    echo -e "  Re-run \033[1mwithout\033[0m sudo:"
-    echo ""
-    echo -e "  \033[0;32mcurl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash\033[0m"
-    echo ""
-    echo -e "  The installer will use sudo internally only where needed (package installs)."
-    echo ""
-    exit 1
-fi
 fail()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 
 # ── Cold-Start functions (defined early — called from all paths) ──────────
