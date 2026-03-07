@@ -23,13 +23,13 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
     echo ""
     echo -e "  Run this instead:"
     echo ""
-    echo -e "  \033[0;32mcurl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash\033[0m"
+    echo -e "  \033[0;32mbash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)\033[0m"
     echo ""
     exit 1
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.22"
+_FW_VERSION="3.9.23"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -352,7 +352,7 @@ if ! command -v gh &>/dev/null; then
             echo -e "  directory and must belong to your user, not root."
             echo ""
             echo -e "  After authenticating, re-run the Flaiwheel installer:"
-            echo -e "  ${GREEN}curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash${NC}"
+            echo -e "  ${GREEN}bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)${NC}"
             echo ""
             exit 0
         fi
@@ -492,6 +492,12 @@ if ! command -v docker &>/dev/null; then
             _IS_WSL=false
             grep -qi microsoft /proc/version 2>/dev/null && _IS_WSL=true
             if [ "$_IS_WSL" = true ]; then
+                # WSL2: switch to iptables-legacy (nft backend causes silent failures)
+                if command -v update-alternatives &>/dev/null; then
+                    ${_SUDO} update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
+                    ${_SUDO} update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
+                fi
+                ${_SUDO} usermod -aG docker "$(whoami)" 2>/dev/null || true
                 ${_SUDO} service docker start 2>/dev/null || true
             else
                 ${_SUDO} systemctl enable docker 2>/dev/null || true
@@ -522,6 +528,13 @@ if ! docker info &>/dev/null 2>&1; then
 
         if [ "$_IS_WSL" = true ]; then
             info "WSL2 detected — starting Docker via service..."
+            # WSL2 often needs iptables-legacy — nft backend causes dockerd to fail silently
+            if command -v update-alternatives &>/dev/null; then
+                ${_SUDO} update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
+                ${_SUDO} update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
+            fi
+            # Add current user to docker group so docker commands work without sudo
+            ${_SUDO} usermod -aG docker "$(whoami)" 2>/dev/null || true
             ${_SUDO} service docker start 2>&1 | grep -v "^$" || true
         else
             ${_SUDO} systemctl start docker 2>/dev/null || ${_SUDO} service docker start 2>/dev/null || true
@@ -547,7 +560,7 @@ if ! docker info &>/dev/null 2>&1; then
             echo ""
             echo -e "  Start it manually, then re-run the installer:"
             echo -e "  ${GREEN}sudo service docker start${NC}"
-            echo -e "  ${GREEN}curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash${NC}"
+            echo -e "  ${GREEN}bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)${NC}"
             echo ""
             echo -e "  ${BOLD}Tip:${NC} Add this to ${GREEN}~/.bashrc${NC} so Docker starts automatically on WSL2 login:"
             echo -e "  ${GREEN}sudo service docker start > /dev/null 2>&1${NC}"
@@ -1398,7 +1411,7 @@ Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed
 
 To update Flaiwheel, tell the user to run this in their project directory:
 \`\`\`bash
-curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 \`\`\`
 You can also call \`check_update()\` to check if a newer version is available.
 
@@ -1528,7 +1541,7 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 To update Flaiwheel, tell the user to run this in their project directory:
 \`\`\`bash
-curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 \`\`\`
 You can also call \`check_update()\` to check if a newer version is available.
 

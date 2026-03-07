@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.23] — 2026-03-07
+
+### Fixed
+- **installer: iptables-legacy + docker group on WSL2** — run `update-alternatives --set iptables /usr/sbin/iptables-legacy` before starting Docker. Add user to docker group via `usermod -aG docker`. Applied in both post-install and daemon-start blocks.
+- **All displayed install commands use `bash <(curl ...)`** — error messages, generated AGENTS.md, Cursor rules, and Claude instructions all updated.
+
+---
+
 ## [3.9.22] — 2026-03-07
 
 ### Fixed

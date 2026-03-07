@@ -79,7 +79,12 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.22
+## What’s New in v3.9.23
+
+- **Fix: Docker daemon start on WSL2 with iptables-legacy** — Docker on WSL2 often fails to start silently because the default `iptables-nft` backend is not supported. The installer now switches to `iptables-legacy` via `update-alternatives` before starting Docker. Also adds the current user to the `docker` group automatically.
+- **All install commands updated to `bash <(curl ...)`** — every displayed install/re-run command throughout the script (error messages, AGENTS.md, Cursor rules, etc.) now uses process substitution to avoid WSL2 pipe issues.
+
+### Previous: v3.9.22
 
 - **Fix: `curl | bash` pipe write failures on WSL2** — `curl | bash` can fail with `curl: (23) Failure writing output` on WSL2 due to pipe/tmp permission issues. The primary install command in README is now `bash <(curl ...)` (process substitution), which avoids the pipe entirely. The re-exec block also tries `$HOME` as a fallback temp dir when `/tmp` writes fail. Error message explicitly recommends the `bash <(curl ...)` form.
 
