@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.17] — 2026-03-07
+
+### Fixed
+- **installer: `gh auth login` must not use sudo** — after auto-installing `gh` on Linux/WSL, the installer now pauses and tells the user to run `gh auth login` without `sudo`. Running auth with sudo stores credentials in `/root/.config/gh/`, which is invisible to the current user. Added explicit warning at both the post-install step and the pre-flight auth check.
+
+---
+
 ## [3.9.16] — 2026-03-07
 
 ### Fixed

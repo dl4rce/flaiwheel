@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.16
+## What’s New in v3.9.17
+
+- **Fix: `gh auth login` must not be run with sudo** — after auto-installing `gh` on Linux/WSL, the installer now explicitly tells the user to run `gh auth login` **without** `sudo`. If auth was previously done with `sudo`, credentials ended up in `/root/.config/gh/` and were invisible to the current user, causing the auth check to fail. The error messages at both the post-install and the auth-check step now clearly warn: do not use sudo for `gh auth`.
+
+### Previous: v3.9.16
 
 - **Fix: installer works on WSL and non-root Linux** — all Linux package manager commands (`apt-get`, `dnf`, `yum`, `zypper`, `pacman`), Docker convenience script, and `systemctl` calls now automatically use `sudo` when the installer is not running as root. Root installs are unaffected. Fixes `Permission denied` / lock file errors on WSL and standard Linux desktop users.
 

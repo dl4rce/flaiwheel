@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.16"
+_FW_VERSION="3.9.17"
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
@@ -306,6 +306,26 @@ if ! command -v gh &>/dev/null; then
 
     if [ "$_GH_INSTALLED" = true ] && command -v gh &>/dev/null; then
         ok "GitHub CLI installed: $(gh --version | head -1)"
+        # Freshly installed — gh is not yet authenticated. Guide the user explicitly
+        # to run auth WITHOUT sudo (credentials must live in the current user's home).
+        if ! gh auth status &>/dev/null; then
+            echo ""
+            echo -e "  ${YELLOW}${BOLD}┌─────────────────────────────────────────────────────────┐${NC}"
+            echo -e "  ${YELLOW}${BOLD}│  ACTION REQUIRED — GitHub CLI authentication            │${NC}"
+            echo -e "  ${YELLOW}${BOLD}└─────────────────────────────────────────────────────────┘${NC}"
+            echo ""
+            echo -e "  GitHub CLI was just installed. You need to authenticate ${BOLD}once${NC}:"
+            echo ""
+            echo -e "  ${GREEN}gh auth login${NC}"
+            echo ""
+            echo -e "  ${BOLD}⚠️  Do NOT use sudo${NC} — credentials are stored in your home"
+            echo -e "  directory and must belong to your user, not root."
+            echo ""
+            echo -e "  After authenticating, re-run the Flaiwheel installer:"
+            echo -e "  ${GREEN}curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash${NC}"
+            echo ""
+            exit 0
+        fi
     else
         echo ""
         echo -e "  ${RED}${BOLD}Auto-install failed or unsupported on this platform.${NC}"
@@ -319,9 +339,21 @@ if ! command -v gh &>/dev/null; then
     fi
 fi
 
-# 2. gh authenticated
+# 2. gh authenticated — also catches the case where gh was already installed but auth
+#    was done with sudo (credentials under /root/.config/gh, invisible to current user)
 if ! gh auth status &>/dev/null; then
-    fail "GitHub CLI not authenticated. Run: gh auth login"
+    echo ""
+    echo -e "  ${RED}${BOLD}GitHub CLI is not authenticated for the current user.${NC}"
+    echo ""
+    echo -e "  Run (${BOLD}without sudo${NC}):"
+    echo -e "  ${GREEN}gh auth login${NC}"
+    echo ""
+    echo -e "  ${BOLD}⚠️  If you previously ran 'sudo gh auth login'${NC}, that stored"
+    echo -e "  credentials for root, not your user. Re-run without sudo."
+    echo ""
+    echo -e "  After authenticating, re-run the Flaiwheel installer."
+    echo ""
+    exit 1
 fi
 
 # 3. Inside a git repo — if not, offer to clone or cd into one
