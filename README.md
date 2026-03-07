@@ -79,7 +79,11 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.19
+## What’s New in v3.9.20
+
+- **Fix: Docker daemon startup poll on WSL2** — instead of a fixed 5-second sleep, the installer now polls `docker info` every 2 seconds for up to 30 seconds after `service docker start`. Also shows the actual output of `service docker start` so startup errors are visible instead of silently swallowed.
+
+### Previous: v3.9.19
 
 - **Fix: Docker daemon start on WSL2** — WSL2 typically has no `systemd`, so `systemctl start docker` silently failed. The installer now detects WSL2 via `/proc/version` and uses `sudo service docker start` instead. If Docker still isn't running after install, a clear WSL2-specific error is shown with the exact fix command and a tip to add it to `~/.bashrc` for auto-start on login.
 

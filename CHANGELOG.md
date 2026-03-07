@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.20] — 2026-03-07
+
+### Fixed
+- **installer: poll Docker daemon readiness on WSL2** — replace fixed 5s sleep with 15×2s poll loop (30s max). Show `service docker start` output. Consolidate WSL detection into one variable.
+
+---
+
 ## [3.9.19] — 2026-03-07
 
 ### Fixed
