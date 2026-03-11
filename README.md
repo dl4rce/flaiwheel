@@ -46,7 +46,7 @@ Flaiwheel ensures:
 
 It does not replace your AI assistant. **It makes it reliable at scale.**
 
-**📄 [Whitepaper (PDF)](https://flaiwheel.app/flaiwheel_whitepaper_volker_geith_v1.2.pdf)** — Vision, architecture, and design in depth.
+**📄 [Whitepaper (PDF)](https://flaiwheel.app/flaiwheel_whitepaper_volker_geith_v1.3.pdf)** — Vision, architecture, and design in depth.
 
 ---
 
