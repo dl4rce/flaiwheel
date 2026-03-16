@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.26] — 2026-03-16
+
+### Added
+- **Claude Cowork skill** — installer now writes `.skills/skills/flaiwheel/SKILL.md` to the project directory. When the project is opened in Claude (Cowork), the Flaiwheel workflow skill is available automatically: session-start context restore, pre-coding knowledge search, mandatory post-bugfix documentation, and session-end summarisation — all without manual configuration.
+- `skills/flaiwheel/SKILL.md` committed to the repo as the canonical skill source for reference and manual install.
+
+---
+
 ## [3.9.25] — 2026-03-07
 
 ### Added

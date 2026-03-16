@@ -81,7 +81,12 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.25
+## What’s New in v3.9.26
+
+- **Claude Cowork skill** — the Flaiwheel workflow is now distributed as a native Claude skill. The installer writes `.skills/skills/flaiwheel/SKILL.md` to your project. When you open the project in Claude (Cowork), the skill is auto-available — no extra setup needed. The skill drives session-start context restore, pre-coding knowledge search, mandatory post-bugfix documentation, and session-end summarisation.
+- Skill source also committed to `skills/flaiwheel/SKILL.md` in this repo for reference and manual install.
+
+### Previous: v3.9.25
 
 - **WSL2 automatic pre-flight setup** — WSL2 is now detected automatically and a dedicated pre-flight block runs before the main installer flow. No manual steps required:
   1. Switches `iptables` to legacy backend (fixes Docker networking / DNAT errors)
@@ -221,8 +226,9 @@ bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts
 5. Configures **VS Code / GitHub Copilot** — writes `.vscode/mcp.json` (native SSE, VS Code 1.99+) and `.github/copilot-instructions.md`
 6. Configures **Claude Desktop** (macOS app) — writes `claude_desktop_config.json` via `mcp-remote` bridge (requires Node.js)
 7. Configures **Claude Code CLI** — writes `.mcp.json` + `CLAUDE.md` and runs `claude mcp add` automatically if the CLI is on PATH
-8. Writes `AGENTS.md` for all other agents
-9. If existing `.md` docs are found, creates a migration guide — the AI will offer to organize them into the knowledge repo
+8. Installs **Claude Cowork skill** — writes `.skills/skills/flaiwheel/SKILL.md` so the full Flaiwheel workflow is available as a native Claude skill
+9. Writes `AGENTS.md` for all other agents
+10. If existing `.md` docs are found, creates a migration guide — the AI will offer to organize them into the knowledge repo
 
 **After install:**
 
@@ -232,6 +238,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts
 | **Claude Desktop** (macOS app) | Quit and reopen Claude for Mac — hammer icon appears when connected |
 | **Claude Code CLI** | Already registered automatically — run `/mcp` inside Claude Code to verify |
 | **VS Code** | Open project → Command Palette → **MCP: List Servers** → start `flaiwheel` |
+| **Claude (Cowork)** | Skill auto-loads from `.skills/skills/flaiwheel/SKILL.md` — no further action needed |
 
 The installer also sets up a **post-commit git hook** that automatically captures every `fix:`, `feat:`, `refactor:`, `perf:`, and `docs:` commit as a structured knowledge doc — no agent or manual action required.
 
