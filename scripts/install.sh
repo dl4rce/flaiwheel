@@ -46,8 +46,8 @@ if [ ! -t 0 ]; then
         # Running as a file (e.g. bash /tmp/fw-install.sh) — just re-exec with stdin from /dev/tty
         exec bash "$0" "$@" </dev/tty
     else
-        # Truly piped via curl | bash — download pinned to current version tag
-        _PINNED_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/v${_FW_VERSION}/scripts/install.sh"
+        # Truly piped via curl | bash — re-download from main (always latest; tag can be CDN-cached)
+        _PINNED_URL="https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh"
         # Try /tmp first; fall back to $HOME on WSL2 where /tmp writes may fail
         for _TMP_DIR in /tmp "$HOME" "${TMPDIR:-/tmp}"; do
             _TMP_SCRIPT=$(mktemp "${_TMP_DIR}/flaiwheel-install-$$-XXXXXX.sh" 2>/dev/null) && break || true
