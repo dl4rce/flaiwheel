@@ -2,5 +2,6 @@
   "$schema": "https://glama.ai/mcp/schemas/server.json",
   "maintainers": [
     "dl4rce"
-  ]
+  ],
+  "license": "BUSL-1.1"
 }
