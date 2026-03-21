@@ -10,9 +10,9 @@ Web-UI in a background thread, MCP SSE server in the main thread.
 Supports multiple projects via ProjectRegistry.
 """
 import threading
+from pathlib import Path
 
 import uvicorn
-from chromadb.utils import embedding_functions
 
 from .auth import AuthManager
 from .config import Config
@@ -23,6 +23,7 @@ from .web import create_web_app
 
 def _create_embedding_fn(config: Config):
     """Create a single embedding function to share across all projects."""
+    from chromadb.utils import embedding_functions
     if config.embedding_provider == "local":
         return embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=config.embedding_model
