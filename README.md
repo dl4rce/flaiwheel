@@ -635,4 +635,4 @@ Flaiwheel is source-available under the [Business Source License 1.1](https://ma
 - Effective **2030-02-25**, this version converts to **Apache License 2.0** (fully open source)
 - Commercial licenses: [info@4rce.com](mailto:info@4rce.com) | [https://4rce.com](https://4rce.com)
 
-See [LICENSE.md](LICENSE.md) for full terms.
+See [LICENSE](LICENSE) for full terms.

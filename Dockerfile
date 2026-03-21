@@ -1,6 +1,6 @@
 # Flaiwheel – Self-improving knowledge base for AI coding agents
 # Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.
-# BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
+# BSL 1.1. See LICENSE. Commercial licensing: info@4rce.com
 
 # ── Stage 1: build deps ───────────────────────────────────────────────────
 # Uses uv (Rust-based installer, parallel, 10-100x faster than pip).

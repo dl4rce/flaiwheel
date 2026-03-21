@@ -1,7 +1,7 @@
 #!/bin/bash
 # Flaiwheel – Self-improving knowledge base for AI coding agents
 # Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.
-# BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
+# BSL 1.1. See LICENSE. Commercial licensing: info@4rce.com
 #
 # One-command installer: sets up Flaiwheel for any project.
 # Usage: bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
