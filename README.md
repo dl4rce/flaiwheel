@@ -622,17 +622,16 @@ MCP_DOCS_PATH=/tmp/flaiwheel-docs MCP_VECTORSTORE_PATH=/tmp/flaiwheel-data pytho
 
 ## License
 
-**Business Source License 1.1 (BSL 1.1)**
+**GNU Affero General Public License v3.0 (AGPL-3.0)**
 
-Flaiwheel is source-available under the [Business Source License 1.1](https://mariadb.com/bsl11/).
+Flaiwheel is open source under the [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html).
 
-**You may use Flaiwheel for free** if:
-- Your use is **non-commercial** (personal, educational, no revenue), or
-- Your organization has **no more than 10 individuals** using it
+**Free to use** for personal, non-commercial, and open source projects. If you run a modified version as a network service, you must release your modifications under AGPL-3.0.
 
-**Commercial use beyond these limits** (e.g., teams of 11+ or commercial deployment) requires a paid license.
+**Commercial license** available for proprietary/closed-source use — no AGPL obligations.
 
-- Effective **2030-02-25**, this version converts to **Apache License 2.0** (fully open source)
+**Beta Program** — free commercial license through December 31, 2026. [Sign up at flaiwheel.app](https://flaiwheel.app/#beta).
+
 - Commercial licenses: [info@4rce.com](mailto:info@4rce.com) | [https://4rce.com](https://4rce.com)
 
 See [LICENSE.md](LICENSE.md) for full terms.
