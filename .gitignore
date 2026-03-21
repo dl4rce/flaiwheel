@@ -55,3 +55,4 @@ node_modules/
 .cursor/mcp.json
 # Flaiwheel hook config (contains local credentials)
 .cursor/flaiwheel-hook.conf
+LICENSE.md.bak_*
