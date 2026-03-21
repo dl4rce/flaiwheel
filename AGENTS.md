@@ -83,7 +83,7 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 
 To update Flaiwheel, tell the user to run this in their project directory:
 ```bash
-curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh | bash
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 ```
 You can also call `check_update()` to check if a newer version is available.
 

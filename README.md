@@ -1,5 +1,7 @@
 # Flaiwheel
 
+[![flaiwheel MCP server](https://glama.ai/mcp/servers/dl4rce/flaiwheel/badges/score.svg)](https://glama.ai/mcp/servers/dl4rce/flaiwheel)
+
 > Self-hosted memory & governance layer for AI coding agents.
 > Turn every bug fix into permanent knowledge. Zero cloud. Zero lock-in.
 
