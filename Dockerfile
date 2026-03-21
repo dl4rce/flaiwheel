@@ -1,6 +1,6 @@
 # Flaiwheel – Self-improving knowledge base for AI coding agents
 # Copyright (c) 2026 4rce.com Digital Technologies GmbH. All rights reserved.
-# AGPL-3.0. Commercial licensing: info@4rce.com
+# BSL 1.1. See LICENSE.md. Commercial licensing: info@4rce.com
 
 # ── Stage 1: build deps ───────────────────────────────────────────────────
 # Uses uv (Rust-based installer, parallel, 10-100x faster than pip).
@@ -60,7 +60,7 @@ ARG FLAIWHEEL_VERSION=dev
 LABEL org.opencontainers.image.version="${FLAIWHEEL_VERSION}" \
       org.opencontainers.image.title="Flaiwheel" \
       org.opencontainers.image.source="https://github.com/dl4rce/flaiwheel" \
-      org.opencontainers.image.licenses="AGPL-3.0"
+      org.opencontainers.image.licenses="BSL-1.1"
 
 ENV MCP_DOCS_PATH=/docs \
     MCP_VECTORSTORE_PATH=/data/vectorstore \
