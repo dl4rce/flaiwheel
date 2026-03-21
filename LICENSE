@@ -5,19 +5,9 @@ Parameters
 Licensor:             4rce.com Digital Technologies GmbH
 Licensed Work:        Flaiwheel
                       The Licensed Work is (c) 2026 4rce.com Digital Technologies GmbH
-Additional Use Grant: You may use the Licensed Work in production provided that
-                      your use meets one of the following conditions:
-                      (a) Your use is non-commercial (no revenue, no commercial
-                          advantage, personal or educational use only); or
-                      (b) Your use is by an organization with no more than 10
-                          individuals (employees, contractors, or other persons
-                          using the Licensed Work on behalf of the organization); or
-                      (c) You are a participant in the Flaiwheel Beta Program
-                          (sign-up at https://flaiwheel.app/#beta before
-                          2027-01-01), in which case you may use the Licensed Work
-                          commercially through 2026-12-31 regardless of
-                          organization size. This grant is time-boxed and does not
-                          extend beyond the stated date.
+Additional Use Grant: See LICENSE.md for the full Additional Use Grant, including
+                      non-commercial use, small-team use, and the Flaiwheel Beta
+                      Program exception (commercial use through 2026-12-31).
 Change Date:          2030-02-25
 Change License:       Apache License, Version 2.0
 
