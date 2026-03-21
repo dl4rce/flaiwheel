@@ -51,38 +51,46 @@ def main():
     config = Config.load()
     config_lock = threading.Lock()
 
-    print("Creating shared embedding model...")
-    embedding_fn = _create_embedding_fn(config)
+    # In stdio mode (e.g. Glama inspection), skip heavy init if no data path exists.
+    # The MCP server starts immediately and responds to capability negotiation;
+    # tools that require an index return a graceful "no projects configured" message.
+    stdio_cold_start = config.transport == "stdio" and not Path("/data").exists()
+
+    if not stdio_cold_start:
+        print("Creating shared embedding model...")
+    embedding_fn = _create_embedding_fn(config) if not stdio_cold_start else None
 
     registry = ProjectRegistry(config, embedding_fn=embedding_fn)
-    registry.bootstrap()
-    registry.start_all_watchers()
+    if not stdio_cold_start:
+        registry.bootstrap()
+        registry.start_all_watchers()
 
     n = len(registry)
-    print(f"Loaded {n} project{'s' if n != 1 else ''}: {', '.join(registry.names()) or '(none)'}")
+    if not stdio_cold_start:
+        print(f"Loaded {n} project{'s' if n != 1 else ''}: {', '.join(registry.names()) or '(none)'}")
 
     auth = AuthManager(config)
 
     mcp_server = create_mcp_server(config, registry)
-    web_app = create_web_app(
-        config, registry, config_lock, auth,
-        get_telemetry=mcp_server.get_telemetry_data,
-        get_impact_metrics=mcp_server.get_impact_metrics,
-        record_ci_guardrail=mcp_server.record_ci_guardrail_report,
-    )
-
-    def run_web():
-        uvicorn.run(
-            web_app, host="0.0.0.0", port=config.web_port,
-            log_level="warning",
-        )
-
-    web_thread = threading.Thread(target=run_web, daemon=True)
-    web_thread.start()
-    print(f"Web-UI running on http://0.0.0.0:{config.web_port}")
 
     print(f"MCP server starting ({config.transport} transport)...")
     if config.transport == "sse":
+        web_app = create_web_app(
+            config, registry, config_lock, auth,
+            get_telemetry=mcp_server.get_telemetry_data,
+            get_impact_metrics=mcp_server.get_impact_metrics,
+            record_ci_guardrail=mcp_server.record_ci_guardrail_report,
+        )
+
+        def run_web():
+            uvicorn.run(
+                web_app, host="0.0.0.0", port=config.web_port,
+                log_level="warning",
+            )
+
+        web_thread = threading.Thread(target=run_web, daemon=True)
+        web_thread.start()
+        print(f"Web-UI running on http://0.0.0.0:{config.web_port}")
         _run_mcp_sse(mcp_server, "0.0.0.0", config.sse_port)
     else:
         mcp_server.run(transport="stdio")
