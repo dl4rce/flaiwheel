@@ -83,7 +83,12 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.26
+## What’s New in v3.9.27
+
+- **License cleanup** — one `LICENSE` file (BSL 1.1) for correct GitHub/Glama detection; all docs and headers point to `LICENSE` (not `LICENSE.md`).
+- **Glama / stdio inspection** — optional `[inspect]` deps and cold-start stdio path for lightweight MCP directory builds.
+
+### Previous: v3.9.26
 
 - **Claude Cowork skill** — the Flaiwheel workflow is now distributed as a native Claude skill. The installer writes `.skills/skills/flaiwheel/SKILL.md` to your project. When you open the project in Claude (Cowork), the skill is auto-available — no extra setup needed. The skill drives session-start context restore, pre-coding knowledge search, mandatory post-bugfix documentation, and session-end summarisation.
 - Skill source also committed to `skills/flaiwheel/SKILL.md` in this repo for reference and manual install.

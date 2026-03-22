@@ -7,6 +7,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.27] — 2026-03-21
+
+### Changed
+- **License file layout** — single canonical `LICENSE` (BSL 1.1) with full Additional Use Grant inline; removed `LICENSE.md` so GitHub Licensee no longer reports “Unknown, Unknown licenses” from dual files.
+- **References** — all `LICENSE.md` pointers updated to `LICENSE` across README, `pyproject.toml`, Dockerfile, scripts, and source headers.
+
+### Added
+- **`[inspect]` optional dependency group** — lightweight deps for Glama MCP directory builds (no torch/CUDA pull); stdio cold-start skips heavy init when `/data` is absent.
+- **`glama.json`**, **`SECURITY.md`**, root **`LICENSE`** — Glama listing and security disclosure.
+
+### Fixed
+- **stdio / Glama** — cold-start path for `MCP_TRANSPORT=stdio` without embedding bootstrap; lazy `chromadb` import in `__main__.py`.
+
+---
+
 ## [3.9.26] — 2026-03-16
 
 ### Added
