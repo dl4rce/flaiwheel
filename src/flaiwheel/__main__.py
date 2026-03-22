@@ -9,6 +9,7 @@ Runs Web-UI + MCP Server in a single process with shared state.
 Web-UI in a background thread, MCP SSE server in the main thread.
 Supports multiple projects via ProjectRegistry.
 """
+import json
 import threading
 from pathlib import Path
 
@@ -16,9 +17,40 @@ import uvicorn
 
 from .auth import AuthManager
 from .config import Config
-from .project import ProjectRegistry
+from .logutil import diag
+from .project import PROJECTS_FILE, ProjectRegistry
 from .server import create_mcp_server
 from .web import create_web_app
+
+
+def _stdio_cold_start(config: Config) -> bool:
+    """Skip heavy embedding/bootstrap for stdio when there is nothing to load.
+
+    MCP over stdio must not write to stdout except JSON-RPC. We also avoid
+    pulling models when Glama (or similar) runs with empty Docker volumes:
+    ``/data`` exists as a VOLUME but has no ``projects.json`` yet.
+    """
+    if config.transport != "stdio":
+        return False
+    if not Path("/data").exists():
+        return True
+    if PROJECTS_FILE.exists():
+        try:
+            raw = json.loads(PROJECTS_FILE.read_text())
+            if isinstance(raw, list) and len(raw) > 0:
+                return False
+        except Exception:
+            pass
+    if config.git_repo_url:
+        return False
+    docs = Path(config.docs_path)
+    if docs.exists():
+        try:
+            if any(docs.iterdir()):
+                return False
+        except OSError:
+            return True
+    return True
 
 
 def _create_embedding_fn(config: Config):
@@ -52,13 +84,13 @@ def main():
     config = Config.load()
     config_lock = threading.Lock()
 
-    # In stdio mode (e.g. Glama inspection), skip heavy init if no data path exists.
+    # In stdio mode (e.g. Glama inspection), skip heavy init when volumes are empty.
     # The MCP server starts immediately and responds to capability negotiation;
     # tools that require an index return a graceful "no projects configured" message.
-    stdio_cold_start = config.transport == "stdio" and not Path("/data").exists()
+    stdio_cold_start = _stdio_cold_start(config)
 
     if not stdio_cold_start:
-        print("Creating shared embedding model...")
+        diag("Creating shared embedding model...")
     embedding_fn = _create_embedding_fn(config) if not stdio_cold_start else None
 
     registry = ProjectRegistry(config, embedding_fn=embedding_fn)
@@ -68,13 +100,16 @@ def main():
 
     n = len(registry)
     if not stdio_cold_start:
-        print(f"Loaded {n} project{'s' if n != 1 else ''}: {', '.join(registry.names()) or '(none)'}")
+        diag(
+            f"Loaded {n} project{'s' if n != 1 else ''}: "
+            f"{', '.join(registry.names()) or '(none)'}"
+        )
 
     auth = AuthManager(config)
 
     mcp_server = create_mcp_server(config, registry)
 
-    print(f"MCP server starting ({config.transport} transport)...")
+    diag(f"MCP server starting ({config.transport} transport)...")
     if config.transport == "sse":
         web_app = create_web_app(
             config, registry, config_lock, auth,
@@ -91,7 +126,7 @@ def main():
 
         web_thread = threading.Thread(target=run_web, daemon=True)
         web_thread.start()
-        print(f"Web-UI running on http://0.0.0.0:{config.web_port}")
+        diag(f"Web-UI running on http://0.0.0.0:{config.web_port}")
         _run_mcp_sse(mcp_server, "0.0.0.0", config.sse_port)
     else:
         mcp_server.run(transport="stdio")

@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.28] — 2026-03-22
+
+### Fixed
+- **MCP stdio / Glama "no tools detected"** — MCP over stdio uses **stdout exclusively for JSON-RPC**. All startup/bootstrap diagnostics now write to **stderr** via new `logutil.diag()`. Previously every `print()` on stdout corrupted the JSON-RPC stream so MCP clients (Glama Inspector, Claude) could not parse `tools/list` and reported zero tools.
+- **stdio cold-start with empty Docker volume** — cold-start logic now also triggers when `/data` exists as an empty Docker volume with no `projects.json` and no docs (previously only skipped when `/data` was absent, so the full bootstrap always ran under Glama).
+
+---
+
 ## [3.9.27] — 2026-03-21
 
 ### Changed

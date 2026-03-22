@@ -19,6 +19,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from .config import Config
+from .logutil import diag
 from .health import HealthTracker
 from .indexer import DocsIndexer
 from .quality import KnowledgeQualityChecker
@@ -208,7 +209,7 @@ class ProjectRegistry:
             data = json.loads(PROJECTS_FILE.read_text())
             return [ProjectConfig(**p) for p in data]
         except Exception as e:
-            print(f"Warning: Failed to load projects.json: {e}")
+            diag(f"Warning: Failed to load projects.json: {e}")
             return []
 
     def update_global_config(self, new_config: Config):
@@ -225,7 +226,7 @@ class ProjectRegistry:
         if configs:
             self._migrate_root_docs_paths(configs)
             for pc in configs:
-                print(f"Loading project: {pc.name}")
+                diag(f"Loading project: {pc.name}")
                 ctx = self.add(pc, start_watcher=False)
                 ctx.watcher.clone_if_needed()
                 _initial_index(ctx)
@@ -234,7 +235,7 @@ class ProjectRegistry:
         gc = self._global_config
         if gc.git_repo_url or Path(gc.docs_path).exists():
             name = _derive_project_name(gc)
-            print(f"Legacy mode: creating project '{name}' from env vars")
+            diag(f"Legacy mode: creating project '{name}' from env vars")
 
             isolated_path = f"{gc.docs_path.rstrip('/')}/{name}"
 
@@ -264,7 +265,7 @@ class ProjectRegistry:
             if pc.docs_path == "/docs":
                 old = pc.docs_path
                 pc.docs_path = f"/docs/{pc.name}"
-                print(f"  Migrating {pc.name}: docs_path {old} -> {pc.docs_path}")
+                diag(f"  Migrating {pc.name}: docs_path {old} -> {pc.docs_path}")
                 changed = True
         if changed:
             self._save_configs(configs)
@@ -289,7 +290,7 @@ class ProjectRegistry:
 
 def _initial_index(ctx: ProjectContext):
     """Run initial indexing and quality check for a project."""
-    print(f"  [{ctx.name}] Indexing {ctx.merged_config.docs_path} ...")
+    diag(f"  [{ctx.name}] Indexing {ctx.merged_config.docs_path} ...")
     result = ctx.indexer.index_all(quality_checker=ctx.quality_checker)
     ctx.health.record_index(
         ok=result.get("status") == "success",
@@ -304,12 +305,12 @@ def _initial_index(ctx: ProjectContext):
             qr["score"], qr.get("critical", 0),
             qr.get("warnings", 0), qr.get("info", 0),
         )
-        print(f"  [{ctx.name}] Quality: {qr['score']}/100")
+        diag(f"  [{ctx.name}] Quality: {qr['score']}/100")
     except Exception as e:
-        print(f"  [{ctx.name}] Warning: Quality check failed: {e}")
+        diag(f"  [{ctx.name}] Warning: Quality check failed: {e}")
     files = result.get("files_indexed", 0)
     chunks = result.get("chunks_upserted", 0)
-    print(f"  [{ctx.name}] Done: {files} files, {chunks} chunks")
+    diag(f"  [{ctx.name}] Done: {files} files, {chunks} chunks")
 
 
 def _derive_project_name(config: Config) -> str:

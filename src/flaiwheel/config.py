@@ -13,6 +13,8 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import Literal
 
+from .logutil import diag
+
 CONFIG_FILE = Path("/data/config.json")
 
 
@@ -79,7 +81,7 @@ class Config(BaseSettings):
                     if hasattr(config, key) and value != "":
                         setattr(config, key, value)
             except Exception as e:
-                print(f"Warning: Config file error: {e}")
+                diag(f"Warning: Config file error: {e}")
 
         return config
 

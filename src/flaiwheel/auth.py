@@ -10,7 +10,9 @@ Password is stored as salted SHA-256 in config.
 import hashlib
 import hmac
 import secrets
+
 from .config import Config
+from .logutil import diag
 
 
 class AuthManager:
@@ -38,14 +40,14 @@ class AuthManager:
 
     @staticmethod
     def _print_credentials(password: str):
-        print()
-        print("=" * 50)
-        print("  ADMIN CREDENTIALS")
-        print(f"  Username: admin")
-        print(f"  Password: {password}")
-        print("  Change via Web UI > Security")
-        print("=" * 50)
-        print()
+        diag()
+        diag("=" * 50)
+        diag("  ADMIN CREDENTIALS")
+        diag("  Username: admin")
+        diag(f"  Password: {password}")
+        diag("  Change via Web UI > Security")
+        diag("=" * 50)
+        diag()
 
         # Write to file so install script can reliably read it
         try:
