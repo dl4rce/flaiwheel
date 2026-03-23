@@ -87,10 +87,14 @@ class Config(BaseSettings):
 
     def save(self):
         """Persist current config for Web-UI."""
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(
-            json.dumps(self.model_dump(), indent=2, default=str)
-        )
+        try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG_FILE.write_text(
+                json.dumps(self.model_dump(), indent=2, default=str)
+            )
+        except OSError as e:
+            diag(f"Warning: Cannot save config ({e}) — read-only filesystem?")
+
 
     def to_safe_dict(self) -> dict:
         """Config without secrets (for Web-UI display)."""

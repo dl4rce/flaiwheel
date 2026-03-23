@@ -84,7 +84,13 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.28
+## What’s New in v3.9.29
+
+- **Glama tool detection fix** — `AuthManager` crashed on read-only `/data` before the MCP server could start (the real reason Glama saw 0 tools). Skipped in stdio cold-start mode.
+- **Zero print() on stdout** — 36 remaining `print()` in watcher, indexer, readers, bootstrap replaced with `diag()` (stderr). Verified: full MCP handshake returns all 28 tools over stdio.
+- **`config.save()` resilient** — read-only filesystem logs warning instead of crashing.
+
+### Previous: v3.9.28
 
 - **Glama / MCP stdio fix** — all diagnostic output moved to stderr; stdout is now JSON-RPC only. Glama Inspector now detects all 28 tools correctly.
 - **Improved cold-start detection** — stdio cold-start logic handles empty Docker volumes correctly (no bootstrap / model download during Glama inspection).

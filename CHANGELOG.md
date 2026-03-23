@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.29] — 2026-03-23
+
+### Fixed
+- **Glama stdio crash** — `AuthManager` tried to write `/data/config.json` on first startup, crashing with `OSError: Read-only file system` before the MCP server could start. In `stdio_cold_start` mode, `AuthManager` is now skipped entirely (no Web-UI auth needed for stdio).
+- **`config.save()` resilient to read-only `/data`** — wrapped in try/except so a read-only filesystem logs a warning instead of crashing.
+- **Remaining 36 `print()` calls → `diag()`** — `watcher.py`, `indexer.py`, `readers.py`, and `bootstrap.py` still had `print()` on stdout. All diagnostics now go to stderr via `logutil.diag()`. Zero `print()` calls remain outside of `logutil.py`.
+
+---
+
 ## [3.9.28] — 2026-03-22
 
 ### Fixed

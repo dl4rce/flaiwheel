@@ -18,6 +18,7 @@ from pathlib import Path
 from .config import Config
 from .health import HealthTracker
 from .indexer import DocsIndexer
+from .logutil import diag
 from .quality import KnowledgeQualityChecker
 
 
@@ -48,10 +49,10 @@ class GitWatcher:
             return False
 
         if docs.exists() and any(docs.iterdir()):
-            print(f"Warning: {docs} is not empty, skipping git clone")
+            diag(f"Warning: {docs} is not empty, skipping git clone")
             return False
 
-        print(f"Cloning {self.config.git_repo_url} -> {docs}")
+        diag(f"Cloning {self.config.git_repo_url} -> {docs}")
 
         clone_url = self._auth_url(self.config.git_repo_url)
 
@@ -72,7 +73,7 @@ class GitWatcher:
         if self.config.git_docs_subpath:
             actual_path = docs / self.config.git_docs_subpath
             if actual_path.exists():
-                print(f"Git subpath: {actual_path}")
+                diag(f"Git subpath: {actual_path}")
 
         return True
 
@@ -86,7 +87,7 @@ class GitWatcher:
         try:
             self._push_local_changes()
         except Exception as e:
-            print(f"Warning: Auto-push failed: {e}")
+            diag(f"Warning: Auto-push failed: {e}")
 
     def _push_local_changes(self):
         """Detect uncommitted changes, commit + push them."""
@@ -139,11 +140,11 @@ class GitWatcher:
         if push_result.returncode != 0:
             if self.health:
                 self.health.record_push(ok=False, error=push_result.stderr)
-            print(f"Warning: git push failed: {push_result.stderr}")
+            diag(f"Warning: git push failed: {push_result.stderr}")
         else:
             if self.health:
                 self.health.record_push(ok=True)
-            print(f"Pushed {len(files)} file(s) to remote")
+            diag(f"Pushed {len(files)} file(s) to remote")
 
     def _build_commit_message(self, files: list[str]) -> str:
         prefix = self.config.git_commit_prefix
@@ -209,7 +210,7 @@ class GitWatcher:
                     ["git", "-C", str(git_dir), "fetch", "--unshallow"],
                     capture_output=True, timeout=60,
                 )
-                print("Unshallowed git repo for proper pull support")
+                diag("Unshallowed git repo for proper pull support")
             except Exception:
                 pass
 
@@ -223,7 +224,7 @@ class GitWatcher:
         except subprocess.CalledProcessError as e:
             if self.health:
                 self.health.record_pull(ok=False, error=str(e))
-            print(f"Warning: Git pull failed: {e}")
+            diag(f"Warning: Git pull failed: {e}")
             return False
 
         new_commit = self._get_current_commit()
@@ -234,7 +235,7 @@ class GitWatcher:
             self.health.record_git_info(git_dir, self.config.git_repo_url, self.config.git_branch)
 
         if changed:
-            print(f"New commit: {old_commit[:8]} -> {new_commit[:8]}")
+            diag(f"New commit: {old_commit[:8]} -> {new_commit[:8]}")
 
         return changed
 
@@ -249,11 +250,11 @@ class GitWatcher:
 
     def start(self):
         if not self.config.git_repo_url:
-            print("No git repo configured, watcher disabled")
+            diag("No git repo configured, watcher disabled")
             return
 
         if self.config.git_sync_interval <= 0:
-            print("Git sync interval = 0, watcher disabled")
+            diag("Git sync interval = 0, watcher disabled")
             return
 
         self.clone_if_needed()
@@ -266,7 +267,7 @@ class GitWatcher:
         self._running = True
         self._thread = threading.Thread(target=self._sync_loop, daemon=True)
         self._thread.start()
-        print(f"Git watcher started (every {self.config.git_sync_interval}s)")
+        diag(f"Git watcher started (every {self.config.git_sync_interval}s)")
 
     def stop(self):
         self._running = False
@@ -279,7 +280,7 @@ class GitWatcher:
                     self._push_local_changes()
 
                 if self.pull_and_check():
-                    print("Changes detected, reindexing...")
+                    diag("Changes detected, reindexing...")
                     with self.index_lock:
                         result = self.indexer.index_all(quality_checker=self.quality_checker)
                     if self.health:
@@ -297,9 +298,9 @@ class GitWatcher:
                                 qr.get("warnings", 0), qr.get("info", 0),
                             )
                         except Exception as e:
-                            print(f"Warning: Quality check failed: {e}")
-                    print(f"Reindex complete: {result}")
+                            diag(f"Warning: Quality check failed: {e}")
+                    diag(f"Reindex complete: {result}")
             except Exception as e:
                 if self.health:
                     self.health.record_pull(ok=False, error=str(e))
-                print(f"Warning: Git sync error: {e}")
+                diag(f"Warning: Git sync error: {e}")

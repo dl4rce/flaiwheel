@@ -14,6 +14,8 @@ import json
 import re
 from pathlib import Path
 
+from .logutil import diag
+
 SUPPORTED_EXTENSIONS: set[str] = {
     ".md", ".txt", ".pdf", ".html", ".htm",
     ".rst", ".docx", ".json", ".yaml", ".yml", ".csv",
@@ -29,7 +31,7 @@ def extract_text(filepath: Path) -> str | None:
     try:
         return handler(filepath)
     except Exception as exc:
-        print(f"Warning: could not extract text from {filepath}: {exc}")
+        diag(f"Warning: could not extract text from {filepath}: {exc}")
         return None
 
 
@@ -49,7 +51,7 @@ def _read_pdf(path: Path) -> str | None:
     try:
         from pypdf import PdfReader  # type: ignore[import-untyped]
     except ImportError:
-        print(f"Warning: pypdf not installed — skipping {path.name}")
+        diag(f"Warning: pypdf not installed — skipping {path.name}")
         return None
 
     reader = PdfReader(path)
@@ -67,7 +69,7 @@ def _read_html(path: Path) -> str | None:
     try:
         from bs4 import BeautifulSoup  # type: ignore[import-untyped]
     except ImportError:
-        print(f"Warning: beautifulsoup4 not installed — skipping {path.name}")
+        diag(f"Warning: beautifulsoup4 not installed — skipping {path.name}")
         return None
 
     raw = path.read_text(encoding="utf-8", errors="ignore")
@@ -167,7 +169,7 @@ def _read_docx(path: Path) -> str | None:
     try:
         from docx import Document  # type: ignore[import-untyped]
     except ImportError:
-        print(f"Warning: python-docx not installed — skipping {path.name}")
+        diag(f"Warning: python-docx not installed — skipping {path.name}")
         return None
 
     doc = Document(path)

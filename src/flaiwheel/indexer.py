@@ -18,6 +18,7 @@ stable across reindexing regardless of section ordering.
 """
 import hashlib
 import json
+from .logutil import diag
 import re
 import shutil
 import threading
@@ -48,7 +49,7 @@ def _get_reranker(model_name: str):
             _reranker_cache[model_name] = model
         return model
     except Exception as e:
-        print(f"Warning: Failed to load reranker model '{model_name}': {e}")
+        diag(f"Warning: Failed to load reranker model '{model_name}': {e}")
         return None
 
 DEFAULT_COLLECTION = "project_docs"
@@ -128,7 +129,7 @@ class DocsIndexer:
             existing = [c.name for c in self.chroma.list_collections()]
             if self._shadow_name in existing:
                 self.chroma.delete_collection(self._shadow_name)
-                print(f"Cleaned up orphaned shadow collection '{self._shadow_name}'")
+                diag(f"Cleaned up orphaned shadow collection '{self._shadow_name}'")
         except Exception:
             pass
 
@@ -183,7 +184,7 @@ class DocsIndexer:
                 if self.config.embedding_provider == "local"
                 else self.config.openai_embedding_model
             )
-            print(
+            diag(
                 f"Dimension mismatch in '{self._collection_name}': "
                 f"stored={stored_dim}d, model '{model}'={current_dim}d — "
                 f"recreating collection (source docs in git, will re-embed)"
@@ -199,7 +200,7 @@ class DocsIndexer:
             except Exception:
                 pass
         except Exception as e:
-            print(f"Warning: dimension check failed: {e}")
+            diag(f"Warning: dimension check failed: {e}")
 
     def reinit(self, config: Config, embedding_fn=None):
         """Re-init with new config (e.g. after model change in Web UI)."""
@@ -314,7 +315,7 @@ class DocsIndexer:
                             )
                             migration.chunks_created += len(chunks)
                     except Exception as e:
-                        print(f"Migration: error processing {doc_file}: {e}")
+                        diag(f"Migration: error processing {doc_file}: {e}")
                     migration.files_done += 1
 
                 if migration.status == "cancelled":
@@ -381,7 +382,7 @@ class DocsIndexer:
                     pass
                 if health:
                     health.record_migration(migration.to_dict())
-                print(f"Migration failed: {e}")
+                diag(f"Migration failed: {e}")
 
         t = threading.Thread(target=_worker, daemon=True, name=f"migration-{collection_name}")
         migration.thread = t
@@ -606,7 +607,7 @@ class DocsIndexer:
 
         if not force and not existing_ids:
             force = True
-            print("Collection empty — forcing full re-index (ignoring hash cache)")
+            diag("Collection empty — forcing full re-index (ignoring hash cache)")
 
         old_hashes = {} if force else self._load_file_hashes()
         new_hashes: dict[str, str] = {}
@@ -632,7 +633,7 @@ class DocsIndexer:
                     if critical:
                         reasons = "; ".join(i["message"] for i in critical)
                         quality_skipped.append({"file": rel_path, "reason": reasons})
-                        print(f"Quality gate: skipping {rel_path} ({reasons})")
+                        diag(f"Quality gate: skipping {rel_path} ({reasons})")
                         continue
 
                 chunks = self.chunk_markdown(content, rel_path)
@@ -644,7 +645,7 @@ class DocsIndexer:
                 else:
                     skipped += 1
             except Exception as e:
-                print(f"Warning: Error processing {doc_file}: {e}")
+                diag(f"Warning: Error processing {doc_file}: {e}")
 
         # Deduplicate
         deduped_all: dict[str, dict] = {}
@@ -675,7 +676,7 @@ class DocsIndexer:
             for i in range(0, len(stale_list), 5000):
                 self.collection.delete(ids=stale_list[i : i + 5000])
         elif stale_ids and file_count == 0 and existing_ids:
-            print(f"Safety: 0 files on disk but {len(existing_ids)} chunks in DB "
+            diag(f"Safety: 0 files on disk but {len(existing_ids)} chunks in DB "
                   f"— skipping stale removal (repo may not be cloned yet)")
             stale_ids = set()
 
@@ -687,7 +688,7 @@ class DocsIndexer:
         if actual_count > 0 or expected_count == 0:
             self._save_file_hashes(new_hashes)
         else:
-            print(f"Warning: ChromaDB count={actual_count} but expected ~{expected_count}, "
+            diag(f"Warning: ChromaDB count={actual_count} but expected ~{expected_count}, "
                   f"not saving hash cache (will re-embed on next run)")
 
         self._build_bm25_index(list(deduped_all.values()))
@@ -704,7 +705,7 @@ class DocsIndexer:
             "chunks_removed": len(stale_ids),
             "docs_path": str(docs_path),
         }
-        print(
+        diag(
             f"Index: {file_count} files ({file_count - skipped} changed, "
             f"{skipped} skipped) -> {len(upsert_chunks)} chunks upserted"
             f" ({len(stale_ids)} stale removed)"
@@ -845,7 +846,7 @@ class DocsIndexer:
         try:
             results = self.collection.query(**kwargs)
         except Exception as e:
-            print(f"Vector search error: {e}")
+            diag(f"Vector search error: {e}")
             return []
         if not results["documents"] or not results["documents"][0]:
             return []
@@ -873,7 +874,7 @@ class DocsIndexer:
                 hit["rerank_score"] = float(score)
             hits.sort(key=lambda h: h.get("rerank_score", 0), reverse=True)
         except Exception as e:
-            print(f"Reranker error: {e}")
+            diag(f"Reranker error: {e}")
         return hits[:top_k]
 
     @staticmethod

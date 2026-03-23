@@ -105,7 +105,7 @@ def main():
             f"{', '.join(registry.names()) or '(none)'}"
         )
 
-    auth = AuthManager(config)
+    auth = AuthManager(config) if not stdio_cold_start else None
 
     mcp_server = create_mcp_server(config, registry)
 

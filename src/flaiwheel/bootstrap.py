@@ -18,6 +18,7 @@ Two modes of operation:
    ``write_*`` tools to push approved docs into the knowledge repo.
 """
 import json
+from .logutil import diag
 import math
 import re
 import subprocess
@@ -487,7 +488,7 @@ class KnowledgeBootstrap:
             embeddings = self.ef(texts)
             self._category_embeddings = dict(zip(cats, embeddings))
         except Exception as e:
-            print(f"Bootstrap: failed to compute category embeddings: {e}")
+            diag(f"Bootstrap: failed to compute category embeddings: {e}")
             self._category_embeddings = {}
 
     def _classify_by_embedding(self, embedding: list[float]) -> tuple[str, float]:
@@ -697,7 +698,7 @@ class KnowledgeBootstrap:
                     fi.category_by_embedding = cat
                     fi.embedding_confidence = conf
             except Exception as e:
-                print(f"Bootstrap: embedding classification failed: {e}")
+                diag(f"Bootstrap: embedding classification failed: {e}")
 
         for fi in files:
             cat, conf = self._consensus_category(fi)
