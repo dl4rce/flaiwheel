@@ -7,6 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.33] — 2026-03-25
+
+### Fixed
+- **Glama "Try in Browser" crash loop** — `entrypoint.sh` was printing banner text and downloading embedding models to stdout before launching Python. In stdio mode stdout is reserved for JSON-RPC; those prints corrupted the MCP stream causing Glama to crash and retrigger rebuilds. `entrypoint.sh` now detects `MCP_TRANSPORT=stdio` and immediately `exec`s `python -m flaiwheel`, skipping all stdout output and model downloads.
+
+---
+
+## [3.9.30] — 2026-03-25
+
+### Fixed
+- Internal tag (same fix as 3.9.33, superseded).
+
+---
+
 ## [3.9.29] — 2026-03-23
 
 ### Fixed
