@@ -4,6 +4,11 @@
 # BSL 1.1. See LICENSE. Commercial licensing: info@4rce.com
 set -e
 
+# In stdio mode stdout is reserved for JSON-RPC — all shell output goes to stderr.
+if [ "${MCP_TRANSPORT:-sse}" = "stdio" ]; then
+    exec python -m flaiwheel
+fi
+
 echo "================================================"
 echo "  Flaiwheel Server"
 echo "================================================"
