@@ -265,6 +265,50 @@ Once connected, the AI has access to all Flaiwheel tools. If you have existing d
 
 ---
 
+## Optional: Open Terminal Local Daemon (Open WebUI)
+
+If you also use Open WebUI's Open Terminal integration, this repo includes helper installers for a local `open-terminal` daemon.
+
+### Linux / WSL2 (`systemd --user`)
+
+```bash
+./scripts/install-open-terminal-systemd-user.sh
+```
+
+- Service name: `com.flaiwheel.open-terminal-local.service`
+- Default endpoint: `http://localhost:8000`
+- The script auto-generates an API key and prints it after install/reset.
+- On WSL2, make sure `systemd=true` is enabled in `/etc/wsl.conf`.
+
+Useful commands:
+
+```bash
+systemctl --user status com.flaiwheel.open-terminal-local.service
+journalctl --user -u com.flaiwheel.open-terminal-local.service -f
+```
+
+### macOS (`launchctl` LaunchAgent)
+
+```bash
+./scripts/macos/install-open-terminal-launchagent.sh
+```
+
+- LaunchAgent label: `com.flaiwheel.open-terminal-local`
+- Default endpoint: `http://localhost:8000`
+- The script auto-generates an API key and prints it after install/reset.
+
+Environment overrides (both scripts):
+
+```bash
+HOST=127.0.0.1 PORT=8000 OPEN_TERMINAL_CORS_ALLOWED_ORIGINS='https://your-openwebui.example' ./scripts/install-open-terminal-systemd-user.sh
+```
+
+```bash
+HOST=127.0.0.1 PORT=8000 OPEN_TERMINAL_CORS_ALLOWED_ORIGINS='https://your-openwebui.example' ./scripts/macos/install-open-terminal-launchagent.sh
+```
+
+---
+
 ## Updating
 
 Run the same install command again from your project directory:
