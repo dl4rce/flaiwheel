@@ -269,6 +269,32 @@ Once connected, the AI has access to all Flaiwheel tools. If you have existing d
 
 If you also use Open WebUI's Open Terminal integration, this repo includes helper installers for a local `open-terminal` daemon.
 
+Third-party write-ups (for example [AI·Collab — Open Terminal](https://aicollab.app/blog/open-terminal/)) may mirror only the Linux script; **macOS** uses `scripts/macos/install-open-terminal-launchagent.sh` below. After any mirror update, re-check the file with `shasum -a 256` against the same revision on GitHub.
+
+### One-liner install via `curl` (no git clone)
+
+Use **`main`** or pin a **commit SHA** / **tag** in the URL for reproducible bytes.
+
+**Linux / WSL2** (`systemd --user`):
+
+```bash
+curl -fsSL -o install-open-terminal-systemd-user.sh \
+  https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install-open-terminal-systemd-user.sh
+/bin/chmod +x install-open-terminal-systemd-user.sh
+/bin/bash ./install-open-terminal-systemd-user.sh
+```
+
+**macOS** (LaunchAgent; do **not** use `sudo`):
+
+```bash
+curl -fsSL -o install-open-terminal-launchagent.sh \
+  https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/macos/install-open-terminal-launchagent.sh
+/bin/chmod +x install-open-terminal-launchagent.sh
+/bin/bash ./install-open-terminal-launchagent.sh
+```
+
+If `chmod` or `bash` are “not found”, your `PATH` is broken (often Conda `base`); the `/bin/…` paths above still work.
+
 ### Linux / WSL2 (`systemd --user`)
 
 ```bash
@@ -296,6 +322,8 @@ journalctl --user -u com.flaiwheel.open-terminal-local.service -f
 - LaunchAgent label: `com.flaiwheel.open-terminal-local`
 - Default endpoint: `http://localhost:8000`
 - The script auto-generates an API key and prints it after install/reset.
+- The LaunchAgent sets **WorkingDirectory** to `$HOME` by default so Open Terminal does not start in `/private/tmp`.
+- **Persisted custom folder:** the installer can save a path in `~/.config/flaiwheel/open-terminal-working-directory` (fresh-install prompt, or menu **→5** when re-running the script). **Update (menu →1)** keeps using that saved path. One-off override: set `OPEN_TERMINAL_WORKING_DIRECTORY` for that run only.
 
 Environment overrides (both scripts):
 
@@ -306,6 +334,14 @@ HOST=127.0.0.1 PORT=8000 OPEN_TERMINAL_CORS_ALLOWED_ORIGINS='https://your-openwe
 ```bash
 HOST=127.0.0.1 PORT=8000 OPEN_TERMINAL_CORS_ALLOWED_ORIGINS='https://your-openwebui.example' ./scripts/macos/install-open-terminal-launchagent.sh
 ```
+
+macOS only — custom initial folder for Open Terminal (must exist before you save it):
+
+```bash
+OPEN_TERMINAL_WORKING_DIRECTORY="$HOME/projects/my-repo" ./scripts/macos/install-open-terminal-launchagent.sh
+```
+
+Re-run the same script and choose **5** to change or clear the saved folder (or edit `~/.config/flaiwheel/open-terminal-working-directory`). Non-interactive install: set the env var above or create that file with a single line (path); use `AUTO_INSTALL_DEPS=1` to skip the first-run path prompt.
 
 ---
 

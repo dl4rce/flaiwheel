@@ -1,5 +1,10 @@
+# Product roadmap must not be public — keep under .project/ only (never root ROADMAP.md)
+/ROADMAP.md
+
 # Project workspace (plans, TODOs, interim docs — never committed)
 .project/
+# Maintainer-only notes — must not land on public repo (keep under .project/ locally)
+docs/internal/
 
 # OS files
 .DS_Store
@@ -50,6 +55,9 @@ htmlcov/
 # Misc
 node_modules/
 *.log
+
+# Local virtualenvs
+.glama-test-venv/
 
 # Flaiwheel (local MCP config — token may differ per developer)
 .cursor/mcp.json
