@@ -43,6 +43,9 @@
 # Same local install on every macOS: copy this script, run the same command (optionally
 # AUTO_INSTALL_DEPS=1). Only set OPEN_TERMINAL_CORS_ALLOWED_ORIGINS if you need a non-* allowlist
 # for cross-origin browser access; otherwise defaults match a normal local Open Terminal setup.
+#
+# The LaunchAgent wrapper prepends PATH with Homebrew / pip user / npm-global dirs because launchd
+# does not source ~/.zshrc — without this, Open WebUI only sees /usr/bin:/bin:… (no supabase, brew, etc.).
 
 set -euo pipefail
 
@@ -566,6 +569,8 @@ write_wrapper() {
     cat >"${WRAPPER}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+# LaunchAgent does not load ~/.zshrc; PATH is often only /usr/bin:/bin:... — prepend Homebrew, pip --user, npm global.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:\${HOME}/.local/bin:\${HOME}/.npm-global/bin:\${PATH}"
 export OPEN_TERMINAL_API_KEY="\$(cat "\${HOME}/.config/flaiwheel/open-terminal-api-key")"
 exec "${path}" run --host "${HOST}" --port "${PORT}" --cors-allowed-origins ${cors_q}
 EOF
@@ -573,6 +578,8 @@ EOF
     cat >"${WRAPPER}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+# LaunchAgent does not load ~/.zshrc; PATH is often only /usr/bin:/bin:... — prepend Homebrew, pip --user, npm global.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:\${HOME}/.local/bin:\${HOME}/.npm-global/bin:\${PATH}"
 export OPEN_TERMINAL_API_KEY="\$(cat "\${HOME}/.config/flaiwheel/open-terminal-api-key")"
 exec "${path}" -m open_terminal run --host "${HOST}" --port "${PORT}" --cors-allowed-origins ${cors_q}
 EOF

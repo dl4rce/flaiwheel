@@ -323,6 +323,7 @@ journalctl --user -u com.flaiwheel.open-terminal-local.service -f
 - Default endpoint: `http://localhost:8000`
 - The script auto-generates an API key and prints it after install/reset.
 - The LaunchAgent sets **WorkingDirectory** to `$HOME` by default so Open Terminal does not start in `/private/tmp`.
+- **PATH:** `launchd` does not load `~/.zshrc`, so the daemon used to see only `/usr/bin:/bin:…` and miss Homebrew / Supabase CLI. The generated wrapper prepends `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, and `~/.npm-global/bin`. Re-run the installer (menu **→1 Update**) after pulling this change so the wrapper is regenerated.
 - **Persisted custom folder:** the installer can save a path in `~/.config/flaiwheel/open-terminal-working-directory` (fresh-install prompt, or menu **→5** when re-running the script). **Update (menu →1)** keeps using that saved path. One-off override: set `OPEN_TERMINAL_WORKING_DIRECTORY` for that run only.
 
 Environment overrides (both scripts):
