@@ -27,7 +27,7 @@ COPY src/ src/
 
 # uv installs in parallel using all available cores.
 # torch is already satisfied from CPU index above — won't be re-downloaded.
-RUN uv pip install --system --no-cache --prefix=/install .
+RUN uv pip install --system --no-cache --prefix=/install '.[full]'
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────
 # Only the installed packages are copied — no build tools, no compiler.

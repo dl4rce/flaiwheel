@@ -28,8 +28,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import bm25s
-import chromadb
-from chromadb.utils import embedding_functions
 from .config import Config
 from .readers import extract_text, SUPPORTED_EXTENSIONS
 
@@ -134,7 +132,9 @@ class DocsIndexer:
             pass
 
     def _init_vectorstore(self):
-        self.chroma = chromadb.PersistentClient(path=self.config.vectorstore_path)
+        import chromadb as _chromadb
+        from chromadb.utils import embedding_functions
+        self.chroma = _chromadb.PersistentClient(path=self.config.vectorstore_path)
 
         if self._external_ef:
             self.ef = self._external_ef
@@ -268,12 +268,13 @@ class DocsIndexer:
             try:
                 nonlocal new_ef
                 if new_ef is None:
+                    from chromadb.utils import embedding_functions as _ef
                     if new_config.embedding_provider == "local":
-                        new_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                        new_ef = _ef.SentenceTransformerEmbeddingFunction(
                             model_name=new_config.embedding_model
                         )
                     else:
-                        new_ef = embedding_functions.OpenAIEmbeddingFunction(
+                        new_ef = _ef.OpenAIEmbeddingFunction(
                             api_key=new_config.openai_api_key,
                             model_name=new_config.openai_embedding_model,
                         )
