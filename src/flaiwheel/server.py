@@ -305,18 +305,24 @@ def create_mcp_server(
 
     @mcp.tool()
     def search_docs(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
-        """Semantic search over the ENTIRE project documentation.
-        Returns only the most relevant chunks (token-efficient!).
+        """Semantic search over the ENTIRE project knowledge base. Read-only, no side effects.
 
-        Use this ALWAYS before writing or changing code.
+        Use this ALWAYS before writing or changing code to retrieve architecture
+        decisions, past bugs, best practices, and API contracts.
+
+        Prefer search_bugfixes() when debugging a specific error (searches only
+        bugfix summaries). Use search_by_type() when you know the category.
+        Use search_tests() when looking for test coverage.
 
         Args:
             query: What you want to know (natural language, be specific)
             top_k: Number of results (default: 5, increase for broad questions)
-            project: Target project name (optional, defaults to first project)
+            project: Target project name (optional, defaults to active project)
 
         Returns:
-            Relevant doc chunks with source reference and relevance score
+            Ranked doc chunks, each showing source file:line, section heading,
+            relevance %, doc type, and text. Returns a "no results" message with
+            a rephrasing suggestion when nothing matches.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -345,16 +351,21 @@ def create_mcp_server(
 
     @mcp.tool()
     def search_bugfixes(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
-        """Search ONLY bugfix summaries for similar past problems.
-        Use this to learn from earlier bugs and avoid repetition.
+        """Search only bugfix summaries for similar past problems. Read-only, no side effects.
+
+        Prefer this over search_docs() when debugging — it filters to bugfix
+        documents only, surfacing root causes and solutions faster.
+        Use search_docs() for broader queries that span all doc types.
 
         Args:
-            query: Description of the current problem/bug
+            query: Description of the current problem or error message
             top_k: Number of results (default: 5)
             project: Target project name (optional)
 
         Returns:
-            Similar bugfix summaries with root cause, solution and lessons learned
+            Ranked bugfix chunks showing root cause, solution, and lessons
+            learned, with source file and relevance %. Prompts to call
+            write_bugfix_summary() when no matches are found.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -382,14 +393,23 @@ def create_mcp_server(
 
     @mcp.tool()
     def search_by_type(query: str, doc_type: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
-        """Search filtered by document type.
+        """Search filtered by a specific document category. Read-only, no side effects.
+
+        Use instead of search_docs() when you know the category — it improves
+        precision by restricting results to that type only.
+        Use search_bugfixes() or search_tests() as convenient shortcuts for
+        those specific categories.
 
         Args:
-            query: Search query
-            doc_type: One of: "docs", "bugfix", "best-practice", "api",
-                      "architecture", "changelog", "setup", "readme", "test"
-            top_k: Number of results
+            query: Search query (natural language)
+            doc_type: Category filter — one of: "architecture", "api",
+                      "bugfix", "best-practice", "setup", "changelog",
+                      "test", "readme", "docs"
+            top_k: Number of results (default: 5)
             project: Target project name (optional)
+
+        Returns:
+            Ranked chunks of the specified type with source, relevance %, and text.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -414,15 +434,20 @@ def create_mcp_server(
 
     @mcp.tool()
     def search_tests(query: str, top_k: int = 5, project: str = "", mcp_ctx: Context = None) -> str:
-        """Search test cases in the knowledge base.
+        """Search test case documents in the knowledge base. Read-only, no side effects.
 
-        Find existing test scenarios, regression patterns, and test strategies.
-        Useful before writing new tests to check what's already covered.
+        Call BEFORE write_test_case() to check what is already covered and
+        avoid duplicates. Equivalent to search_by_type(query, "test") but
+        more intent-clear for test-coverage workflows.
 
         Args:
             query: What to search for (e.g. "authentication edge cases")
-            top_k: Number of results to return
+            top_k: Number of results to return (default: 5)
             project: Target project name (optional)
+
+        Returns:
+            Ranked test case chunks with scenario, steps, expected result,
+            and status. Returns a prompt to call write_test_case() when empty.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -482,19 +507,30 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write a bugfix summary as .md file and index it IMMEDIATELY.
+        """Create a bugfix summary .md file, index it immediately, and auto-push to git.
 
-        MUST be called after every bugfix! These summaries are found during
-        future bugs and help avoid repeating mistakes.
+        MANDATORY after every bug fix — these summaries are retrieved during
+        future debugging sessions to avoid repeating the same mistakes.
+
+        Side effects: creates bugfix-log/YYYY-MM-DD-{slug}.md in the knowledge
+        repo docs path, indexes it into the vector store, and pushes to the
+        remote git repo if MCP_GIT_REPO_URL is configured. Overwrites an
+        existing file if the same title is used on the same day.
+
+        Use write_architecture_doc() for design decisions,
+        write_best_practice() for recurring patterns.
 
         Args:
-            title: Short, descriptive title of the bug
-            root_cause: What was the actual cause? (technical)
-            solution: How was it fixed? (describe code changes)
+            title: Short, descriptive title of the bug (used in filename)
+            root_cause: What was the actual cause? (be technical)
+            solution: How was it fixed? (describe code changes made)
             lesson_learned: What should be done differently next time?
-            affected_files: Affected files (comma-separated)
-            tags: Categories (e.g. "payment,race-condition,critical")
+            affected_files: Comma-separated list of changed files (optional)
+            tags: Comma-separated categories, e.g. "auth,race-condition,critical" (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -524,16 +560,28 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write an architecture decision/design document.
+        """Create an architecture decision or system design document, index it, and auto-push.
+
+        Side effects: creates architecture/YYYY-MM-DD-{slug}.md in the docs path,
+        indexes it into the vector store, and pushes to git if configured.
+        Overwrites an existing file with the same title.
+
+        Use for system design, ADRs, and component relationships.
+        Use write_api_doc() for HTTP endpoint specs, write_best_practice()
+        for coding patterns, write_bugfix_summary() after fixing bugs.
+        Include a Mermaid diagram in the diagrams field for best results.
 
         Args:
             title: Short title (e.g. "Payment Service Architecture")
             overview: High-level description of the system/component
             decisions: Key architectural decisions made and why
-            trade_offs: What was considered and rejected, pros/cons
-            components: Optional component breakdown
-            diagrams: Optional ASCII/mermaid diagrams
+            trade_offs: Alternatives considered and rejected, pros/cons
+            components: Optional component breakdown (optional)
+            diagrams: Optional Mermaid or ASCII diagrams (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -567,17 +615,28 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write an API endpoint document.
+        """Create an API endpoint document, index it, and auto-push to git.
+
+        Side effects: creates api/{slug}.md in the docs path, indexes it into
+        the vector store, and pushes to git if configured. Overwrites an
+        existing file with the same title.
+
+        Use for HTTP endpoints, REST APIs, and RPC schemas.
+        Use write_architecture_doc() for system-level design decisions.
+        Use write_best_practice() for API coding conventions.
 
         Args:
             title: Short title (e.g. "Create User Endpoint")
             endpoint: URL path (e.g. "/api/v1/users")
-            method: HTTP method (GET, POST, PUT, DELETE, etc.)
-            request_schema: Request body/params schema description
-            response_schema: Response body schema description
-            auth: Optional authentication requirements
-            examples: Optional request/response examples
+            method: HTTP method: GET, POST, PUT, PATCH, DELETE, etc.
+            request_schema: Request body or query params description
+            response_schema: Response body schema and status codes
+            auth: Authentication/authorization requirements (optional)
+            examples: Curl or code examples (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -608,15 +667,26 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write a best practice / coding standard document.
+        """Create a coding standard or best practice document, index it, and auto-push.
+
+        Side effects: creates best-practices/{slug}.md in the docs path,
+        indexes it into the vector store, and pushes to git if configured.
+        Overwrites an existing file with the same title.
+
+        Use for recurring patterns, conventions, and rules the team should follow.
+        Use write_architecture_doc() for system-level decisions,
+        write_bugfix_summary() after fixing a specific bug.
 
         Args:
             title: Short title (e.g. "Error Handling in API Routes")
-            context: When/where does this practice apply?
-            rule: The actual rule or pattern to follow
-            rationale: Why this rule exists, what problems it prevents
-            examples: Optional code examples showing correct usage
+            context: When and where this practice applies
+            rule: The actual rule or pattern to follow (be specific)
+            rationale: Why this rule exists and what problems it prevents
+            examples: Code examples showing correct vs incorrect usage (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -645,15 +715,26 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write a setup/deployment/infrastructure document.
+        """Create a setup, deployment, or infrastructure document, index it, and auto-push.
+
+        Side effects: creates setup/{slug}.md in the docs path, indexes it
+        into the vector store, and pushes to git if configured. Overwrites
+        an existing file with the same title.
+
+        Use for environment setup guides, CI/CD configuration, Docker or
+        infrastructure docs, and deployment runbooks.
+        Use write_architecture_doc() for system design rather than how-to guides.
 
         Args:
             title: Short title (e.g. "Local Development Setup")
-            prerequisites: What needs to be installed/configured first
-            steps: Step-by-step instructions
-            verification: How to verify the setup works
-            troubleshooting: Optional common issues and solutions
+            prerequisites: Tools, accounts, or config required before starting
+            steps: Step-by-step instructions (numbered list recommended)
+            verification: How to confirm the setup is working correctly
+            troubleshooting: Common issues and their fixes (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -683,16 +764,27 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write a changelog / release notes entry.
+        """Create a changelog entry for a release, index it, and auto-push to git.
+
+        Side effects: creates changelog/{version-slug}.md in the docs path,
+        indexes it into the vector store, and pushes to git if configured.
+        Calling twice with the same version overwrites the existing entry.
+        Returns an error if none of added/changed/fixed/breaking is provided.
+
+        Use for release notes and version history. At least one of the
+        content fields (added, changed, fixed, breaking) must be non-empty.
 
         Args:
-            version: Version string (e.g. "2.1.0")
-            release_date: Release date (e.g. "2026-02-25")
-            added: New features (optional)
-            changed: Changes to existing features (optional)
-            fixed: Bug fixes (optional)
-            breaking: Breaking changes (optional)
+            version: Version string (e.g. "2.1.0" or "v3.9.35")
+            release_date: ISO date string (e.g. "2026-05-03")
+            added: New features added in this release (optional)
+            changed: Changes to existing functionality (optional)
+            fixed: Bug fixes included (optional)
+            breaking: Breaking changes requiring migration (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -728,18 +820,30 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Write a test case document and index it IMMEDIATELY.
+        """Create a test case document, index it immediately, and auto-push to git.
+
+        Call search_tests() first to check for existing coverage before adding
+        a new test case.
+
+        Side effects: creates tests/YYYY-MM-DD-{slug}.md in the docs path,
+        indexes it into the vector store, and pushes to git if configured.
+
+        Use after writing or modifying tests to make them discoverable.
+        Status values: "pass", "fail", "blocked", "pending" (default: pending).
 
         Args:
             title: Short test case title (e.g. "User login with expired token")
-            scenario: What is being tested and why
+            scenario: What is being tested and why (the test intent)
             steps: Step-by-step test procedure
-            expected_result: What should happen if the test passes
-            preconditions: Optional setup/prerequisites before running the test
-            actual_result: Optional actual result if already executed
-            status: Optional test status (e.g. "pass", "fail", "blocked", "pending")
-            tags: Optional categories (e.g. "auth,regression,critical")
+            expected_result: What should happen when the test passes
+            preconditions: Setup required before running the test (optional)
+            actual_result: Observed result if already executed (optional)
+            status: "pass", "fail", "blocked", or "pending" (optional)
+            tags: Comma-separated tags, e.g. "auth,regression,critical" (optional)
             project: Target project name (optional)
+
+        Returns:
+            Saved filename, chunk count, and whether auto-push succeeded.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -769,16 +873,21 @@ def create_mcp_server(
 
     @mcp.tool()
     def validate_doc(content: str, category: str = "docs", project: str = "", mcp_ctx: Context = None) -> str:
-        """Validate a markdown document BEFORE committing it to the knowledge repo.
+        """Validate a markdown document before committing it to the knowledge repo. Read-only.
+
+        Does not write any files or modify the index. Not needed when using
+        the write_*() tools — they validate internally. Use this only when
+        you are writing raw markdown and committing it manually via git.
 
         Args:
-            content: The full markdown content to validate
+            content: Full markdown content to validate
             category: Target category — one of: "architecture", "api",
                       "bugfix", "best-practice", "setup", "changelog", "test", "docs"
             project: Target project name (optional)
 
         Returns:
-            "OK" if valid, or a list of issues to fix
+            "OK" if the document passes all checks, or a list of issues
+            tagged [!] critical (blocks indexing), [~] warning, [i] info.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -795,10 +904,18 @@ def create_mcp_server(
 
     @mcp.tool()
     def get_index_stats(project: str = "", mcp_ctx: Context = None) -> str:
-        """Show statistics about the current vector index.
+        """Show vector index statistics for the active project. Read-only, no side effects.
+
+        Use to check how many chunks are indexed, verify a reindex completed,
+        or inspect the embedding model and chunking configuration.
+        Use check_knowledge_quality() instead when you want quality issues, not stats.
 
         Args:
             project: Target project name (optional)
+
+        Returns:
+            Total chunk count, docs path, embedding provider and model,
+            chunking strategy, and per-document-type chunk distribution.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -820,12 +937,23 @@ def create_mcp_server(
 
     @mcp.tool()
     def reindex(force: bool = False, project: str = "", mcp_ctx: Context = None) -> str:
-        """Re-index documentation. Diff-aware by default (only changed files).
-        Set force=True to rebuild all embeddings from scratch.
+        """Re-index the knowledge base docs into the vector store.
+
+        Modifies the vector index in place. Does not modify source .md files.
+        By default only re-embeds changed files (fast, diff-aware). Set
+        force=True to rebuild all embeddings from scratch — use this after
+        changing the embedding model, not for routine updates.
+
+        Use git_pull_reindex() instead when the docs changes came from a
+        git push to the knowledge repo.
 
         Args:
-            force: If True, re-embed all files regardless of changes (default: False)
+            force: Rebuild all embeddings from scratch, not just changed files
+                   (default: False — use only when changing embedding model)
             project: Target project name (optional)
+
+        Returns:
+            Files indexed, changed, skipped; chunks upserted; stale chunks removed.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -843,16 +971,21 @@ def create_mcp_server(
 
     @mcp.tool()
     def git_pull_reindex(project: str = "", mcp_ctx: Context = None) -> str:
-        """Pull latest changes from the knowledge repo and re-index.
+        """Pull latest commits from the knowledge repo git remote, then re-index.
 
-        Call this AFTER you have committed and pushed new or updated .md files
-        to the knowledge repo.
+        Call this AFTER pushing .md files to the knowledge repo. Runs
+        'git pull' on the cloned docs directory, then re-indexes only changed
+        files. No-op if the repo is already up to date.
+
+        Requires MCP_GIT_REPO_URL to be configured. Use reindex() instead
+        when files were written locally (not via git push).
 
         Args:
             project: Target project name (optional)
 
         Returns:
-            Summary of pull result and reindex statistics
+            "Already up to date" if no changes, otherwise files indexed,
+            chunks upserted, and stale chunks removed.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -883,14 +1016,20 @@ def create_mcp_server(
 
     @mcp.tool()
     def check_knowledge_quality(project: str = "", mcp_ctx: Context = None) -> str:
-        """Validate the knowledge base for consistency, completeness
-        and structural correctness.
+        """Validate the knowledge base for consistency and structural correctness. Read-only.
+
+        Does not modify any files or the vector index. Use periodically
+        or after adding many documents to spot quality regressions.
+        Use validate_doc() instead to check a single document before committing.
+        Use get_index_stats() to check chunk counts rather than quality.
 
         Args:
             project: Target project name (optional)
 
         Returns:
-            Quality score (0-100) and list of issues
+            Quality score 0–100, counts of critical/warning/info issues,
+            and a per-file issue list tagged [!] critical, [~] warning, [i] info.
+            Critical issues cause files to be skipped during indexing.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -919,10 +1058,16 @@ def create_mcp_server(
 
     @mcp.tool()
     def list_projects(mcp_ctx: Context = None) -> str:
-        """List all registered projects with basic statistics.
+        """List all registered projects with chunk counts and health stats. Read-only.
+
+        Use to check which projects exist, their index sizes, quality scores,
+        and git repo URLs. Use get_active_project() to check only the active
+        project for the current session.
 
         Returns:
-            Table of projects with name, chunks, docs path, and active marker
+            Per-project summary: name (with active marker), total chunks,
+            quality score, docs path, and git repo URL if configured.
+            Returns setup instructions when no projects are registered.
         """
         projects = registry.all()
         if not projects:
@@ -960,23 +1105,27 @@ def create_mcp_server(
         git_sync_interval: int = 300,
         mcp_ctx: Context = None,
     ) -> str:
-        """Register and initialise a NEW project in Flaiwheel.
+        """Register and initialise a new project in Flaiwheel.
 
-        Call this when the current project is not yet tracked by Flaiwheel.
-        It creates the knowledge-base directory structure, clones the
-        knowledge repo (if provided), runs an initial index, and
-        automatically binds all subsequent tool calls to this project.
+        Side effects: creates a project directory under MCP_DOCS_PATH, optionally
+        clones the git knowledge repo, runs an initial index, and binds this
+        session to the new project. Idempotent — safe to call again if the
+        project already exists (just rebinds the session).
+
+        Call once per project. Use set_project() to switch between already
+        registered projects. Use list_projects() to see what exists.
 
         Args:
-            name: Project name (short, no spaces — e.g. "my-app")
-            git_repo_url: HTTPS URL of the knowledge repo (optional, can be added later via Web UI)
-            git_branch: Branch to track (default: main)
-            display_name: Human-friendly name (optional, defaults to name)
-            git_auto_push: Auto-push writes to remote (default: True)
-            git_sync_interval: Seconds between git sync checks (default: 300)
+            name: Short project identifier, no spaces (e.g. "my-app")
+            git_repo_url: HTTPS URL of the knowledge git repo (optional,
+                          can be added later via the Web UI)
+            git_branch: Branch to track for git sync (default: "main")
+            display_name: Human-readable label shown in the Web UI (optional)
+            git_auto_push: Auto-commit and push write_*() docs to git (default: True)
+            git_sync_interval: Background git pull interval in seconds (default: 300)
 
         Returns:
-            Confirmation with project name, chunk count, and active-project binding
+            Project name, chunk count, active-project confirmation, and next steps.
         """
         if registry.get(name):
             _set_active(mcp_ctx, name)
@@ -1014,20 +1163,22 @@ def create_mcp_server(
 
     @mcp.tool()
     def set_project(name: str, mcp_ctx: Context = None) -> str:
-        """Bind all subsequent MCP calls in THIS session to a specific project.
+        """Bind all subsequent tool calls in this session to a specific project.
 
-        Call this at the START of every conversation / session so all
-        tools automatically target the correct project. The project=
-        parameter on each tool still works as an explicit override.
+        In-memory only — no files are created or modified. The binding is
+        per-connection: setting project A in workspace-1 does not affect
+        workspace-2. The project= parameter on individual tools overrides
+        this session binding for a single call.
 
-        Each Cursor workspace / MCP connection has its own binding —
-        setting project A in workspace-1 does NOT affect workspace-2.
+        Call at the START of every session. Use setup_project() to create
+        a new project. Use get_active_project() to check the current binding.
 
         Args:
-            name: Name of a registered project
+            name: Name of a registered project (see list_projects())
 
         Returns:
-            Confirmation of the active project binding
+            Active project name, chunk count, and docs path on success.
+            Lists available projects and suggests setup_project() on failure.
         """
         ctx = registry.get(name)
         if ctx is None:
@@ -1056,11 +1207,15 @@ def create_mcp_server(
 
     @mcp.tool()
     def get_active_project(mcp_ctx: Context = None) -> str:
-        """Show which project is currently bound as the active project
-        for THIS session / connection.
+        """Show the active project for this session. Read-only, no side effects.
+
+        Use to verify which project is bound before making tool calls.
+        Use set_project() to change the binding. Use list_projects() to see
+        all registered projects and their stats.
 
         Returns:
-            Name of the active project or instructions to set one
+            Active project name, chunk count, and docs path when bound.
+            Instructions to call set_project() or setup_project() when not bound.
         """
         current = _get_active(mcp_ctx)
         if current and registry.get(current):
@@ -1090,21 +1245,24 @@ def create_mcp_server(
 
     @mcp.tool()
     def analyze_knowledge_repo(project: str = "", mcp_ctx: Context = None) -> str:
-        """Analyse the KNOWLEDGE REPOSITORY for structure, quality,
-        duplicates, and misplaced files.  Returns a report with proposed
-        cleanup actions for files already inside the knowledge repo.
+        """Analyse the knowledge repo for structure issues, duplicates, and misplaced files.
 
-        NOTE: This scans files inside the knowledge repo (inside Docker),
-        NOT the project repo.  To classify files from the project repo,
-        use classify_documents() instead.
+        Read-only — no files are modified. Scans files already inside the
+        knowledge repo (inside the Docker volume), not the project source repo.
+        Caches the report in memory so execute_cleanup() can act on it in the
+        same session.
 
-        This is READ-ONLY — no files are modified.
+        To classify and migrate files from the project source repo use
+        classify_documents() instead. For a simpler quality check without
+        cleanup proposals use check_knowledge_quality().
 
         Args:
             project: Target project name (optional)
 
         Returns:
-            Structured analysis report with proposed cleanup actions
+            Structured report with file counts by category, duplicate pairs,
+            misplaced files, and numbered proposed cleanup actions (a1, a2, …)
+            ready for execute_cleanup().
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -1124,15 +1282,23 @@ def create_mcp_server(
     def execute_cleanup(actions: str, project: str = "", mcp_ctx: Context = None) -> str:
         """Execute approved cleanup actions from analyze_knowledge_repo().
 
-        SAFETY: This tool NEVER deletes any file. It only creates directories
-        and moves files (using git mv to preserve history).
+        Side effects: moves files within the knowledge repo using git mv
+        (preserves git history) and creates missing category directories.
+        NEVER deletes any file. Requires analyze_knowledge_repo() to have
+        been called first in this session.
+
+        Use "all" to execute every proposed action, or pass a comma-separated
+        list of specific action IDs (e.g. "a1,a3") to cherry-pick.
+        Call reindex() after cleanup to rebuild the search index.
 
         Args:
-            actions: Comma-separated action IDs (e.g. "a1,a2,a5") or "all"
+            actions: Comma-separated action IDs from the analysis report,
+                     e.g. "a1,a2,a5", or "all" to execute everything
             project: Target project name (optional)
 
         Returns:
-            Execution results with rollback instructions
+            Per-action results (directories created, files moved), any errors,
+            and a rollback command to undo the moves if needed.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -1189,30 +1355,29 @@ def create_mcp_server(
 
     @mcp.tool()
     def classify_documents(files: str, project: str = "", mcp_ctx: Context = None) -> str:
-        '''"This is the Way" — Classify documents from the project repo for
-        migration into the knowledge base.
+        """Classify project repo documents for migration into the knowledge base. Read-only.
 
-        The AI agent scans the project directory locally, reads the first
-        ~2000 characters of each documentation file, and sends them here.
-        Flaiwheel classifies each file using its embedding model and
-        returns a migration plan with target directories and write tools.
+        Does not write any files. The agent reads project files locally and
+        passes their content here; the Docker container cannot access the
+        project source repo directly. Flaiwheel classifies each file by
+        semantic similarity and returns a migration plan.
 
-        IMPORTANT: This tool does NOT read files from disk — the agent
-        must send the content.  This is by design: the project repo lives
-        outside Docker and only the agent can read it.
-
-        Trigger: user says "This is the Way" or "42" on a new project.
+        Trigger: user says "This is the Way" or "42".
+        Step 1 of the migration workflow — after classification, use the
+        suggested write_*() tool for each file to push it into the knowledge base.
+        Use analyze_knowledge_repo() instead when files are already inside the
+        knowledge repo and need reorganisation.
 
         Args:
-            files: JSON array of objects with "path" and "content" keys.
-                   Example: [{"path": "docs/auth.md", "content": "# Auth..."}, ...]
+            files: JSON array of {"path": "...", "content": "..."} objects.
                    Send the first ~2000 characters of each file as content.
+                   Example: [{"path": "docs/auth.md", "content": "# Auth..."}]
             project: Target project name (optional)
 
         Returns:
-            Migration plan with per-file categories, write tools, and
-            duplicate detection
-        '''
+            Per-file classification (category, suggested write_*() tool),
+            duplicate detection, and a step-by-step migration plan.
+        """
         nonlocal _classifier_cache
 
         ctx, err = _ctx(project or None, mcp_ctx)
@@ -1242,39 +1407,32 @@ def create_mcp_server(
     def analyze_codebase(
         path: str, force: bool = False, project: str = "", mcp_ctx: Context = None
     ) -> str:
-        """Analyze a source code directory locally — zero tokens, zero cloud.
+        """Analyze a source code directory and return a cold-start bootstrap report. Read-only.
 
-        Scans the given directory, extracts Python/TypeScript/JavaScript
-        structure using the built-in `ast` module and regex (no new
-        dependencies), embeds signatures with the local MiniLM model,
-        classifies by category, detects near-duplicate files, and ranks
-        files by documentability.
+        Does not modify source files or the vector index. Runs entirely
+        server-side using Python ast, regex, and local MiniLM embeddings —
+        no cloud calls, no token cost.
 
-        Returns a single markdown report (~5-20KB). The AI agent reads
-        only this report instead of reading hundreds of source files —
-        reducing cold-start token cost by ~90%.
+        The report is cached at /data/coldstart-{project}.md after the first
+        run and returned instantly on subsequent calls. Use force=True only
+        after significant code changes — not for routine sessions.
 
-        The report is cached in /data/ after the first run. Subsequent
-        calls return the cached report instantly (<1s). Call with
-        force=True to regenerate after significant codebase changes.
+        Use at the START of work on an unfamiliar codebase instead of reading
+        dozens of files. Then use the write_*() tools to document the top
+        files identified in the report. Use classify_documents() for existing
+        .md files in the project repo.
 
-        Use this BEFORE the bootstrap workflow on a legacy codebase:
-        1. Call analyze_codebase("/path/to/project") to get the report
-        2. Review the Top Files to Document First table
-        3. Ask the agent to document only those files using write_*() tools
-        4. Run classify_documents() for any existing .md docs
-        5. Run reindex() when done
+        The path must be accessible inside the Docker container (i.e. mounted
+        as a volume). It cannot reach paths on the host that are not mounted.
 
         Args:
-            path: Absolute path to the project/source directory to scan.
-                  The directory must be accessible from the Docker container
-                  (i.e. mounted as a volume or on the same machine).
-            force: If True, re-run analysis even if a cached report exists.
-            project: Target project name (optional, uses active project)
+            path: Absolute path to the source directory to scan
+            force: Regenerate even if a cached report exists (default: False)
+            project: Target project name (optional)
 
         Returns:
-            Markdown cold-start report with: language distribution,
-            category map, top 20 files to document, duplicate pairs,
+            Markdown report (~5–20 KB) with language distribution, category map,
+            top 20 files ranked by documentability, near-duplicate file pairs,
             undocumented directories, and recommended next steps.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
@@ -1313,10 +1471,16 @@ def create_mcp_server(
 
     @mcp.tool()
     def check_update() -> str:
-        """Check if a newer version of Flaiwheel is available on GitHub.
+        """Check whether a newer Flaiwheel version is available on GitHub. Read-only.
+
+        Makes a single network request to GitHub (git ls-remote) to compare
+        version tags against the running version. No files are modified.
+        Use when you suspect Flaiwheel may be outdated, or periodically to
+        keep the server current.
 
         Returns:
-            Version status and update instructions if needed
+            "Up to date" message, or the available version number plus the
+            exact bash command to give the user for upgrading.
         """
         import subprocess
         from packaging.version import Version
@@ -1387,17 +1551,24 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Save a session summary for future context retrieval.
+        """Append a session summary to the project's session log.
 
-        Call at the END of every coding session to preserve context for the next session.
-        This ensures continuity — the next agent picks up where you left off.
+        Side effects: appends a JSON entry to /data/sessions-{project}.json.
+        Does not modify the vector index or the knowledge repo. Safe to call
+        multiple times in one session — each call adds a new entry.
+
+        Call at the END of every session. Use get_recent_sessions() at the
+        START of the next session to restore context.
 
         Args:
-            summary: Brief summary of what was accomplished (1-3 sentences)
-            decisions: Key decisions made (comma-separated)
-            open_questions: Unresolved questions or next steps (comma-separated)
-            files_modified: Files changed during this session (comma-separated, optional)
-            project: Target project (optional, uses active project)
+            summary: What was accomplished this session (1–3 sentences)
+            decisions: Key decisions made, comma-separated (optional)
+            open_questions: Unresolved questions or next steps, comma-separated (optional)
+            files_modified: Files changed, comma-separated (optional)
+            project: Target project name (optional)
+
+        Returns:
+            Confirmation with the project name and total session count stored.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -1424,14 +1595,20 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Retrieve recent session summaries for context continuity.
+        """Retrieve recent session summaries to restore context. Read-only.
 
-        Call at the START of every coding session to understand what was done previously.
-        Returns the most recent session summaries with decisions and open questions.
+        Reads from /data/sessions-{project}.json. Does not modify any data.
+        Call at the START of every session before any other tools to understand
+        what was done previously and pick up open questions.
+        Use save_session_summary() at the END of a session to store context.
 
         Args:
-            limit: Number of recent sessions to return (default: 5, max: 20)
-            project: Target project (optional, uses active project)
+            limit: Number of most-recent sessions to return (default: 5, max: 20)
+            project: Target project name (optional)
+
+        Returns:
+            Timestamped session entries showing summary, decisions, open
+            questions, and modified files for each session, newest first.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
@@ -1467,21 +1644,25 @@ def create_mcp_server(
         project: str = "",
         mcp_ctx: Context = None,
     ) -> str:
-        """Get Flaiwheel knowledge context for a specific source file.
+        """Retrieve knowledge base context relevant to a specific source file. Read-only.
 
-        Complements get_recent_sessions() (temporal context) with spatial context:
-        what does the knowledge base know about THIS file or module?
+        Runs multiple semantic searches derived from the filename and returns
+        architecture decisions, past bugfixes, and best practices related to
+        that file — without requiring a manual search query. No files modified.
 
-        Call this BEFORE reading, editing, or creating a file to pre-load
-        relevant architecture decisions, past bugfixes, and best practices —
-        without having to think of the right search query yourself.
-
-        Supports all MCP clients: Cursor, Claude Code, VS Code Copilot, etc.
+        Complements get_recent_sessions() (temporal context) with file-level
+        spatial context. Use before reading or editing any source file.
+        Use search_docs() for free-form queries not tied to a specific file.
 
         Args:
-            filename: The file path or name being opened/edited
-                      (e.g. "payment.service.ts", "src/auth/jwt.py")
+            filename: File path or name being opened/edited, e.g.
+                      "payment.service.ts" or "src/auth/jwt.py"
             project: Target project name (optional)
+
+        Returns:
+            Relevant architecture docs, bugfix summaries, and best practices
+            for the given file, ranked by relevance. Returns "no context found"
+            when the knowledge base has nothing for that file yet.
         """
         ctx, err = _ctx(project or None, mcp_ctx)
         if not ctx:
