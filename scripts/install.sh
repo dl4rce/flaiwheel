@@ -30,6 +30,16 @@ fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
 _FW_VERSION="3.9.39"
+# raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
+# other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
+# version from main so Docker rebuild / "already running" checks match PyPI + tags.
+_FW_VERSION_REMOTE="$(
+    curl -sf --max-time 8 "https://raw.githubusercontent.com/dl4rce/flaiwheel/main/pyproject.toml" 2>/dev/null \
+        | sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+)" || true
+if [[ "${_FW_VERSION_REMOTE}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    _FW_VERSION="${_FW_VERSION_REMOTE}"
+fi
 
 # ── Detect curl | bash (stdin is a pipe, not a terminal) ────────────────────
 # curl | bash connects stdin to the pipe — interactive read prompts break.
