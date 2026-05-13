@@ -84,7 +84,12 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.29
+## What’s New in v3.9.40
+
+- **Installer: `claude-md` no longer fails on repeat runs** — `claude mcp add` non-zero exits (e.g. MCP already registered) no longer abort the parallel phase under `set -e`; registration output is captured safely.
+- **Installer: correct release version from GitHub** — `_FW_VERSION` is refreshed from `main` `pyproject.toml` when reachable so Docker rebuild / version checks stay aligned with the package even if raw `install.sh` on `main` lags at the CDN.
+
+### Previous: v3.9.29
 
 - **Glama tool detection fix** — `AuthManager` crashed on read-only `/data` before the MCP server could start (the real reason Glama saw 0 tools). Skipped in stdio cold-start mode.
 - **Zero print() on stdout** — 36 remaining `print()` in watcher, indexer, readers, bootstrap replaced with `diag()` (stderr). Verified: full MCP handshake returns all 28 tools over stdio.

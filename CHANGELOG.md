@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.9.40] — 2026-05-13
+
+### Fixed
+
+- **Installer parallel job `claude-md`** — `claude mcp add` was invoked inside command substitution with `set -e`, so any non-zero exit aborted `_phase7c_claude` before the “already registered” handling. Output is now captured with `if OUT=$(claude …); then … else … fi` (errexit-safe), with broader “already registered” matching.
+- **Installer `_FW_VERSION` vs GitHub CDN** — when online, the installer reads `version` from `main` `pyproject.toml` so Docker rebuild and fast-path version checks match the published release even when raw `install.sh` on `main` is briefly stale at the edge.
+
+---
+
 ## [3.9.33] — 2026-03-25
 
 ### Fixed

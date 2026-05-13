@@ -775,7 +775,7 @@ def create_mcp_server(
         content fields (added, changed, fixed, breaking) must be non-empty.
 
         Args:
-            version: Version string (e.g. "2.1.0" or "v3.9.35")
+            version: Version string (e.g. "2.1.0" or "v3.9.40")
             release_date: ISO date string (e.g. "2026-05-03")
             added: New features added in this release (optional)
             changed: Changes to existing functionality (optional)
