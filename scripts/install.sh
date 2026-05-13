@@ -1854,12 +1854,17 @@ CLAUDE_MCP_REGISTERED=false
 CLAUDE_CLI_MISSING=false
 if command -v claude >/dev/null 2>&1; then
     info "Claude Code CLI detected — registering Flaiwheel MCP automatically..."
-    CLAUDE_REGISTER_OUT=$(claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>&1)
-    CLAUDE_REGISTER_RC=$?
+    # With set -e, a non-zero exit inside $(...) aborts this phase before we can
+    # branch on stderr — use if-cmd so errexit ignores the failed substitution.
+    if CLAUDE_REGISTER_OUT=$(claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>&1); then
+        CLAUDE_REGISTER_RC=0
+    else
+        CLAUDE_REGISTER_RC=$?
+    fi
     if [ $CLAUDE_REGISTER_RC -eq 0 ]; then
         ok "Claude Code: flaiwheel MCP registered (project scope)"
         CLAUDE_MCP_REGISTERED=true
-    elif echo "$CLAUDE_REGISTER_OUT" | grep -qi "already exists\|already configured\|already added"; then
+    elif echo "$CLAUDE_REGISTER_OUT" | grep -qi "already exists\|already configured\|already added\|already registered"; then
         ok "Claude Code: flaiwheel MCP already registered"
         CLAUDE_MCP_REGISTERED=true
     else
