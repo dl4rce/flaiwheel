@@ -119,3 +119,5 @@ All tools accept an optional `project` parameter as explicit override.
 | `classify_documents(files)` | **"This is the Way"** — classify project docs for knowledge migration |
 | `save_session_summary(...)` | Save session context for continuity (call at end of session) |
 | `get_recent_sessions(limit)` | Retrieve recent session summaries (call at start of session) |
+| `relations(entity_id)` | Resolve structured edges (`replaces`, `depends_on`, `fixes`, `implements`) from YAML frontmatter |
+| `timeline(entity_id)` | Git history for the doc holding an entity — "what was true at time T?" |

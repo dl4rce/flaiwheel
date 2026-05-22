@@ -71,7 +71,8 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 - **Executable Test Flows** — test scenarios are documented in machine-readable BDD/Gherkin format (`Given`, `When`, `Then`) for QA automation
 - **Learns from bugfixes** — agents write bugfix summaries that are instantly indexed
 - **Structured write tools** — 7 category-specific tools (bugfix, architecture, API, best-practice, setup, changelog, test case) that enforce quality at the source
-- **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base
+- **Structured relations (v1)** — `relations()` and `timeline()` derive a per-project knowledge graph from optional YAML frontmatter on existing docs (`id`, `replaces`, `depends_on`, `fixes`, `implements`, `status`). No second store — markdown stays canonical and Git history is the validity window
+- **Pre-commit validation** — `validate_doc()` checks freeform markdown before it enters the knowledge base, including unknown-relation-key warnings
 - **Ingest quality gate** — files with critical issues are automatically skipped during indexing (never deleted — you own your files)
 - **Auto-syncs via Git** — pulls AND pushes to a dedicated knowledge repo
 - **Tool telemetry (persistent)** — tracks every MCP call per project (searches, writes, misses, patterns), detects knowledge gaps, and nudges agents to document — persisted across restarts and visible in the Web UI
@@ -84,7 +85,17 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.9.40
+## What’s New in v3.10.0
+
+- **Structured relations (v1)** — two new read-only MCP tools, `relations(entity_id)` and `timeline(entity_id)`, derive a per-project knowledge graph from YAML frontmatter on existing markdown docs. No new persistent store and no `graph_add` / `invalidate` writes: markdown stays the single source of truth and Git history is the validity window. Recognised relation keys: `replaces`, `depends_on`, `fixes`, `implements`. Scalar keys: `id`, `type`, `status`, `superseded_at`.
+- **Frontmatter-aware quality checks** — `validate_doc()` now warns on unknown relation keys (info severity) and invalid `status` values (warning severity); heading-structure checks strip the leading `---` block first so frontmatter does not confuse the "first heading is h1" rule.
+- **`GitWatcher.log_for_file()`** — read-only helper returning newest-first commits (`hash`, `author`, ISO `date`, `subject`); backs the `timeline()` tool.
+- **Zero new dependencies** — frontmatter parsing is stdlib-only (`flaiwheel.frontmatter`). No `python-frontmatter` / `PyYAML` added.
+- **Total tools: 28 → 30.**
+
+> Note: the SQLite ER store (`graph_add` / `graph_invalidate` / `valid_from` / `valid_to` columns) originally proposed for this feature is deferred as v2, gated on a real query becoming measurably too slow on v1. AST-driven code↔symbol edges (v3) remain merged with the `feature_ideas_backlog` #13 track.
+
+### Previous: v3.9.40
 
 - **Installer: `claude-md` no longer fails on repeat runs** — `claude mcp add` non-zero exits (e.g. MCP already registered) no longer abort the parallel phase under `set -e`; registration output is captured safely.
 - **Installer: correct release version from GitHub** — `_FW_VERSION` is refreshed from `main` `pyproject.toml` when reachable so Docker rebuild / version checks stay aligned with the package even if raw `install.sh` on `main` lags at the CDN.
@@ -633,7 +644,8 @@ Use `reindex(force=True)` via MCP or the Web UI "Reindex" button to force a full
 │                         │ shared state (ProjectRegistry)     │
 │  ┌─────────────────────┴─────────────────────────────────┐  │
 │  │  MCP Server (FastMCP)                    Port 8081    │  │
-│  │  28 tools (search, write, classify, manage, projects) │  │
+│  │  30 tools (search, write, classify, manage, projects,│  │
+│  │           relations, timeline)                        │  │
 │  └─────────────────────┬─────────────────────────────────┘  │
 │                         │                                    │
 │  ┌─────────────────────┴─────────────────────────────────┐  │

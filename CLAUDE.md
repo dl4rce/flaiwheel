@@ -49,7 +49,7 @@
 
 - **Endpoint:** `http://localhost:8081/sse` (configured in `.mcp.json`)
 - **Register once:** `claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse`
-- **Verify:** type `/mcp` — `flaiwheel` should appear with 28 tools
+- **Verify:** type `/mcp` — `flaiwheel` should appear with 30 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call `write_bugfix_summary()`. No exceptions.
 - **Rule:** End every session with `save_session_summary()`.

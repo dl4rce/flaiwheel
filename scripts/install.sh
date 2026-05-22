@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.9.40"
+_FW_VERSION="3.10.0"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -846,6 +846,8 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `classify_documents(files)` | Classify project docs for migration into knowledge base |
 | `save_session_summary(...)` | Save session context for continuity (call at end of session) |
 | `get_recent_sessions(limit)` | Retrieve recent session summaries (call at start of session) |
+| `relations(entity_id)` | Resolve structured edges from YAML frontmatter (`replaces`, `depends_on`, `fixes`, `implements`) |
+| `timeline(entity_id)` | Git history for the doc holding an entity — "what was true at time T?" |
 
 ## "This is the Way" — Knowledge Bootstrap
 
@@ -950,6 +952,8 @@ All tools accept an optional `project` parameter. When omitted, the active proje
 | `classify_documents(files)` | Classify project docs for migration into knowledge base |
 | `save_session_summary(...)` | Save session context for continuity (call at end of session) |
 | `get_recent_sessions(limit)` | Retrieve recent session summaries (call at start of session) |
+| `relations(entity_id)` | Resolve structured edges from YAML frontmatter (`replaces`, `depends_on`, `fixes`, `implements`) |
+| `timeline(entity_id)` | Git history for the doc holding an entity — "what was true at time T?" |
 
 ## "This is the Way" — Knowledge Bootstrap
 
@@ -1551,6 +1555,8 @@ All tools accept an optional \`project\` parameter as explicit override. When om
 | \`classify_documents(files)\` | **"This is the Way"** — classify project docs for knowledge migration |
 | \`save_session_summary(...)\` | Save session context for continuity (call at end of session) |
 | \`get_recent_sessions(limit)\` | Retrieve recent session summaries (call at start of session) |
+| \`relations(entity_id)\` | Resolve structured edges from YAML frontmatter (\`replaces\`, \`depends_on\`, \`fixes\`, \`implements\`) |
+| \`timeline(entity_id)\` | Git history for the doc holding an entity — "what was true at time T?" |
 RULEEOF
 
 ok "Created .cursor/rules/flaiwheel.mdc"
@@ -1681,6 +1687,8 @@ All tools accept an optional \`project\` parameter as explicit override.
 | \`classify_documents(files)\` | **"This is the Way"** — classify project docs for knowledge migration |
 | \`save_session_summary(...)\` | Save session context for continuity (call at end of session) |
 | \`get_recent_sessions(limit)\` | Retrieve recent session summaries (call at start of session) |
+| \`relations(entity_id)\` | Resolve structured edges from YAML frontmatter (\`replaces\`, \`depends_on\`, \`fixes\`, \`implements\`) |
+| \`timeline(entity_id)\` | Git history for the doc holding an entity — "what was true at time T?" |
 BLOCKEOF
 )
 
@@ -1778,7 +1786,7 @@ FLAIWHEEL_CLAUDE_BLOCK=$(cat << CLAUDEEOF
 
 - **Endpoint:** \`http://localhost:8081/sse\` (configured in \`.mcp.json\`)
 - **Register once:** \`claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse\`
-- **Verify:** type \`/mcp\` — \`flaiwheel\` should appear with 28 tools
+- **Verify:** type \`/mcp\` — \`flaiwheel\` should appear with 30 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call \`write_bugfix_summary()\`. No exceptions.
 - **Rule:** End every session with \`save_session_summary()\`.
