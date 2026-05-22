@@ -13,6 +13,7 @@ Quality score starts at 100 and decreases per issue.
 import re
 from pathlib import Path
 from .config import Config
+from .frontmatter import KNOWN_KEYS, VALID_STATUS, parse, strip_frontmatter
 from .readers import SUPPORTED_EXTENSIONS
 
 EXPECTED_DIRS = [
@@ -157,6 +158,7 @@ class KnowledgeQualityChecker:
         category = _detect_category(rel_path)
         issues.extend(self._check_single_completeness(content, rel_path))
         issues.extend(self._check_single_headings(content, rel_path))
+        issues.extend(self._check_frontmatter(content, rel_path))
         if category == "bugfix":
             issues.extend(self._check_single_bugfix(content, rel_path))
         if category == "test":
@@ -171,6 +173,7 @@ class KnowledgeQualityChecker:
         fake_path = f"{category}/validate-preview.md"
         issues.extend(self._check_single_completeness(content, fake_path))
         issues.extend(self._check_single_headings(content, fake_path))
+        issues.extend(self._check_frontmatter(content, fake_path))
         if category == "bugfix":
             issues.extend(self._check_single_bugfix(content, fake_path))
         if category == "test":
@@ -179,7 +182,7 @@ class KnowledgeQualityChecker:
 
     def _check_single_completeness(self, content: str, rel: str) -> list[dict]:
         issues = []
-        text = _strip_markdown_overhead(content)
+        text = _strip_markdown_overhead(strip_frontmatter(content))
         if len(text) < 30:
             issues.append(_issue(
                 "warning", rel,
@@ -194,7 +197,7 @@ class KnowledgeQualityChecker:
 
     def _check_single_headings(self, content: str, rel: str) -> list[dict]:
         issues = []
-        cleaned = _strip_code_blocks(content)
+        cleaned = _strip_code_blocks(strip_frontmatter(content))
         headings = re.findall(r"^(#{1,6})\s+", cleaned, re.MULTILINE)
         if not headings:
             issues.append(_issue(
@@ -220,6 +223,41 @@ class KnowledgeQualityChecker:
                 ))
                 break
             seen_levels.add(curr_level)
+        return issues
+
+    def _check_frontmatter(self, content: str, rel: str) -> list[dict]:
+        """Warn on unknown relation keys / invalid status values in YAML frontmatter.
+
+        Frontmatter is optional. When present, keys must come from the known
+        relation vocabulary (see ``frontmatter.KNOWN_KEYS``). This guards the
+        ``relations()`` / ``timeline()`` MCP tools against drift.
+        """
+        if not content.startswith("---"):
+            return []
+        try:
+            fm = parse(content)
+        except Exception:
+            return [_issue(
+                "warning", rel,
+                "Frontmatter is present but could not be parsed. "
+                "Check that it is a valid `---`-fenced YAML block.",
+            )]
+        issues: list[dict] = []
+        for key in fm:
+            if key not in KNOWN_KEYS:
+                issues.append(_issue(
+                    "info", rel,
+                    f"Frontmatter key '{key}' is not in the known relation "
+                    f"vocabulary ({', '.join(sorted(KNOWN_KEYS))}). "
+                    f"It will be ignored by relations()/timeline().",
+                ))
+        status = fm.get("status")
+        if status is not None and status not in VALID_STATUS:
+            issues.append(_issue(
+                "warning", rel,
+                f"Frontmatter 'status' value '{status}' is not one of "
+                f"{sorted(VALID_STATUS)}.",
+            ))
         return issues
 
     def _check_single_bugfix(self, content: str, rel: str) -> list[dict]:
@@ -363,7 +401,7 @@ class KnowledgeQualityChecker:
             try:
                 content = md_file.read_text(encoding="utf-8", errors="ignore")
                 rel = str(md_file.relative_to(docs))
-                cleaned = _strip_code_blocks(content)
+                cleaned = _strip_code_blocks(strip_frontmatter(content))
                 headings = re.findall(r"^(#{1,6})\s+", cleaned, re.MULTILINE)
 
                 if not headings:

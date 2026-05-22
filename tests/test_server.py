@@ -253,6 +253,129 @@ class TestValidateDoc:
         assert "OK" in result
 
 
+class TestValidateDocFrontmatter:
+    def test_unknown_key_is_info(self, server_env):
+        content = (
+            "---\n"
+            "id: adr-1\n"
+            "type: architecture\n"
+            "frobnicate: yes\n"
+            "---\n"
+            "# Title\n\n"
+            "Body with enough content to pass length checks. " * 5
+        )
+        result = _call_tool(server_env["mcp"], "validate_doc",
+            content=content, category="architecture")
+        assert "[i]" in result
+        assert "frobnicate" in result
+
+    def test_invalid_status_is_warning(self, server_env):
+        content = (
+            "---\n"
+            "id: adr-2\n"
+            "status: wibble\n"
+            "---\n"
+            "# Title\n\n"
+            "Body with enough content to pass length checks. " * 5
+        )
+        result = _call_tool(server_env["mcp"], "validate_doc",
+            content=content, category="architecture")
+        assert "[~]" in result
+        assert "wibble" in result
+
+    def test_known_keys_pass(self, server_env):
+        content = (
+            "---\n"
+            "id: adr-3\n"
+            "type: architecture\n"
+            "status: active\n"
+            "replaces: [adr-0]\n"
+            "depends_on:\n"
+            "  - service-a\n"
+            "---\n"
+            "# Title\n\n"
+            "Body with enough content to pass length checks. " * 5
+        )
+        result = _call_tool(server_env["mcp"], "validate_doc",
+            content=content, category="architecture")
+        # No frontmatter-related issues
+        assert "frobnicate" not in result
+        assert "wibble" not in result
+
+
+class TestRelations:
+    def _write(self, tmp_docs, name, body):
+        f = tmp_docs / "architecture" / name
+        f.write_text(body, encoding="utf-8")
+        return f
+
+    def test_entity_not_found(self, server_env):
+        result = _call_tool(server_env["mcp"], "relations", entity_id="nope")
+        assert "not found" in result.lower()
+
+    def test_outbound_and_inbound_edges(self, server_env):
+        tmp_docs = server_env["tmp_docs"]
+        self._write(tmp_docs, "adr-0042.md",
+            "---\nid: adr-0042\ntype: architecture\nreplaces: [adr-0017]\n---\n"
+            "# ADR 42\n\nReplaces ADR 17.\n",
+        )
+        self._write(tmp_docs, "adr-0017.md",
+            "---\nid: adr-0017\ntype: architecture\nstatus: superseded\n---\n"
+            "# ADR 17\n\nOld decision.\n",
+        )
+        out_42 = _call_tool(server_env["mcp"], "relations", entity_id="adr-0042")
+        assert "adr-0017" in out_42
+        assert "replaces" in out_42
+
+        out_17 = _call_tool(server_env["mcp"], "relations", entity_id="adr-0017")
+        # Inbound edge from adr-0042 should be visible
+        assert "adr-0042" in out_17
+        assert "replaces" in out_17
+
+    def test_unresolved_target_flagged(self, server_env):
+        tmp_docs = server_env["tmp_docs"]
+        self._write(tmp_docs, "adr-0099.md",
+            "---\nid: adr-0099\ntype: architecture\ndepends_on: [ghost-service]\n---\n"
+            "# ADR 99\n",
+        )
+        out = _call_tool(server_env["mcp"], "relations", entity_id="adr-0099")
+        assert "ghost-service" in out
+        assert "unresolved" in out
+
+
+class TestTimeline:
+    def test_no_git_returns_hint(self, server_env):
+        tmp_docs = server_env["tmp_docs"]
+        (tmp_docs / "architecture" / "adr-0050.md").write_text(
+            "---\nid: adr-0050\n---\n# X\n", encoding="utf-8",
+        )
+        # Watcher mock returns MagicMock by default → emulate empty log
+        server_env["watcher"].log_for_file = MagicMock(return_value=[])
+        result = _call_tool(server_env["mcp"], "timeline", entity_id="adr-0050")
+        assert "No git history" in result
+
+    def test_entity_unknown(self, server_env):
+        result = _call_tool(server_env["mcp"], "timeline", entity_id="missing")
+        assert "not found" in result.lower()
+
+    def test_renders_commits(self, server_env):
+        tmp_docs = server_env["tmp_docs"]
+        (tmp_docs / "architecture" / "adr-0060.md").write_text(
+            "---\nid: adr-0060\n---\n# Y\n", encoding="utf-8",
+        )
+        server_env["watcher"].log_for_file = MagicMock(return_value=[
+            {"hash": "abcdef1234567890", "author": "Alice",
+             "date": "2026-05-22T10:00:00+00:00", "subject": "Initial draft"},
+            {"hash": "1234567890abcdef", "author": "Bob",
+             "date": "2026-05-23T11:00:00+00:00", "subject": "Refine wording"},
+        ])
+        result = _call_tool(server_env["mcp"], "timeline", entity_id="adr-0060")
+        assert "abcdef12" in result
+        assert "Alice" in result
+        assert "Initial draft" in result
+        assert "Refine wording" in result
+
+
 class TestGetIndexStats:
     def test_returns_stats_string(self, server_env):
         result = _call_tool(server_env["mcp"], "get_index_stats")

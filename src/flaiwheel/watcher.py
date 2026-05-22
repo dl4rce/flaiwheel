@@ -197,6 +197,40 @@ class GitWatcher:
         except Exception:
             return ""
 
+    def log_for_file(self, rel_path: str, limit: int = 50) -> list[dict]:
+        """Return git history for a single file inside the docs repo.
+
+        Read-only — used by the ``timeline()`` MCP tool. Each entry has
+        keys ``hash``, ``author``, ``date`` (ISO 8601), ``subject``.
+        Returns ``[]`` when the docs path is not a git repo or the file
+        has no history.
+        """
+        git_dir = self._find_git_dir()
+        if not git_dir:
+            return []
+        sep = "\x1f"
+        fmt = sep.join(["%H", "%an", "%aI", "%s"])
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(git_dir), "log",
+                 f"-n{int(limit)}", f"--format={fmt}", "--", rel_path],
+                capture_output=True, text=True, timeout=15,
+            )
+        except Exception:
+            return []
+        out: list[dict] = []
+        for line in result.stdout.splitlines():
+            parts = line.split(sep)
+            if len(parts) != 4:
+                continue
+            out.append({
+                "hash": parts[0],
+                "author": parts[1],
+                "date": parts[2],
+                "subject": parts[3],
+            })
+        return out
+
     def pull_and_check(self) -> bool:
         git_dir = self._find_git_dir()
         if not git_dir:

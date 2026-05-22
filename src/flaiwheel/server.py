@@ -25,6 +25,8 @@ from .bootstrap import (
 )
 from .code_analyzer import CodebaseAnalyzer, format_codebase_report
 from .config import Config
+from .frontmatter import RELATION_KEYS, parse_file
+from .indexer import _iter_docs
 from .project import ProjectConfig, ProjectRegistry, ProjectContext
 from .telemetry import TelemetryStore
 
@@ -900,6 +902,162 @@ def create_mcp_server(
         for issue in issues:
             icon = {"critical": "[!]", "warning": "[~]", "info": "[i]"}
             lines.append(f"{icon.get(issue['severity'], '[-]')} {issue['message']}")
+        return "\n".join(lines)
+
+    # ── Structured relations (v1 — frontmatter-derived) ──
+
+    def _scan_frontmatter(ctx: ProjectContext) -> dict[str, dict]:
+        """Return ``{entity_id: {"path": rel_path, "data": frontmatter}}``.
+
+        Iterates all indexable docs in the project and parses leading YAML
+        frontmatter. Docs without an ``id:`` key are skipped (they cannot
+        participate in the relation graph). Re-reads from disk each call —
+        callers should not invoke this in tight loops; ``relations()`` is
+        already a low-frequency tool.
+        """
+        docs_path = Path(ctx.merged_config.docs_path)
+        out: dict[str, dict] = {}
+        if not docs_path.exists():
+            return out
+        for fp in _iter_docs(docs_path):
+            if fp.suffix.lower() != ".md":
+                continue
+            fm = parse_file(fp)
+            ent_id = fm.get("id")
+            if not ent_id or not isinstance(ent_id, str):
+                continue
+            try:
+                rel = str(fp.relative_to(docs_path))
+            except ValueError:
+                rel = str(fp)
+            out[ent_id] = {"path": rel, "data": fm}
+        return out
+
+    @mcp.tool()
+    def relations(entity_id: str, project: str = "", mcp_ctx: Context = None) -> str:
+        """Return structured relations for an entity, derived from YAML frontmatter. Read-only.
+
+        Entities and edges are declared **explicitly** in markdown frontmatter:
+
+            ---
+            id: adr-0042
+            type: architecture
+            replaces: [adr-0017]
+            depends_on: [service-summarizer]
+            status: active
+            ---
+
+        Recognised relation keys: replaces, depends_on, fixes, implements.
+        Use timeline() to see when the doc holding an entity changed over time.
+
+        Args:
+            entity_id: Frontmatter ``id`` value of the entity to resolve
+            project: Target project name (optional)
+
+        Returns:
+            Markdown showing the entity, its outbound edges (declared on
+            this doc), and inbound edges (other docs that reference it).
+            Lists are truncated; entities not found return a hint.
+        """
+        ctx, err = _ctx(project or None, mcp_ctx)
+        if not ctx:
+            return err
+        _telem(ctx.name, "relations")
+
+        graph = _scan_frontmatter(ctx)
+        entry = graph.get(entity_id)
+        if not entry:
+            sample = ", ".join(list(graph.keys())[:10]) or "(none)"
+            return (
+                f"Entity '{entity_id}' not found in frontmatter of project "
+                f"'{ctx.name}'. {len(graph)} entities have an `id:` field. "
+                f"Sample ids: {sample}."
+            )
+
+        fm = entry["data"]
+        out: list[str] = [
+            f"**Entity:** `{entity_id}` ({fm.get('type', 'docs')})",
+            f"**Source:** `{entry['path']}`",
+        ]
+        status = fm.get("status")
+        if status:
+            out.append(f"**Status:** {status}")
+
+        outbound: list[str] = []
+        for key in sorted(RELATION_KEYS):
+            targets = fm.get(key) or []
+            if not isinstance(targets, list):
+                continue
+            for t in targets:
+                outbound.append(f"  - `{entity_id}` --{key}--> `{t}`"
+                                + ("" if t in graph else "  _(unresolved)_"))
+        out.append("\n**Outbound edges:**")
+        out.extend(outbound if outbound else ["  _(none)_"])
+
+        inbound: list[str] = []
+        for other_id, other in graph.items():
+            if other_id == entity_id:
+                continue
+            for key in RELATION_KEYS:
+                tgts = other["data"].get(key) or []
+                if isinstance(tgts, list) and entity_id in tgts:
+                    inbound.append(f"  - `{other_id}` --{key}--> `{entity_id}`  "
+                                   f"_(in `{other['path']}`)_")
+        out.append("\n**Inbound edges:**")
+        out.extend(inbound if inbound else ["  _(none)_"])
+        return "\n".join(out)
+
+    @mcp.tool()
+    def timeline(entity_id: str, limit: int = 20, project: str = "", mcp_ctx: Context = None) -> str:
+        """Return the git history of the document that holds an entity. Read-only.
+
+        Resolves ``entity_id`` to a file via frontmatter ``id:`` field, then
+        runs ``git log`` for that file. Use this to answer "what was true at
+        time T?" — Git history is the validity window; no separate
+        ``valid_from``/``valid_to`` columns are stored.
+
+        Args:
+            entity_id: Frontmatter ``id`` value of the entity
+            limit: Max commits to return (default 20, max 200)
+            project: Target project name (optional)
+
+        Returns:
+            Newest-first list of commits with short hash, ISO date, author,
+            and subject. Empty result hints if the docs repo is not a git
+            checkout or the file has no history.
+        """
+        ctx, err = _ctx(project or None, mcp_ctx)
+        if not ctx:
+            return err
+        _telem(ctx.name, "timeline")
+
+        limit = max(1, min(int(limit), 200))
+        graph = _scan_frontmatter(ctx)
+        entry = graph.get(entity_id)
+        if not entry:
+            return (
+                f"Entity '{entity_id}' not found. Use relations() with a "
+                f"known id, or list available ids via search_docs()."
+            )
+
+        if not ctx.watcher or not hasattr(ctx.watcher, "log_for_file"):
+            return (
+                f"Timeline unavailable: project '{ctx.name}' has no git "
+                f"watcher attached."
+            )
+        commits = ctx.watcher.log_for_file(entry["path"], limit=limit)
+        if not commits:
+            return (
+                f"No git history for `{entry['path']}`. The docs directory "
+                f"may not be a git checkout, or the file is untracked."
+            )
+
+        lines = [
+            f"**Timeline:** `{entity_id}` → `{entry['path']}` "
+            f"({len(commits)} commit(s), newest first)\n",
+        ]
+        for c in commits:
+            lines.append(f"- `{c['hash'][:8]}` {c['date']}  _{c['author']}_  — {c['subject']}")
         return "\n".join(lines)
 
     @mcp.tool()

@@ -7,6 +7,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.10.0] — 2026-05-22
+
+### Added
+
+- **Structured relations (v1)** — two new MCP tools, `relations(entity_id)` and `timeline(entity_id)`, derive a project-scoped knowledge graph from YAML frontmatter on existing markdown docs. No new persistent store, no `graph_add`/`invalidate` writes — markdown stays the single source of truth and Git history is the validity window. Recognised relation keys: `replaces`, `depends_on`, `fixes`, `implements`; scalar keys: `id`, `type`, `status`, `superseded_at`. See `.project/ROADMAP.md` → "Structured relations via frontmatter" for rationale.
+- **`GitWatcher.log_for_file(rel_path, limit)`** — read-only helper returning newest-first commits for a file (`hash`, `author`, ISO `date`, `subject`). Backs the `timeline()` tool.
+- **`flaiwheel.frontmatter`** — stdlib-only YAML subset parser for the small set of frontmatter keys Flaiwheel needs (scalars, flow lists, block lists). No new pip dependency.
+- **`validate_doc()` frontmatter checks** — warns on unknown relation keys (info severity) and invalid `status` values (warning severity).
+
+### Changed
+
+- **Quality checks now strip frontmatter** before the heading-structure regex, so a leading `---`-fenced block does not confuse the "first heading is h1" check.
+
+### Deferred
+
+- The previously planned SQLite ER store (`graph_add` / `graph_invalidate` / `valid_from` / `valid_to` columns) is parked as v2, gated on a real query becoming measurably too slow on v1. AST-driven code↔symbol edges (v3) remain merged with backlog #13.
+
+---
+
 ## [3.9.40] — 2026-05-13
 
 ### Fixed
