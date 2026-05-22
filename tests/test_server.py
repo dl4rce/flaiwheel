@@ -467,3 +467,122 @@ class TestTelemetryPersistenceAndImpact:
         assert metrics["guardrail_violations_found"] >= 3
         assert metrics["regressions_avoided"] >= 2
         assert metrics["estimated_time_saved_minutes"] > 0
+
+
+class TestFrontmatterAutoEmission:
+    """v3.10.1 — every structured writer must emit a parseable frontmatter
+    block with a stable ``id`` and the right ``type`` so the doc becomes a
+    graph node automatically (resolvable via ``relations()`` / ``timeline()``)."""
+
+    @staticmethod
+    def _written_file(tmp_docs, slug):
+        """Find the .md file under tmp_docs whose filename contains the slug."""
+        from pathlib import Path
+        matches = [p for p in Path(tmp_docs).rglob("*.md") if slug in p.name]
+        assert len(matches) == 1, f"expected exactly one match for slug {slug!r}, got {matches}"
+        return matches[0]
+
+    def _assert_fm(self, path, *, expected_type, expected_id_contains):
+        from flaiwheel.frontmatter import parse
+        content = path.read_text()
+        fm = parse(content)
+        assert fm.get("type") == expected_type, f"type mismatch in {path}: {fm}"
+        assert expected_id_contains in (fm.get("id") or ""), f"id mismatch in {path}: {fm}"
+        assert fm.get("status") == "active"
+        # Relation keys present and lists (empty by default).
+        for k in ("replaces", "depends_on", "fixes", "implements"):
+            assert isinstance(fm.get(k), list), f"{k} should be a list in {path}: {fm}"
+
+    def test_bugfix_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_bugfix_summary",
+            title="Frontmatter Emit Bugfix",
+            root_cause="Writers were not emitting YAML frontmatter so docs never became graph nodes for relations() and timeline().",
+            solution="Added flaiwheel.frontmatter.emit() and prepended it inside every write_* tool.",
+            lesson_learned="Make the structured writers do the right thing by default so agents do not have to remember.",
+        )
+        path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-bugfix")
+        self._assert_fm(path, expected_type="bugfix", expected_id_contains="frontmatter-emit-bugfix")
+
+    def test_architecture_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_architecture_doc",
+            title="Frontmatter Emit ADR",
+            overview="Document the decision to auto-emit frontmatter from every write_* tool in Flaiwheel 3.10.1.",
+            decisions="Each writer prepends emit_frontmatter(id, type, status='active') with empty relation lists by default.",
+            trade_offs="Slightly larger doc bodies; in exchange every new doc becomes a graph node usable by relations().",
+        )
+        path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-adr")
+        self._assert_fm(path, expected_type="architecture", expected_id_contains="frontmatter-emit-adr")
+
+    def test_api_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_api_doc",
+            title="Frontmatter Emit Endpoint",
+            endpoint="/api/v1/fm-emit",
+            method="POST",
+            request_schema="empty body",
+            response_schema="200 OK",
+        )
+        path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-endpoint")
+        self._assert_fm(path, expected_type="api", expected_id_contains="frontmatter-emit-endpoint")
+
+    def test_best_practice_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_best_practice",
+            title="Frontmatter Emit Practice",
+            context="All structured writers in Flaiwheel that create new markdown documents in a project knowledge repo.",
+            rule="Always prepend a parseable YAML frontmatter block with id, type, status and empty relation lists.",
+            rationale="Without an id no document is a graph node; relations() and timeline() cannot reach it.",
+        )
+        path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-practice")
+        self._assert_fm(path, expected_type="best-practice", expected_id_contains="frontmatter-emit-practice")
+
+    def test_setup_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_setup_doc",
+            title="Frontmatter Emit Setup",
+            prerequisites="A running Flaiwheel container at v3.10.1 or newer with the structured writers patched.",
+            steps="1. Call any write_* tool. 2. Inspect the resulting file under /docs/<project>/.",
+            verification="The file starts with `---` and parses via flaiwheel.frontmatter.parse() into a dict with id and type.",
+        )
+        path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-setup")
+        self._assert_fm(path, expected_type="setup", expected_id_contains="frontmatter-emit-setup")
+
+    def test_changelog_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_changelog_entry",
+            version="9.9.9",
+            release_date="2026-05-22",
+            added="Auto-emit frontmatter in every structured writer.",
+        )
+        path = self._written_file(server_env["tmp_docs"], "9-9-9")
+        self._assert_fm(path, expected_type="changelog", expected_id_contains="9-9-9")
+
+    def test_test_case_emits_frontmatter(self, server_env):
+        _call_tool(server_env["mcp"], "write_test_case",
+            title="Frontmatter Emit Test Case",
+            scenario="Verify the test-case writer emits frontmatter so its entity is reachable from relations().",
+            steps="1. Call write_test_case with a known title.\n2. Locate the resulting tests/*.md file.\n3. Parse the frontmatter.",
+            expected_result="parse() returns a dict with id, type='test', status='active' and empty relation lists.",
+        )
+        path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-test-case")
+        self._assert_fm(path, expected_type="test", expected_id_contains="frontmatter-emit-test-case")
+
+    def test_emitted_frontmatter_is_resolvable_by_relations(self, server_env):
+        """End-to-end: write two docs, declare a dependency, relations() resolves it."""
+        # Create the target doc via the normal writer (emits frontmatter with a stable id).
+        _call_tool(server_env["mcp"], "write_best_practice",
+            title="Auto Emit Target",
+            context="Target doc for the cross-writer relations() round-trip test.",
+            rule="Exist with a stable frontmatter id so a second doc can depend on it.",
+            rationale="Without resolvable targets relations() can only report unresolved edges.",
+        )
+        # Manually write a second doc with depends_on pointing at the target id.
+        # write_* tools don't yet take relation args — that's a separate opt-in API.
+        from pathlib import Path
+        from flaiwheel.frontmatter import emit as emit_fm
+        body = emit_fm("dependent-doc", "architecture", depends_on=["best-practice-auto-emit-target"])
+        body += "# Dependent doc\n\nLinks to best-practice-auto-emit-target.\n"
+        (Path(server_env["tmp_docs"]) / "architecture" / "dependent.md").write_text(body)
+
+        result = _call_tool(server_env["mcp"], "relations", entity_id="best-practice-auto-emit-target")
+        assert "dependent-doc" in result, result
+        assert "depends_on" in result, result
+        # Inbound edge should be resolved (the dependent doc has frontmatter we wrote).
+        inbound_section = result.split("Inbound edges:", 1)[1] if "Inbound edges:" in result else ""
+        assert "dependent-doc" in inbound_section, f"expected dependent-doc in inbound, got: {inbound_section!r}"

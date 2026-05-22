@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.10.1] — 2026-05-22
+
+### Added
+- **Auto-emit frontmatter from every structured writer** — `write_bugfix_summary`, `write_architecture_doc`, `write_api_doc`, `write_best_practice`, `write_setup_doc`, `write_changelog_entry`, and `write_test_case` now prepend a canonical YAML frontmatter block (id, type, status=active, empty relation lists) to every new doc. Every newly written knowledge doc becomes a graph node automatically — no manual edits, no agent ceremony.
+- **`flaiwheel.frontmatter.emit()`** — deterministic, ordered renderer used by all writers. Stable diffs when a same-day doc is overwritten.
+- **8 new tests in `TestFrontmatterAutoEmission`** — one per writer plus an end-to-end `relations()` round-trip that confirms inbound-edge resolution between two writer-created docs.
+
+### Notes
+- Entity IDs are derived from the existing filename slug (`adr-YYYY-MM-DD-<slug>`, `bugfix-YYYY-MM-DD-<slug>`, `api-<slug>`, `best-practice-<slug>`, `setup-<slug>`, `changelog-<version-slug>`, `test-YYYY-MM-DD-<slug>`). Stable, predictable, never reused.
+- Writers still don't accept explicit `replaces` / `depends_on` arguments — that is a separate, opt-in API and intentionally not part of this minor. To declare a relation today, edit the emitted frontmatter directly or write the doc manually.
+- Fully backwards-compatible. Existing docs without frontmatter continue to work; they just don't become graph nodes until they're rewritten.
+
 ## [3.10.0] — 2026-05-22
 
 ### Added

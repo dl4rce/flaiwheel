@@ -85,7 +85,13 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.10.0
+## What’s New in v3.10.1
+
+- **Every structured writer now auto-emits frontmatter.** `write_bugfix_summary`, `write_architecture_doc`, `write_api_doc`, `write_best_practice`, `write_setup_doc`, `write_changelog_entry`, and `write_test_case` prepend `id` / `type` / `status: active` + empty relation lists to every new doc. Every doc you create from now on is automatically a graph node — no manual frontmatter editing required. IDs are derived from the existing filename slugs (e.g. `adr-2026-05-22-payment-service-architecture`, `bugfix-2026-05-22-fix-race-condition`, `api-create-user-endpoint`).
+- **New helper `flaiwheel.frontmatter.emit()`** with stable, deterministic key order so same-day overwrites produce minimal diffs.
+- **Tests: 284 → 292** (8 new `TestFrontmatterAutoEmission` cases — one per writer plus an end-to-end `relations()` round-trip).
+
+### Previous: v3.10.0
 
 - **Structured relations (v1)** — two new read-only MCP tools, `relations(entity_id)` and `timeline(entity_id)`, derive a per-project knowledge graph from YAML frontmatter on existing markdown docs. No new persistent store and no `graph_add` / `invalidate` writes: markdown stays the single source of truth and Git history is the validity window. Recognised relation keys: `replaces`, `depends_on`, `fixes`, `implements`. Scalar keys: `id`, `type`, `status`, `superseded_at`.
 - **Frontmatter-aware quality checks** — `validate_doc()` now warns on unknown relation keys (info severity) and invalid `status` values (warning severity); heading-structure checks strip the leading `---` block first so frontmatter does not confuse the "first heading is h1" rule.

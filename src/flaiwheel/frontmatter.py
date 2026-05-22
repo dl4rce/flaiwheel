@@ -39,6 +39,48 @@ KNOWN_KEYS: set[str] = SCALAR_KEYS | RELATION_KEYS
 
 VALID_STATUS: set[str] = {"active", "superseded", "deprecated"}
 
+
+def emit(
+    entity_id: str,
+    entity_type: str,
+    *,
+    status: str = "active",
+    replaces: list[str] | None = None,
+    depends_on: list[str] | None = None,
+    fixes: list[str] | None = None,
+    implements: list[str] | None = None,
+) -> str:
+    """Render a canonical frontmatter block (trailing newline included).
+
+    Used by the structured ``write_*`` MCP tools so every newly created doc
+    becomes a graph node automatically. Lists are emitted in flow style
+    (``[a, b]``) which the parser in this module round-trips losslessly.
+
+    The output is deterministic and ordered (id, type, status, replaces,
+    depends_on, fixes, implements) so diffs stay minimal when a writer
+    overwrites a same-day doc.
+    """
+
+    def _flow(values: list[str] | None) -> str:
+        if not values:
+            return "[]"
+        return "[" + ", ".join(values) + "]"
+
+    lines = [
+        "---",
+        f"id: {entity_id}",
+        f"type: {entity_type}",
+        f"status: {status}",
+        f"replaces: {_flow(replaces)}",
+        f"depends_on: {_flow(depends_on)}",
+        f"fixes: {_flow(fixes)}",
+        f"implements: {_flow(implements)}",
+        "---",
+        "",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 _FRONTMATTER_RE = re.compile(
     r"\A---\s*\n(?P<body>.*?)\n---\s*(?:\n|\Z)",
     re.DOTALL,

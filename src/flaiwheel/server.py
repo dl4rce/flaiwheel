@@ -25,7 +25,7 @@ from .bootstrap import (
 )
 from .code_analyzer import CodebaseAnalyzer, format_codebase_report
 from .config import Config
-from .frontmatter import RELATION_KEYS, parse_file
+from .frontmatter import RELATION_KEYS, emit as emit_frontmatter, parse_file
 from .indexer import _iter_docs
 from .project import ProjectConfig, ProjectRegistry, ProjectContext
 from .telemetry import TelemetryStore
@@ -539,8 +539,12 @@ def create_mcp_server(
             return err
         _telem(ctx.name, "write_bugfix_summary")
 
+        slug = _make_slug(title)
+        entity_id = f"bugfix-{date.today().isoformat()}-{slug}"
+        fm = emit_frontmatter(entity_id, "bugfix", status="active")
         content = (
-            f"# {title}\n\n"
+            fm
+            + f"# {title}\n\n"
             f"**Date:** {date.today().isoformat()}  \n"
             f"**Tags:** {tags}  \n"
             f"**Affected files:** {affected_files}\n\n"
@@ -548,7 +552,7 @@ def create_mcp_server(
             f"## Solution\n{solution}\n\n"
             f"## Lesson Learned\n{lesson_learned}\n"
         )
-        filename = f"bugfix-log/{date.today().isoformat()}-{_make_slug(title)}.md"
+        filename = f"bugfix-log/{date.today().isoformat()}-{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
     @mcp.tool()
@@ -590,6 +594,9 @@ def create_mcp_server(
             return err
         _telem(ctx.name, "write_architecture_doc")
 
+        slug = _make_slug(title)
+        entity_id = f"adr-{date.today().isoformat()}-{slug}"
+        fm = emit_frontmatter(entity_id, "architecture", status="active")
         sections = [
             f"# {title}\n",
             f"**Date:** {date.today().isoformat()}\n",
@@ -601,8 +608,8 @@ def create_mcp_server(
             sections.append(f"## Components\n{components}\n")
         if diagrams:
             sections.append(f"## Diagrams\n{diagrams}\n")
-        content = "\n".join(sections)
-        filename = f"architecture/{date.today().isoformat()}-{_make_slug(title)}.md"
+        content = fm + "\n".join(sections)
+        filename = f"architecture/{date.today().isoformat()}-{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
     @mcp.tool()
@@ -645,6 +652,9 @@ def create_mcp_server(
             return err
         _telem(ctx.name, "write_api_doc")
 
+        slug = _make_slug(title)
+        entity_id = f"api-{slug}"
+        fm = emit_frontmatter(entity_id, "api", status="active")
         sections = [
             f"# {title}\n",
             f"**Endpoint:** `{method} {endpoint}`\n",
@@ -655,8 +665,8 @@ def create_mcp_server(
             sections.append(f"## Authentication\n{auth}\n")
         if examples:
             sections.append(f"## Examples\n{examples}\n")
-        content = "\n".join(sections)
-        filename = f"api/{_make_slug(title)}.md"
+        content = fm + "\n".join(sections)
+        filename = f"api/{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
     @mcp.tool()
@@ -695,6 +705,9 @@ def create_mcp_server(
             return err
         _telem(ctx.name, "write_best_practice")
 
+        slug = _make_slug(title)
+        entity_id = f"best-practice-{slug}"
+        fm = emit_frontmatter(entity_id, "best-practice", status="active")
         sections = [
             f"# {title}\n",
             f"## Context\n{context}\n",
@@ -703,8 +716,8 @@ def create_mcp_server(
         ]
         if examples:
             sections.append(f"## Examples\n{examples}\n")
-        content = "\n".join(sections)
-        filename = f"best-practices/{_make_slug(title)}.md"
+        content = fm + "\n".join(sections)
+        filename = f"best-practices/{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
     @mcp.tool()
@@ -743,6 +756,9 @@ def create_mcp_server(
             return err
         _telem(ctx.name, "write_setup_doc")
 
+        slug = _make_slug(title)
+        entity_id = f"setup-{slug}"
+        fm = emit_frontmatter(entity_id, "setup", status="active")
         sections = [
             f"# {title}\n",
             f"## Prerequisites\n{prerequisites}\n",
@@ -751,8 +767,8 @@ def create_mcp_server(
         ]
         if troubleshooting:
             sections.append(f"## Troubleshooting\n{troubleshooting}\n")
-        content = "\n".join(sections)
-        filename = f"setup/{_make_slug(title)}.md"
+        content = fm + "\n".join(sections)
+        filename = f"setup/{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
     @mcp.tool()
@@ -804,8 +820,10 @@ def create_mcp_server(
             sections.append(f"## Breaking Changes\n{breaking}\n")
         if not any([added, changed, fixed, breaking]):
             return "Error: At least one of added/changed/fixed/breaking is required."
-        content = "\n".join(sections)
         slug = re.sub(r"[^a-z0-9]+", "-", version).strip("-")
+        entity_id = f"changelog-{slug}"
+        fm = emit_frontmatter(entity_id, "changelog", status="active")
+        content = fm + "\n".join(sections)
         filename = f"changelog/{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
@@ -852,6 +870,9 @@ def create_mcp_server(
             return err
         _telem(ctx.name, "write_test_case")
 
+        slug = _make_slug(title)
+        entity_id = f"test-{date.today().isoformat()}-{slug}"
+        fm = emit_frontmatter(entity_id, "test", status="active")
         sections = [
             f"# {title}\n",
             f"**Date:** {date.today().isoformat()}  \n"
@@ -867,8 +888,8 @@ def create_mcp_server(
         ])
         if actual_result:
             sections.append(f"## Actual Result\n{actual_result}\n")
-        content = "\n".join(sections)
-        filename = f"tests/{date.today().isoformat()}-{_make_slug(title)}.md"
+        content = fm + "\n".join(sections)
+        filename = f"tests/{date.today().isoformat()}-{slug}.md"
         return _write_knowledge_doc(ctx, filename, content)
 
     # ── Admin / utility tools ─────────────────────────
