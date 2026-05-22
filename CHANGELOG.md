@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.11.0] — 2026-05-22
+
+### Added
+- **Two-tier telemetry persistence with cold-start recovery** — per-project summary counters are now mirrored from the Docker volume into each knowledge repo at `<docs_path>/.flaiwheel/telemetry.json`. After `docker volume rm flaiwheel-data` (or a brand-new Docker host), `hydrate_from_mirrors()` reconstructs the in-memory summary from these per-project files on the next start, so dashboards do not reset to zero. The hot tier remains authoritative when both exist; mirrors only fill gaps. Mirror writes are rate-limited (60s/project) so we don't churn one Git commit per tool call. Events (`events.jsonl`) intentionally stay in the volume only — too noisy for the knowledge repo.
+- **Reset Telemetry button on each per-project tile** — zeroes a single project's summary counters across both storage tiers (hot tier + mirror). Wired to a new `POST /api/telemetry/reset?project=<name>` endpoint and a `mcp.reset_project_telemetry()` server hook. Event history is preserved so the rolling 30-day impact metrics remain reproducible after a reset.
+- **"Structured Relations Workflow" section** added to `AGENTS.md` and to both install.sh agent-instruction templates. Three concrete rules teach agents how to populate `fixes` / `replaces` / `depends_on` and when to flip `status: superseded` — without this, agents would never know the v3.10.x graph-edge mechanics exist.
+- **9 new tests in `tests/test_telemetry.py`** covering mirror writes, rate limiting, cold-start hydration, hot-tier authority, reset semantics, and edge cases (unknown project, empty name).
+
+### Changed
+- **Client Configuration → "VS Code" tab renamed to "VS Code + Copilot"** with explicit help text mentioning GitHub Copilot agent mode and the `MCP: List Servers` Command Palette verification. The `.vscode/mcp.json` config file Flaiwheel emits is the same file Copilot reads — no separate snippet needed. (No tab added; the existing one was just under-labelled.)
+- **`indexer._iter_docs`, `quality._check_*`, `bootstrap._scan_files`** now skip any path component starting with `.flaiwheel`, so the new mirror file (and any future internal metadata) never pollutes the index, quality report, or codebase-bootstrap output.
+
+### Notes
+- The mirror file lives **inside** the knowledge repo by design — that repo is the part the user already version-controls and (typically) backs up off-host, so persistence comes for free. If you don't want telemetry committed, add `.flaiwheel/` to your knowledge repo's `.gitignore`; Flaiwheel will still read/write the local file but `push_pending` will skip it.
+- Fully backwards-compatible. Existing installs continue to work; mirror files materialise organically on the next save and hydrate on the next cold start.
+
 ## [3.10.1] — 2026-05-22
 
 ### Added

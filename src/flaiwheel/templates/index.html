@@ -534,7 +534,7 @@
         <div class="card" style="margin-bottom: 24px;">
             <h2><span class="icon">&#128202;</span> Tool Telemetry</h2>
             <p style="color:var(--text-dim); font-size:13px; margin-bottom:16px;">
-                Persistent MCP tool usage per project (survives restarts and updates). Patterns trigger smart nudges to agents.
+                Persistent MCP tool usage per project. Summaries are mirrored into each project's knowledge repo (<code>.flaiwheel/telemetry.json</code>) so the data survives container restarts, image updates, and even a wiped <code>flaiwheel-data</code> volume. Patterns trigger smart nudges to agents. Use <strong>Reset</strong> on a tile to zero counters without losing event history.
             </p>
             <div id="telemetry-empty" style="color:var(--text-dim); font-size:14px;">No telemetry data yet — tool calls will appear here once agents start using MCP tools.</div>
             <div id="telemetry-grid" style="display:none; gap:16px;"></div>
@@ -582,7 +582,7 @@
                 </div>
                 <div class="tab-row">
                     <button class="tab-btn active" onclick="showTab(this, 'tab-cursor')">Cursor</button>
-                    <button class="tab-btn" onclick="showTab(this, 'tab-vscode')">VS Code</button>
+                    <button class="tab-btn" onclick="showTab(this, 'tab-vscode')">VS Code + Copilot</button>
                     <button class="tab-btn" onclick="showTab(this, 'tab-claude')">Claude Desktop</button>
                     <button class="tab-btn" onclick="showTab(this, 'tab-claudecode')">Claude Code CLI</button>
                     <button class="tab-btn" onclick="showTab(this, 'tab-docker')">Docker (stdio)</button>
@@ -593,7 +593,7 @@
                 </div>
                 <div id="tab-vscode" class="connection-info" style="display:none;">
                     <strong>.vscode/mcp.json</strong>
-                    <p style="font-size:12px; color:var(--text-dim); margin:6px 0 8px;">Requires VS Code 1.99+ with GitHub Copilot. Native SSE — no bridge needed.</p>
+                    <p style="font-size:12px; color:var(--text-dim); margin:6px 0 8px;">For VS Code 1.99+ with <strong>GitHub Copilot</strong> (agent mode). Same file is read by Copilot Chat &amp; Workspace. Native SSE — no bridge needed. Verify via <code>MCP: List Servers</code> in the Command Palette.</p>
                     <code id="config-vscode"></code>
                 </div>
                 <div id="tab-claude" class="connection-info" style="display:none;">
@@ -1192,8 +1192,16 @@
             var missRate = totalSearches > 0
                 ? Math.round(t.search_misses / totalSearches * 100) : 0;
 
+            var resetBtn = proj === '_default'
+                ? ''
+                : '<button onclick="resetTelemetry(\'' + encodeURIComponent(proj).replace(/'/g, "\\'") + '\', \'' + escapeHtml(label).replace(/'/g, "\\'") + '\')" '
+                  + 'style="background:transparent; border:1px solid var(--border); color:var(--text-dim); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;" '
+                  + 'title="Zero this project\'s summary counters. Events history is preserved.">Reset</button>';
             return '<div style="background:var(--bg-input); border-radius:var(--radius); padding:16px;">'
-                + '<div style="font-weight:600; font-size:14px; margin-bottom:12px; color:var(--text);">' + escapeHtml(label) + '</div>'
+                + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+                +   '<div style="font-weight:600; font-size:14px; color:var(--text);">' + escapeHtml(label) + '</div>'
+                +   resetBtn
+                + '</div>'
                 + '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">'
                 +   _statBox('Total Calls', t.total_calls)
                 +   _statBox('Searches', t.searches + t.bugfix_searches)
@@ -1215,6 +1223,25 @@
                     : '<div style="padding:6px 10px; background:rgba(76,175,80,0.1); border-radius:6px; font-size:12px; color:var(--success);">Search miss rate: ' + missRate + '%</div>')
                 + '</div>';
         }).join('');
+    }
+
+    async function resetTelemetry(encodedProject, label) {
+        var project = decodeURIComponent(encodedProject);
+        if (!confirm(
+            'Reset telemetry counters for "' + label + '"?\n\n'
+            + 'This clears Total Calls / Searches / Writes / Nudges Sent for this project only. '
+            + 'Event history (used for the 30-day impact metrics) is preserved.'
+        )) {
+            return;
+        }
+        var result = await api('POST', '/telemetry/reset?project=' + encodedProject);
+        if (!result) return;
+        if (result.status === 'reset') {
+            toast('success', 'Telemetry reset for ' + label);
+            loadTelemetry();
+        } else {
+            toast('error', result.detail || 'Reset failed');
+        }
     }
 
     function _statBox(label, value) {

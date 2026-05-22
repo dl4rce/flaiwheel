@@ -110,6 +110,7 @@ def create_web_app(
     get_telemetry: callable = None,
     get_impact_metrics: callable = None,
     record_ci_guardrail: callable = None,
+    reset_telemetry: callable = None,
 ) -> FastAPI:
     """Factory: returns a FastAPI app backed by a ProjectRegistry."""
 
@@ -434,6 +435,30 @@ def create_web_app(
             "estimated_time_saved_hours": 0.0,
             "assumptions": {},
         }
+
+    @app.post("/api/telemetry/reset")
+    async def reset_telemetry_endpoint(
+        project: Optional[str] = Query(None),
+        _user: str = Depends(require_auth),
+    ):
+        """Zero a single project's summary counters.
+
+        Events (events.jsonl) are preserved so historical impact metrics
+        remain reproducible after the reset.
+        """
+        if reset_telemetry is None:
+            raise HTTPException(status_code=503, detail="Telemetry reset unavailable")
+        effective = project
+        if not effective:
+            default_ctx = registry.get_default()
+            if default_ctx:
+                effective = default_ctx.name
+        if not effective:
+            raise HTTPException(status_code=400, detail="No project to reset")
+        # Make sure the project actually exists before we touch storage.
+        if registry.get(effective) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown project '{effective}'")
+        return reset_telemetry(effective)
 
     @app.post("/api/telemetry/ci-guardrail-report")
     async def ci_guardrail_report(

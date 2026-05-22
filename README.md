@@ -85,11 +85,18 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.10.1
+## What’s New in v3.11.0
+
+- **Telemetry now survives `docker volume rm flaiwheel-data`.** A per-project summary slice is mirrored from the Docker volume into each knowledge repo at `<docs_path>/.flaiwheel/telemetry.json`. On the next cold start, `hydrate_from_mirrors()` rebuilds the in-memory state from these files so the Tool Telemetry dashboard does not reset to zero. Hot tier wins when both exist; mirror writes are rate-limited to 60s/project to avoid one Git commit per tool call. Events stay in the volume only (too noisy for the knowledge repo). Don't want it committed? Add `.flaiwheel/` to your knowledge repo's `.gitignore` — Flaiwheel will still read/write the file locally.
+- **Reset Telemetry button on every per-project tile in the Web UI.** Zeroes summary counters across both storage tiers via the new `POST /api/telemetry/reset?project=<name>` endpoint. The 30-day impact-metrics window keeps working because events history is preserved.
+- **Agent instructions taught the relations workflow.** `AGENTS.md` and both install.sh templates now include a "Structured Relations Workflow" section with three concrete rules (when to add `fixes`, when to add `replaces`, when to add `depends_on`) so agents actually use the v3.10.x graph machinery instead of ignoring it.
+- **Client Configuration's "VS Code" tab is now "VS Code + Copilot"** with explicit help text pointing at GitHub Copilot agent mode. The `.vscode/mcp.json` file Flaiwheel emits already works for Copilot — no separate snippet needed.
+- **Tests: 292 → 300** (8 new tests in `test_telemetry.py` for mirror writes, rate limiting, cold-start hydration, hot-tier authority, and reset semantics).
+
+### Previous: v3.10.1
 
 - **Every structured writer now auto-emits frontmatter.** `write_bugfix_summary`, `write_architecture_doc`, `write_api_doc`, `write_best_practice`, `write_setup_doc`, `write_changelog_entry`, and `write_test_case` prepend `id` / `type` / `status: active` + empty relation lists to every new doc. Every doc you create from now on is automatically a graph node — no manual frontmatter editing required. IDs are derived from the existing filename slugs (e.g. `adr-2026-05-22-payment-service-architecture`, `bugfix-2026-05-22-fix-race-condition`, `api-create-user-endpoint`).
 - **New helper `flaiwheel.frontmatter.emit()`** with stable, deterministic key order so same-day overwrites produce minimal diffs.
-- **Tests: 284 → 292** (8 new `TestFrontmatterAutoEmission` cases — one per writer plus an end-to-end `relations()` round-trip).
 
 ### Previous: v3.10.0
 

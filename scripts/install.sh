@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.10.1"
+_FW_VERSION="3.11.0"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -1515,6 +1515,19 @@ Every piece of knowledge you capture (bugfixes, decisions, patterns) gets pushed
 - At START of session → \`get_recent_sessions()\` (see what was done before)
 - At END of session → \`save_session_summary()\` (preserve context for next time)
 
+## Structured Relations Workflow (compound the graph)
+
+Every \`write_*\` tool now auto-emits a YAML frontmatter block with \`id\`, \`type\`, \`status: active\`, and empty relation lists. **You only need to populate the edges** so future searches resolve real dependencies and supersession chains. Three concrete rules:
+
+1. **Bugfix touching a previously documented issue** → before writing, call \`search_bugfixes("symptom")\` and \`relations("<old-id>")\`. If the new fix supersedes / extends an old one, edit the new doc's frontmatter to add \`fixes: [old-bugfix-id]\`. Flip the old doc's \`status: superseded\` and set \`superseded_at: <ISO date>\` if it is truly replaced.
+2. **ADR replacing an earlier decision** → add \`replaces: [old-adr-id]\` to the new doc's frontmatter and set the old doc's \`status: superseded\`. Never silently append a new ADR; future agents must see the chain.
+3. **Architecture doc for a service / component** → add \`depends_on: [other-id, ...]\` to make \`relations("<service-id>")\` answer "what breaks if I change this?" before any refactor.
+
+Quick reference:
+- \`relations(entity_id)\` — inbound + outbound edges (use it before editing or deprecating anything that has an \`id:\`).
+- \`timeline(entity_id)\` — Git history of the doc holding the entity ("what was true at time T?").
+- Status values: \`active\` | \`superseded\` | \`deprecated\`. \`validate_doc()\` will warn on anything else.
+
 ## Updating Flaiwheel
 
 To update Flaiwheel, tell the user to run this in their project directory:
@@ -1633,6 +1646,19 @@ Flaiwheel knows things the source code cannot tell you: the _why_ behind decisio
 **SESSION CONTINUITY:**
 - At START of session → \`get_recent_sessions()\` (see what was done before)
 - At END of session → \`save_session_summary()\` (preserve context for next time)
+
+### Structured Relations Workflow (compound the graph)
+
+Every \`write_*\` tool now auto-emits a YAML frontmatter block with \`id\`, \`type\`, \`status: active\`, and empty relation lists. **You only need to populate the edges** so future searches resolve real dependencies and supersession chains. Three concrete rules:
+
+1. **Bugfix touching a previously documented issue** → before writing, call \`search_bugfixes("symptom")\` and \`relations("<old-id>")\`. If the new fix supersedes / extends an old one, edit the new doc's frontmatter to add \`fixes: [old-bugfix-id]\`. Flip the old doc's \`status: superseded\` and set \`superseded_at: <ISO date>\` if it is truly replaced.
+2. **ADR replacing an earlier decision** → add \`replaces: [old-adr-id]\` to the new doc's frontmatter and set the old doc's \`status: superseded\`. Never silently append a new ADR; future agents must see the chain.
+3. **Architecture doc for a service / component** → add \`depends_on: [other-id, ...]\` to make \`relations("<service-id>")\` answer "what breaks if I change this?" before any refactor.
+
+Quick reference:
+- \`relations(entity_id)\` — inbound + outbound edges (use it before editing or deprecating anything that has an \`id:\`).
+- \`timeline(entity_id)\` — Git history of the doc holding the entity ("what was true at time T?").
+- Status values: \`active\` | \`superseded\` | \`deprecated\`. \`validate_doc()\` will warn on anything else.
 
 ### What the knowledge base contains
 

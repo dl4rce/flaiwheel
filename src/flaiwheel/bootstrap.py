@@ -431,6 +431,8 @@ class KnowledgeBootstrap:
 
         for ext in sorted(SUPPORTED_EXTENSIONS):
             for p in self.docs_path.rglob(f"*{ext}"):
+                if any(part.startswith(".flaiwheel") for part in p.parts):
+                    continue
                 if p in seen:
                     continue
                 seen.add(p)

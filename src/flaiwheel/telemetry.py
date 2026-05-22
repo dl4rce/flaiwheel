@@ -5,16 +5,49 @@
 """
 Persistent telemetry storage and impact metrics.
 
-Telemetry is written to the vectorstore volume so it survives restarts and updates:
-  <vectorstore_path>/telemetry/summary.json
-  <vectorstore_path>/telemetry/events.jsonl
+Telemetry has two storage tiers:
+
+1. **Hot tier (Docker volume)** — written on every tool call:
+     <vectorstore_path>/telemetry/summary.json
+     <vectorstore_path>/telemetry/events.jsonl
+   Survives container restarts and image updates, but is lost when the
+   ``flaiwheel-data`` volume is removed.
+
+2. **Cold-start tier (knowledge repo)** — a *summary* slice is mirrored
+   periodically into each project's knowledge repo at
+     <project_docs_path>/.flaiwheel/telemetry.json
+   This file lives next to the docs and is excluded from indexing
+   (see ``indexer._iter_docs`` and ``quality._check_*``).  When the
+   Docker volume is wiped, ``hydrate_from_mirrors()`` reconstructs the
+   in-memory summary from the per-project mirror files on the next
+   start so dashboards do not reset to zero.
+
+Events (``events.jsonl``) are intentionally *not* mirrored — they would
+make commit history noisy and they are only used for the rolling
+``impact-metrics`` window, which gracefully degrades to zero when missing.
 """
 
 import json
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+
+def _monotonic() -> float:
+    """Wrap ``time.monotonic`` so tests can patch it deterministically."""
+    return time.monotonic()
+
+# Per-project summary mirror file (relative to each project's docs_path).
+# Kept under ``.flaiwheel/`` so the indexer / quality checker skip it.
+MIRROR_DIRNAME = ".flaiwheel"
+MIRROR_FILENAME = "telemetry.json"
+
+# Minimum interval between two mirror writes for the *same* project.
+# Hot-tier writes still happen on every call; only the knowledge-repo
+# mirror is rate-limited so we don't generate one Git commit per tool call.
+MIRROR_MIN_INTERVAL_SECONDS = 60.0
 
 
 def _project_defaults() -> dict[str, int | str]:
@@ -46,20 +79,81 @@ class TelemetryStore:
         self._events_path = root / "events.jsonl"
         self._lock = threading.Lock()
 
+        # Per-project mirror configuration: name -> docs_path
+        # Populated by ``set_project_mirror`` once projects are loaded.
+        self._mirror_roots: dict[str, Path] = {}
+        # Last successful mirror write per project (monotonic seconds).
+        self._mirror_last_write: dict[str, float] = {}
+
+    # ── Cold-start mirror configuration ──────────────
+
+    def set_project_mirror(self, project: str, docs_path: Path | str) -> None:
+        """Register the knowledge-repo docs path for a project.
+
+        After this call, ``save_summary`` will (rate-limited) mirror the
+        project's slice into ``<docs_path>/.flaiwheel/telemetry.json`` so
+        the data survives ``docker volume rm`` of ``flaiwheel-data``.
+        """
+        if not project:
+            return
+        with self._lock:
+            self._mirror_roots[project] = Path(docs_path)
+
+    def hydrate_from_mirrors(self) -> dict[str, dict]:
+        """Reconstruct the in-memory summary from per-project mirror files.
+
+        Called once on startup *after* ``set_project_mirror`` has been
+        invoked for every known project. Only fills slices that are
+        missing from ``summary.json`` (the Docker-volume file wins when
+        both exist) so a corrupted mirror cannot overwrite live data.
+
+        Returns the merged summary so the caller can rebind its
+        in-memory cache atomically.
+        """
+        with self._lock:
+            current = self._load_summary_locked()
+            mirror_roots = dict(self._mirror_roots)
+
+        recovered = 0
+        for project, docs_path in mirror_roots.items():
+            if project in current:
+                continue
+            mirror_path = Path(docs_path) / MIRROR_DIRNAME / MIRROR_FILENAME
+            if not mirror_path.exists():
+                continue
+            try:
+                raw = json.loads(mirror_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not isinstance(raw, dict):
+                continue
+            # Mirror files store the project's *slice* directly.
+            current[project] = self._normalize_project(raw)
+            recovered += 1
+
+        if recovered > 0:
+            # Persist the hydrated state to the hot tier so subsequent
+            # restarts (with the volume intact) don't re-read mirrors.
+            self.save_summary(current)
+        return current
+
     def load_summary(self) -> dict[str, dict]:
         with self._lock:
-            if not self._summary_path.exists():
-                return {}
-            try:
-                raw = json.loads(self._summary_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                return {}
-            if not isinstance(raw, dict):
-                return {}
-            normalized: dict[str, dict] = {}
-            for project, values in raw.items():
-                normalized[project] = self._normalize_project(values)
-            return normalized
+            return self._load_summary_locked()
+
+    def _load_summary_locked(self) -> dict[str, dict]:
+        if not self._summary_path.exists():
+            return {}
+        try:
+            raw = json.loads(self._summary_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        normalized: dict[str, dict] = {}
+        for project, values in raw.items():
+            normalized[project] = self._normalize_project(values)
+        return normalized
 
     def save_summary(self, summary: dict[str, dict]) -> None:
         with self._lock:
@@ -73,6 +167,74 @@ class TelemetryStore:
                 encoding="utf-8",
             )
             tmp.replace(self._summary_path)
+
+            # Mirror each project's slice into its knowledge repo
+            # (rate-limited; ignores projects without a registered mirror).
+            now = _monotonic()
+            for project, slice_data in normalized.items():
+                root = self._mirror_roots.get(project)
+                if root is None:
+                    continue
+                last = self._mirror_last_write.get(project, 0.0)
+                if (now - last) < MIRROR_MIN_INTERVAL_SECONDS:
+                    continue
+                if self._write_mirror_locked(project, root, slice_data):
+                    self._mirror_last_write[project] = now
+
+    def reset_project(self, project: str) -> dict:
+        """Zero a single project's summary counters.
+
+        Clears the in-memory slice (via the next ``save_summary`` call),
+        the Docker-volume copy, and the knowledge-repo mirror. Returns
+        the freshly zeroed slice. Events (``events.jsonl``) are kept
+        intact so historical impact metrics remain reproducible.
+        """
+        if not project:
+            return _project_defaults()
+
+        fresh = _project_defaults()
+        with self._lock:
+            summary = self._load_summary_locked()
+            summary[project] = dict(fresh)
+            tmp = self._summary_path.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps(summary, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            tmp.replace(self._summary_path)
+
+            root = self._mirror_roots.get(project)
+            if root is not None:
+                # Force-write (bypass rate limit) so a remote viewer sees
+                # the reset immediately.
+                self._write_mirror_locked(project, root, fresh)
+                self._mirror_last_write[project] = _monotonic()
+        return dict(fresh)
+
+    def _write_mirror_locked(
+        self, project: str, root: Path, slice_data: dict
+    ) -> bool:
+        """Write a single project's mirror file. Lock must be held."""
+        try:
+            target_dir = root / MIRROR_DIRNAME
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / MIRROR_FILENAME
+            tmp = target.with_suffix(".tmp")
+            payload = {
+                "project": project,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                **slice_data,
+            }
+            tmp.write_text(
+                json.dumps(payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            tmp.replace(target)
+            return True
+        except OSError:
+            # Mirror write failures are non-fatal — hot tier already has
+            # the data. Try again on the next save.
+            return False
 
     def append_event(self, event_type: str, project: str, payload: dict[str, Any]) -> None:
         event = {

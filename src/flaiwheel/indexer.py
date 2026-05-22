@@ -55,7 +55,12 @@ DEFAULT_COLLECTION = "project_docs"
 
 def _iter_docs(docs_path: Path):
     """Yield all supported document files under docs_path, deduplicated.
-    Skips subdirectories that contain their own .git (other project repos)."""
+
+    Skips:
+      - subdirectories that contain their own .git (other project repos)
+      - any path component starting with ``.flaiwheel`` (Flaiwheel-managed
+        metadata such as ``.flaiwheel/telemetry.json``).
+    """
     nested_repos: set[Path] = set()
     for child in docs_path.iterdir():
         if child.is_dir() and (child / ".git").exists():
@@ -64,6 +69,8 @@ def _iter_docs(docs_path: Path):
     seen: set[Path] = set()
     for ext in sorted(SUPPORTED_EXTENSIONS):
         for p in docs_path.rglob(f"*{ext}"):
+            if any(part.startswith(".flaiwheel") for part in p.parts):
+                continue
             if any(p.is_relative_to(nr) for nr in nested_repos):
                 continue
             if p not in seen:

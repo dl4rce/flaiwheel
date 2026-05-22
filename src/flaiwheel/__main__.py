@@ -116,6 +116,7 @@ def main():
             get_telemetry=mcp_server.get_telemetry_data,
             get_impact_metrics=mcp_server.get_impact_metrics,
             record_ci_guardrail=mcp_server.record_ci_guardrail_report,
+            reset_telemetry=mcp_server.reset_project_telemetry,
         )
 
         def run_web():

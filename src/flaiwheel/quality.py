@@ -448,6 +448,10 @@ class KnowledgeQualityChecker:
                 rel = doc_file.relative_to(docs)
                 parts = rel.parts
 
+                # Skip Flaiwheel-managed metadata (e.g. .flaiwheel/telemetry.json).
+                if any(p.startswith(".flaiwheel") for p in parts):
+                    continue
+
                 if len(parts) == 1 and parts[0] not in root_whitelist:
                     issues.append(_issue(
                         "info", str(rel),

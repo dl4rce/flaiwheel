@@ -66,9 +66,14 @@ def create_mcp_server(
     _active_projects: dict[int, str] = {}
     _active_lock = threading.Lock()
 
-    # ── Session Telemetry (persistent) ───────────────
+    # ── Session Telemetry (two-tier: Docker volume + knowledge repo mirror) ──
     _telemetry_store = TelemetryStore(config.vectorstore_path)
-    _telemetry: dict[str, dict] = _telemetry_store.load_summary()
+    # Register each loaded project as a mirror destination so cold-start
+    # recovery (after ``docker volume rm flaiwheel-data``) works.
+    for _ctx in registry.all():
+        _telemetry_store.set_project_mirror(_ctx.name, _ctx.merged_config.docs_path)
+    # Hydrate from mirrors when the hot tier is empty (i.e. fresh volume).
+    _telemetry: dict[str, dict] = _telemetry_store.hydrate_from_mirrors()
     _telemetry_lock = threading.Lock()
 
     def _ensure_telem(key: str) -> dict:
@@ -96,6 +101,15 @@ def create_mcp_server(
     def _telem(project: str | None, tool_name: str) -> None:
         """Record a tool call for a project."""
         key = project or "_default"
+        # Just-in-time mirror registration so projects added via the Web UI
+        # or any future setup path become recoverable on cold start without
+        # plumbing extra callbacks into ``create_web_app``. Idempotent.
+        if project:
+            project_ctx = registry.get(project)
+            if project_ctx is not None:
+                _telemetry_store.set_project_mirror(
+                    project_ctx.name, project_ctx.merged_config.docs_path
+                )
         with _telemetry_lock:
             t = _ensure_telem(key)
             t["total_calls"] += 1
@@ -221,6 +235,23 @@ def create_mcp_server(
         """Return telemetry data for all projects (used by Web UI API)."""
         with _telemetry_lock:
             return {k: dict(v) for k, v in _telemetry.items()}
+
+    def reset_project_telemetry(project: str) -> dict:
+        """Zero a single project's summary counters across all storage tiers.
+
+        Used by the Web UI "Reset Telemetry" button. Only the per-project
+        slice is cleared; events.jsonl (and therefore historical
+        impact-metrics) is preserved so the Wall-clock saved estimates
+        remain comparable across resets.
+        """
+        if not project:
+            return {}
+        key = project
+        with _telemetry_lock:
+            # Replace the in-memory slice atomically.
+            _telemetry[key] = _telemetry_store.reset_project(key)
+            snapshot = dict(_telemetry[key])
+        return {"status": "reset", "project": key, "summary": snapshot}
 
     def _session_key(ctx: Context | None) -> int:
         """Return a per-connection key from an MCP Context.
@@ -1328,6 +1359,10 @@ def create_mcp_server(
         except Exception as e:
             return f"Failed to set up project: {e}"
 
+        # Register the new project as a telemetry mirror destination so
+        # its summary survives a future ``docker volume rm``.
+        _telemetry_store.set_project_mirror(ctx.name, ctx.merged_config.docs_path)
+
         _set_active(mcp_ctx, name)
 
         return (
@@ -1891,4 +1926,5 @@ def create_mcp_server(
     mcp.get_telemetry_data = get_telemetry_data
     mcp.get_impact_metrics = get_impact_metrics
     mcp.record_ci_guardrail_report = record_ci_guardrail_report
+    mcp.reset_project_telemetry = reset_project_telemetry
     return mcp
