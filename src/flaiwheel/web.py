@@ -169,6 +169,9 @@ def create_web_app(
                 "last_index_ok": status.get("last_index_ok"),
                 "last_pull_at": status.get("last_pull_at"),
                 "last_pull_ok": status.get("last_pull_ok"),
+                "last_push_ok": status.get("last_push_ok"),
+                "last_push_error": status.get("last_push_error"),
+                "push_failures_consecutive": status.get("push_failures_consecutive", 0),
                 "git_commit": status.get("git_commit"),
                 "git_branch": status.get("git_branch"),
                 "searches_total": status.get("searches_total", 0),
@@ -180,11 +183,11 @@ def create_web_app(
                 "migration_status": status.get("migration_status"),
             }
 
-        all_healthy = True
-        for ctx in registry.all():
-            if not ctx.health.is_healthy:
-                all_healthy = False
-                break
+        # Name the unhealthy projects. Reporting only the default project's
+        # numbers while the aggregate says "degraded" leaves no way to tell
+        # WHICH repo is failing.
+        degraded = [ctx.name for ctx in registry.all() if not ctx.health.is_healthy]
+        all_healthy = not degraded
 
         default = registry.get_default()
         if default:
@@ -199,6 +202,10 @@ def create_web_app(
                 "last_index_ok": status.get("last_index_ok"),
                 "last_pull_at": status.get("last_pull_at"),
                 "last_pull_ok": status.get("last_pull_ok"),
+                "last_push_ok": status.get("last_push_ok"),
+                "last_push_error": status.get("last_push_error"),
+                "push_failures_consecutive": status.get("push_failures_consecutive", 0),
+                "degraded_projects": degraded,
                 "git_commit": status.get("git_commit"),
                 "git_branch": status.get("git_branch"),
                 "searches_total": status.get("searches_total", 0),

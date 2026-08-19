@@ -1,6 +1,8 @@
 """Tests for the HealthTracker."""
 import threading
 
+from flaiwheel.health import PUSH_FAILURE_THRESHOLD
+
 
 class TestRecordSearch:
     def test_hit_increments(self, health):
@@ -100,6 +102,45 @@ class TestIsHealthy:
         health.record_index(ok=True, chunks=10)
         health.record_index(ok=False, error="fail")
         assert health.is_healthy is False
+
+
+class TestPushFailureStreak:
+    """`last_push_ok` alone cannot distinguish one blip from weeks of failure —
+    the next attempt overwrites it. The streak counter is what lets sustained
+    failure escalate instead of staying invisible (2026-08-19 incident)."""
+
+    def test_starts_at_zero(self, health):
+        assert health.status["push_failures_consecutive"] == 0
+
+    def test_failures_accumulate(self, health):
+        for _ in range(3):
+            health.record_push(ok=False, error="rejected")
+        assert health.status["push_failures_consecutive"] == 3
+
+    def test_success_resets_streak(self, health):
+        health.record_push(ok=False, error="rejected")
+        health.record_push(ok=False, error="rejected")
+        health.record_push(ok=True)
+        assert health.status["push_failures_consecutive"] == 0
+
+    def test_single_failure_does_not_degrade(self, health):
+        """One failure is usually transient — don't cry wolf."""
+        health.record_index(ok=True, chunks=10)
+        health.record_push(ok=False, error="transient")
+        assert health.is_healthy is True
+
+    def test_sustained_failure_degrades_health(self, health):
+        health.record_index(ok=True, chunks=10)
+        for _ in range(PUSH_FAILURE_THRESHOLD):
+            health.record_push(ok=False, error="non-fast-forward")
+        assert health.is_healthy is False
+
+    def test_recovery_restores_health(self, health):
+        health.record_index(ok=True, chunks=10)
+        for _ in range(PUSH_FAILURE_THRESHOLD):
+            health.record_push(ok=False, error="non-fast-forward")
+        health.record_push(ok=True)
+        assert health.is_healthy is True
 
 
 class TestThreadSafety:

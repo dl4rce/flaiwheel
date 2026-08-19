@@ -11,6 +11,11 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Consecutive failed pushes before /health degrades. A single failure is often
+# transient (network, a momentary lock); a sustained streak means knowledge is
+# accumulating locally and reaching no remote — the 2026-08-19 failure mode.
+PUSH_FAILURE_THRESHOLD = 3
+
 
 class HealthTracker:
     def __init__(self):
@@ -30,6 +35,10 @@ class HealthTracker:
             "last_push_at": None,
             "last_push_ok": False,
             "last_push_error": None,
+            # last_push_ok is a single boolean that the next attempt overwrites,
+            # so one blip and a repo that has been failing for weeks look
+            # identical. Count the streak so persistent failure can escalate.
+            "push_failures_consecutive": 0,
 
             "git_commit": None,
             "git_branch": None,
@@ -76,6 +85,10 @@ class HealthTracker:
             self._data["last_push_at"] = datetime.now(timezone.utc).isoformat()
             self._data["last_push_ok"] = ok
             self._data["last_push_error"] = error
+            if ok:
+                self._data["push_failures_consecutive"] = 0
+            else:
+                self._data["push_failures_consecutive"] += 1
 
     def record_search(self, tool: str, hit: bool):
         with self._lock:
@@ -126,4 +139,6 @@ class HealthTracker:
     @property
     def is_healthy(self) -> bool:
         with self._lock:
+            if self._data["push_failures_consecutive"] >= PUSH_FAILURE_THRESHOLD:
+                return False
             return self._data["last_index_ok"]

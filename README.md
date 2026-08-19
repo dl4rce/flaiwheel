@@ -85,7 +85,24 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.12.0
+## What’s New in v3.12.3
+
+- **Every dependency is capped below the next major.** Eleven requirements were unbounded `>=X`. That fails silently: the breaking release lands, existing installs keep working off a stale resolve, and it only bites on the next *fresh* install — CI, a Docker rebuild, a new contributor. Exactly how `mcp` 2.0.0 broke CI and the Docker build together three weeks after release while every dev machine stayed green. A clean install resolves to identical versions as before, so this constrains the future without moving anything today.
+- **Sustained push failure now degrades `/health`.** `HealthTracker` kept only `last_push_ok` — a single boolean the next attempt overwrites — so one blip and a repo failing for weeks looked the same. `push_failures_consecutive` escalates past 3 consecutive failures. A single failure deliberately does *not* degrade; crying wolf on transients is how alerts get ignored.
+- **`/health` names the failing projects.** Adds `last_push_ok`, `last_push_error`, `push_failures_consecutive` and `degraded_projects` — previously the endpoint could say `degraded` while showing only the default project's numbers, with no way to tell *which* repo was broken.
+- **Pre-deploy image smoke test documented.** An image can build cleanly and still fail every import at runtime. The README now verifies `from flaiwheel.server import create_mcp_server` inside the image before starting a container, and renames rather than removes the previous container so rollback is instant.
+- **Tests: 308 → 316.**
+
+### Previous: v3.12.2
+
+- **Auto-commit no longer drops the first worktree-modified file.** `git status --porcelain` emits `XY <path>` where a leading space is *data* (`" M file"`). Stripping the whole output before splitting ate that space on the first line only, so `line[3:]` truncated the filename's first character — `.flaiwheel/telemetry.json` became `flaiwheel/telemetry.json`, `git add` failed, and the commit aborted. Intermittent and file-order dependent, which is why it survived so long.
+- **Renamed and copied files are staged correctly.** Porcelain reports `old -> new`; the whole string was passed to `git add`, so renames were never committed.
+
+### Previous: v3.12.1
+
+- **Pinned `mcp[cli]<2.0.0`.** `mcp` 2.0.0 removed `mcp.server.fastmcp` (`FastMCP` → `mcp.server.mcpserver`), breaking every import of the server on a fresh resolve.
+
+### Previous: v3.12.0
 
 - **Auto-push now reports what actually happened.** `push_pending()` returns a structured result (`ok` / `noop` / `disabled` / `failed` / `blocked`) and every `write_*` tool renders that outcome. Previously the success line was derived from *configuration* (`git_auto_push and bool(git_repo_url)`), so it read `Auto-pushed to remote: True` even when every push was being rejected. A failed push now says **"Auto-push: FAILED — this doc is NOT on the remote"** with the git error attached.
 - **Push errors are no longer swallowed.** The bare `except` in `push_pending()` that only wrote to the diagnostic log now records to `HealthTracker` and returns the error to the caller. A failing `git commit` is reported instead of raising through an unchecked `check=True`.
@@ -418,6 +435,13 @@ git add -A && git commit -m "init" && git push
 ```bash
 git clone https://github.com/dl4rce/flaiwheel.git /tmp/flaiwheel-build
 docker build -t flaiwheel:latest /tmp/flaiwheel-build
+
+# Smoke-test the image BEFORE starting or replacing a container.
+# A broken transitive dependency only surfaces on a fresh resolve, so an
+# image can build cleanly and still fail every import at runtime.
+docker run --rm --entrypoint sh flaiwheel:latest -c \
+  'python -c "from flaiwheel.server import create_mcp_server; import flaiwheel; print(flaiwheel.__version__)"'
+
 docker run -d \
   --name flaiwheel \
   -p 8080:8080 \
@@ -427,6 +451,11 @@ docker run -d \
   -v flaiwheel-data:/data \
   flaiwheel:latest
 ```
+
+> **Upgrading an existing container?** Run the smoke test above first, then rename
+> the old container instead of removing it (`docker rename flaiwheel flaiwheel-rollback`)
+> so you can restore it instantly if the new one fails its health check. Confirm every
+> knowledge repo is pushed (`git rev-list --count @{u}..HEAD` → `0`) before swapping.
 
 ### 3. Connect your AI agent
 

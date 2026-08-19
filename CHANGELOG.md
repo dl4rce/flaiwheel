@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.12.3] — 2026-08-19
+
+Preventive hardening. No user-visible behaviour changes; all three items close gaps that the 2026-08-19 incident exposed but did not fix.
+
+### Changed
+- **Every dependency is now capped below the next major.** Eleven requirements were unbounded `>=X`. That is a promise no upstream makes, and it fails silently: the breaking release lands, existing environments keep working off a stale resolve, and the failure only appears on the next fresh install — CI, a Docker rebuild, or a new contributor's checkout. This is exactly how `mcp` 2.0.0 took out CI and the Docker build together in v3.12.0, three weeks after release, while every developer machine stayed green. Verified that a clean install resolves to byte-identical versions as before (`chromadb` 1.5.9, `fastapi` 0.141.1, `pypdf` 6.16.1, …), so the caps constrain the future without moving anything today. Raise a cap deliberately, with the suite green against the new major.
+
+### Added
+- **Consecutive-push-failure tracking.** `HealthTracker` recorded only `last_push_ok`, a single boolean that the next attempt overwrites — so one transient blip and a repository that had been failing for weeks were indistinguishable. `push_failures_consecutive` now increments on failure and resets on success. Past `PUSH_FAILURE_THRESHOLD` (3) `/health` reports `degraded`, so sustained failure escalates instead of staying invisible. A single failure deliberately does **not** degrade — crying wolf on transients is how alerts get ignored.
+- **`/health` now reports the push state and names the failing projects.** Added `last_push_ok`, `last_push_error`, `push_failures_consecutive`, and `degraded_projects`. Previously the aggregate endpoint could report `degraded` while showing only the default project's metrics, leaving no way to tell *which* of the repositories was broken.
+- **Documented the pre-deploy image smoke test.** An image can build cleanly and still fail every import at runtime when a transitive dependency breaks on a fresh resolve — the v3.12.0 rollback in full. The README manual-install path now runs `from flaiwheel.server import create_mcp_server` inside the image before any container is started, and documents renaming rather than removing the previous container so rollback is instant.
+
+### Notes
+- 6 new tests (**316 total**). The escalation test was verified to fail against the previous code.
+- Still open from the same incident: divergence detection (no `HEAD..@{u}` comparison exists yet — the actual gap that hid 325 documents for 2.5 months) and watcher path scoping.
+
 ## [3.12.2] — 2026-08-19
 
 ### Fixed
