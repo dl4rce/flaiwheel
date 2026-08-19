@@ -85,7 +85,15 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.12.3
+## What’s New in v3.13.0 — Observability
+
+- **Flaiwheel now knows whether its knowledge repo is still connected to its remote.** Everything before this reported on pushes that were *attempted*. The failure that hid 325 documents in a Docker volume for 2.5 months attempted nothing: the clone had drifted from its remote, so there was never anything to commit, so no push could fail, so nothing went red. `check_divergence()` compares `HEAD` against `@{u}` and classifies the result as `synced` / `ahead` / `behind` / `diverged` / `no-upstream`.
+- **The "nothing to push" path is where this matters.** That branch used to return an unconditional *"already in sync"*. It now verifies the claim. Divergence is also checked after every successful push (did the commit actually land?), after a rejected push (a rejection is the classic symptom — now named instead of leaving you to read a git error), and on every pull.
+- **A repo that indexes perfectly and pushes nothing is no longer "healthy".** `/health` gains `divergence_status`, `commits_ahead`, `commits_behind` and `last_divergence_at`, and reports `degraded` on `diverged`, `ahead` or `no-upstream`. Being `behind` is the normal state between two pulls and deliberately does *not* alarm.
+- **The agent is told directly.** `write_*` results append an explicit warning when the repo has diverged — including on "nothing to push". A warning in an endpoint nobody polls does not exist; the agent that just wrote the document is the one that needs to know it never left the machine.
+- **Tests: 316 → 335**, against real temp repos including a force-pushed rewritten upstream — the real-world trigger, where a secret purge or a squash silently desynchronises every clone.
+
+### Previous: v3.12.3
 
 - **Every dependency is capped below the next major.** Eleven requirements were unbounded `>=X`. That fails silently: the breaking release lands, existing installs keep working off a stale resolve, and it only bites on the next *fresh* install — CI, a Docker rebuild, a new contributor. Exactly how `mcp` 2.0.0 broke CI and the Docker build together three weeks after release while every dev machine stayed green. A clean install resolves to identical versions as before, so this constrains the future without moving anything today.
 - **Sustained push failure now degrades `/health`.** `HealthTracker` kept only `last_push_ok` — a single boolean the next attempt overwrites — so one blip and a repo failing for weeks looked the same. `push_failures_consecutive` escalates past 3 consecutive failures. A single failure deliberately does *not* degrade; crying wolf on transients is how alerts get ignored.

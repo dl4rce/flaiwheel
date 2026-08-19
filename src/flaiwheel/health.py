@@ -16,6 +16,10 @@ from pathlib import Path
 # accumulating locally and reaching no remote — the 2026-08-19 failure mode.
 PUSH_FAILURE_THRESHOLD = 3
 
+# Divergence states that mean knowledge is NOT reaching the remote. "behind" is
+# absent on purpose: it is the normal state between two pulls.
+UNHEALTHY_DIVERGENCE = ("diverged", "ahead", "no-upstream")
+
 
 class HealthTracker:
     def __init__(self):
@@ -39,6 +43,14 @@ class HealthTracker:
             # so one blip and a repo that has been failing for weeks look
             # identical. Count the streak so persistent failure can escalate.
             "push_failures_consecutive": 0,
+
+            # A repo can be perfectly "healthy" by every push/index metric and
+            # still be silently disconnected from its remote — no push is
+            # attempted when there is nothing to commit, so no push can fail.
+            "divergence_status": None,
+            "commits_ahead": 0,
+            "commits_behind": 0,
+            "last_divergence_at": None,
 
             "git_commit": None,
             "git_branch": None,
@@ -90,6 +102,21 @@ class HealthTracker:
             else:
                 self._data["push_failures_consecutive"] += 1
 
+    def record_divergence(self, divergence: dict):
+        """Store the result of ``GitWatcher.check_divergence()``.
+
+        ``unknown`` is deliberately not persisted as a state: a transient fetch
+        failure must not erase a real ``diverged`` verdict.
+        """
+        status = divergence.get("status")
+        if status == "unknown":
+            return
+        with self._lock:
+            self._data["divergence_status"] = status
+            self._data["commits_ahead"] = divergence.get("ahead", 0)
+            self._data["commits_behind"] = divergence.get("behind", 0)
+            self._data["last_divergence_at"] = datetime.now(timezone.utc).isoformat()
+
     def record_search(self, tool: str, hit: bool):
         with self._lock:
             self._data["searches_total"] += 1
@@ -140,5 +167,7 @@ class HealthTracker:
     def is_healthy(self) -> bool:
         with self._lock:
             if self._data["push_failures_consecutive"] >= PUSH_FAILURE_THRESHOLD:
+                return False
+            if self._data["divergence_status"] in UNHEALTHY_DIVERGENCE:
                 return False
             return self._data["last_index_ok"]

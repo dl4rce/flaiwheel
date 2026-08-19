@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.13.0] — 2026-08-19 — Observability
+
+Closes the last and largest gap from the 2026-08-19 incident: Flaiwheel could not tell whether its knowledge repository was still connected to its remote.
+
+Everything shipped in 3.12.x reports on *pushes that were attempted*. The failure that hid 325 documents inside a Docker volume for 2.5 months attempted nothing at all — the clone had drifted from its remote, so there was never anything to commit, so no push could fail, so no metric could go red. "Nothing to push (already in sync)" and genuinely being in sync were rendered identically. This release makes the local↔remote relationship itself a first-class, monitored fact.
+
+### Added
+- **Divergence detection — `GitWatcher.check_divergence()`.** Compares `HEAD` against `@{u}` with `git rev-list --left-right --count` and classifies the result as `synced`, `ahead`, `behind`, `diverged`, `no-upstream`, or `unknown`. The states are deliberately distinct rather than a boolean: `behind` is the *normal* state between two pulls and must not raise an alarm, whereas `ahead` (commits that exist only locally), `diverged` (histories split — pushes will be rejected) and `no-upstream` (writes landing in a repo that pushes nowhere) each mean knowledge is not being backed up, for different reasons and with different fixes.
+- **Divergence is checked on the `noop` path.** This is the entire point. A repository with nothing to commit is precisely where a disconnected clone hides, so that path — the one that used to return an unconditional "already in sync" — now establishes whether that claim is *true*. It is also checked after every successful push (confirming the commit actually landed), after a rejected push (a rejection is the classic symptom of divergence — now named instead of leaving the caller to parse a git error), and on every pull, including a failed `--ff-only` pull, which refuses in exactly the diverged case.
+- **`HealthTracker` records divergence and escalates on it.** New `divergence_status`, `commits_ahead`, `commits_behind`, and `last_divergence_at`. `is_healthy` returns `False` for `diverged`, `ahead`, and `no-upstream`. A repository that indexes perfectly and pushes nothing can no longer report itself healthy. `unknown` is never persisted as a state — a transient fetch failure must not erase a real `diverged` verdict.
+- **`/health` exposes the divergence fields** on both the per-project and aggregate endpoints, alongside the push metrics added in 3.12.3.
+- **Agents are told directly.** Every `write_*` tool result now appends an explicit warning when the repository has diverged, is ahead, or tracks no upstream — including on `noop`. A warning that lives only in an endpoint nobody polls does not exist; the agent writing the document is the one that needs to know it did not leave the machine.
+
+### Notes
+- 19 new tests (**335 total**), exercising real temp repositories: a force-pushed rewritten upstream (the real-world trigger — a secret purge or a squash silently desynchronises every clone), a repo with no upstream, `behind` treated as healthy, and `unknown` not clearing a prior verdict.
+- Remaining from the incident: watcher path scoping.
+
 ## [3.12.3] — 2026-08-19
 
 Preventive hardening. No user-visible behaviour changes; all three items close gaps that the 2026-08-19 incident exposed but did not fix.

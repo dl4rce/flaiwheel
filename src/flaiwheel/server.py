@@ -526,6 +526,14 @@ def create_mcp_server(
 
     def _render_push_result(push: dict) -> str:
         """Render the ACTUAL outcome of a push, never the configuration."""
+        base = _render_push_status(push)
+        # "nothing to push" and "pushed ok" both look fine on a clone that has
+        # drifted away from its remote. Append the repo-level verdict.
+        from .watcher import GitWatcher
+        warning = GitWatcher.describe_divergence(push.get("divergence") or {})
+        return f"{base}\n{warning}" if warning else base
+
+    def _render_push_status(push: dict) -> str:
         status = push.get("status")
         if status == "ok":
             line = f"Auto-push: ok ({push.get('files', 0)} file(s) pushed to remote)"

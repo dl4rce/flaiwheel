@@ -111,7 +111,13 @@ class GitWatcher:
             capture_output=True, text=True, timeout=10,
         )
         if not status.stdout.strip():
-            return {"status": "noop", "files": 0, "error": None}
+            # "Nothing to commit" is exactly where an already-diverged repo
+            # hides: no push is attempted, so no push can fail, so nothing is
+            # ever reported. Check the local/remote relationship instead.
+            div = self.check_divergence(fetch=False)
+            if self.health:
+                self.health.record_divergence(div)
+            return {"status": "noop", "files": 0, "error": None, "divergence": div}
 
         docs_path = Path(self.config.docs_path)
         try:
@@ -182,15 +188,122 @@ class GitWatcher:
             if self.health:
                 self.health.record_push(ok=False, error=err)
             diag(f"Warning: git push failed: {err}")
-            return {"status": "failed", "files": len(files), "error": err}
+            # A rejected push is the classic symptom of a diverged clone; say so
+            # instead of leaving the caller to guess from the git error.
+            div = self.check_divergence(fetch=False)
+            if self.health:
+                self.health.record_divergence(div)
+            return {"status": "failed", "files": len(files), "error": err,
+                    "divergence": div}
 
         if self.health:
             self.health.record_push(ok=True)
+        # The push exited 0 — confirm it actually landed. No fetch needed: the
+        # push just updated the remote-tracking ref.
+        div = self.check_divergence(fetch=False)
+        if self.health:
+            self.health.record_divergence(div)
         diag(f"Pushed {len(files)} file(s) to remote")
         return {
             "status": "ok", "files": len(files), "error": None,
             "scan": scan["status"], "findings": scan["findings"],
+            "divergence": div,
         }
+
+    # ── Divergence detection ─────────────────────────
+
+    def check_divergence(self, fetch: bool = True) -> dict:
+        """Compare the local branch against its upstream.
+
+        A push that is never *attempted* cannot report a failure, and a clone
+        whose history was rewritten upstream stops synchronising while happily
+        accepting writes. Both states are invisible to push reporting — this is
+        how 325 documents lived only inside a Docker volume for 2.5 months.
+
+        Returns ``{"status": ..., "ahead": int, "behind": int, "error": str|None}``
+        where status is one of:
+          ``synced``      — in step with the remote
+          ``ahead``       — local commits not on the remote (unpushed knowledge)
+          ``behind``      — remote commits not pulled yet (benign, next pull fixes)
+          ``diverged``    — BOTH: histories have split, pushes will be rejected
+          ``no-upstream`` — branch tracks nothing; nothing is being backed up
+          ``unknown``     — could not determine (no repo, git error)
+        """
+        git_dir = self._find_git_dir()
+        if not git_dir:
+            return {"status": "unknown", "ahead": 0, "behind": 0,
+                    "error": "no git repository"}
+
+        if fetch:
+            # Counts are meaningless against a stale remote ref.
+            fetched = subprocess.run(
+                ["git", "-C", str(git_dir), "fetch", "--quiet"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if fetched.returncode != 0:
+                return {"status": "unknown", "ahead": 0, "behind": 0,
+                        "error": (fetched.stderr or "git fetch failed").strip()}
+
+        counts = subprocess.run(
+            ["git", "-C", str(git_dir), "rev-list", "--left-right", "--count",
+             "@{u}...HEAD"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if counts.returncode != 0:
+            err = (counts.stderr or "").strip()
+            # No upstream is a distinct, actionable state: writes are landing
+            # in a repo that pushes nowhere.
+            if "no upstream" in err.lower() or "@{u}" in err:
+                return {"status": "no-upstream", "ahead": 0, "behind": 0,
+                        "error": err}
+            return {"status": "unknown", "ahead": 0, "behind": 0, "error": err}
+
+        try:
+            behind_s, ahead_s = counts.stdout.split()
+            behind, ahead = int(behind_s), int(ahead_s)
+        except ValueError:
+            return {"status": "unknown", "ahead": 0, "behind": 0,
+                    "error": f"unparseable rev-list output: {counts.stdout!r}"}
+
+        if ahead and behind:
+            status = "diverged"
+        elif ahead:
+            status = "ahead"
+        elif behind:
+            status = "behind"
+        else:
+            status = "synced"
+
+        return {"status": status, "ahead": ahead, "behind": behind, "error": None}
+
+    @staticmethod
+    def describe_divergence(div: dict) -> str | None:
+        """Human-readable warning for a divergence result, or None if fine.
+
+        Returned to agents alongside write results — a warning nobody reads
+        does not exist.
+        """
+        status = div.get("status")
+        ahead, behind = div.get("ahead", 0), div.get("behind", 0)
+        if status == "diverged":
+            return (
+                f"WARNING: local knowledge repo has DIVERGED from origin "
+                f"({ahead} local commit(s) not on remote, {behind} remote commit(s) "
+                "not local). Pushes will be rejected and new knowledge is NOT "
+                "being backed up. This usually follows a force-push/history "
+                "rewrite upstream; the local clone must be reset onto it."
+            )
+        if status == "ahead":
+            return (
+                f"WARNING: {ahead} commit(s) exist only in the local knowledge "
+                "repo and are NOT on the remote."
+            )
+        if status == "no-upstream":
+            return (
+                "WARNING: the knowledge repo branch tracks no upstream — "
+                "nothing written here is being pushed anywhere."
+            )
+        return None
 
     # ── Secret scanning ──────────────────────────────
 
@@ -404,6 +517,9 @@ class GitWatcher:
         except subprocess.CalledProcessError as e:
             if self.health:
                 self.health.record_pull(ok=False, error=str(e))
+                # --ff-only refuses precisely when histories have split; record
+                # WHY the pull failed, not just that it did.
+                self.health.record_divergence(self.check_divergence(fetch=False))
             diag(f"Warning: Git pull failed: {e}")
             return False
 
@@ -412,6 +528,7 @@ class GitWatcher:
 
         if self.health:
             self.health.record_pull(ok=True, changed=changed)
+            self.health.record_divergence(self.check_divergence(fetch=False))
             self.health.record_git_info(git_dir, self.config.git_repo_url, self.config.git_branch)
 
         if changed:
