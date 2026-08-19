@@ -7,6 +7,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.12.0] — 2026-08-19
+
+### Fixed
+- **Auto-push reported success from configuration instead of outcome.** `_write_knowledge_doc()` rendered `Auto-pushed to remote: {cfg.git_auto_push and bool(cfg.git_repo_url)}` — an expression that evaluates whether auto-push is *enabled*, never whether the push *worked*. With both settings present it was permanently `True`. In one deployment this masked 2.5 months of rejected non-fast-forward pushes while 325 knowledge documents lived only inside the Docker volume. `push_pending()` now returns `{"status": "ok"|"noop"|"disabled"|"failed"|"blocked", "files": int, "error": str|None}` and the MCP layer renders that status. A failure reads **"Auto-push: FAILED — this doc is NOT on the remote"** with the git stderr attached.
+- **Push failures were swallowed.** `push_pending()` caught every exception in a bare `except` that only called `diag()`, so no error could reach the MCP tool result — the correct value sat in `health.last_push_error` the whole time, one lookup away from the reporting code. Exceptions are now recorded to `HealthTracker` *and* returned to the caller.
+- **A failing `git commit` aborted the push path via an unchecked `check=True`.** The commit result is now inspected and reported like any other failure.
+- **`web.py` bootstrap-execute discarded the push result in a `try/except: pass`.** Both `web.py` write paths now include a `push` object in their JSON response.
+
+### Added
+- **Secret scanning on the write path (`MCP_GITLEAKS_MODE`).** Flaiwheel's commits are machine-generated and never human-reviewed, so gitleaks now runs against the *staged* changes in `_push_local_changes()` before the commit is created. This is deliberately not a git hook: hooks are per-clone, invisible, and lost on re-clone, whereas the knowledge repo is cloned by the container at runtime.
+  - `block` (default) — refuse to commit, return `status: "blocked"` plus the findings (file, line, rule, description) through the same channel as every other result, so the calling agent can redact and retry.
+  - `warn` — commit and push, surface findings in the result.
+  - `off` — disable scanning.
+  - Honours a `.gitleaks.toml` in the knowledge repo for allowlisting false positives.
+  - Implemented by materialising the staged blobs to a temp dir and running `gitleaks dir`, **not** `gitleaks git --staged` — the latter reports "0 commits scanned" and finds nothing on freshly-staged files, which would have made this gate a permanent silent pass. That is precisely the failure mode this release exists to eliminate, so it is called out in the code.
+  - **A missing or malfunctioning scanner is reported as `unavailable`, never treated as a pass.** The prior arrangement had gitleaks installed on the *host* while commits were created inside the container — genuinely installed and genuinely useless.
+- **gitleaks 8.30.0 is installed in the runtime image** (amd64 + arm64), pinned via the `GITLEAKS_VERSION` build arg.
+- **Secret scanning selector in the Web UI** under Git configuration.
+- **`tests/test_watcher_push.py`** — 8 integration tests against real temp git repos: push ok/noop/disabled, a rejected push surfacing as `failed` with health recorded, gitleaks block (asserting nothing was committed), warn, clean, and unavailable-scanner visibility. The gitleaks cases skip when the binary is absent.
+
+### Notes
+- Backwards-compatible for anyone reading the human-readable tool output. If you *parse* the `Auto-pushed to remote: True` line, it is now `Auto-push: ok (N file(s) pushed to remote)`.
+- Existing installs get `block` mode by default. If your knowledge repo contains content that trips gitleaks, either allowlist it in `.gitleaks.toml` or set `MCP_GITLEAKS_MODE=warn`.
+- Still open from the same incident and **not** addressed here: explicit divergence detection (`git rev-list --count @{u}..HEAD`), a consecutive-push-failure counter with escalation, and watcher path scoping across multiple project repos.
+
 ## [3.11.0] — 2026-05-22
 
 ### Added

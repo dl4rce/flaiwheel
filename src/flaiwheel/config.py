@@ -47,6 +47,10 @@ class Config(BaseSettings):
     git_commit_prefix: str = "knowledge"
     webhook_secret: str = ""
 
+    # ── Secret scanning (auto-commits are never human-reviewed) ──
+    # block = refuse to commit on findings | warn = commit anyway, report | off
+    gitleaks_mode: Literal["block", "warn", "off"] = "block"
+
     # ── Search ───────────────────────────────────
     hybrid_search: bool = True
     reranker_enabled: bool = True

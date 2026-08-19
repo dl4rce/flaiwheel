@@ -15,7 +15,7 @@ import re
 import threading
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -42,6 +42,7 @@ class GlobalConfigUpdate(BaseModel):
     rrf_vector_weight: Optional[float] = None
     rrf_bm25_weight: Optional[float] = None
     min_relevance: Optional[float] = None
+    gitleaks_mode: Optional[Literal["block", "warn", "off"]] = None
 
 
 class ProjectConfigUpdate(BaseModel):
@@ -679,10 +680,7 @@ def create_web_app(
         if result.get("executed", 0) > 0:
             with ctx.index_lock:
                 ctx.indexer.index_all(quality_checker=ctx.quality_checker)
-            try:
-                ctx.watcher.push_pending()
-            except Exception:
-                pass
+            result["push"] = ctx.watcher.push_pending()
         return result
 
     # ── GitHub Webhook (HMAC auth) ────────────────────
@@ -827,7 +825,7 @@ def create_web_app(
         filepath.parent.mkdir(parents=True, exist_ok=True)
         filepath.write_text(content, encoding="utf-8")
         chunk_count = ctx.indexer.index_single(filename, content)
-        ctx.watcher.push_pending()
+        push = ctx.watcher.push_pending()
 
         return {
             "status": "captured",
@@ -835,6 +833,7 @@ def create_web_app(
             "chunks": chunk_count,
             "commit": short_hash,
             "type": commit_type,
+            "push": push,
         }
 
     @app.post("/webhook/github")

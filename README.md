@@ -85,7 +85,14 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.11.0
+## What’s New in v3.12.0
+
+- **Auto-push now reports what actually happened.** `push_pending()` returns a structured result (`ok` / `noop` / `disabled` / `failed` / `blocked`) and every `write_*` tool renders that outcome. Previously the success line was derived from *configuration* (`git_auto_push and bool(git_repo_url)`), so it read `Auto-pushed to remote: True` even when every push was being rejected. A failed push now says **"Auto-push: FAILED — this doc is NOT on the remote"** with the git error attached.
+- **Push errors are no longer swallowed.** The bare `except` in `push_pending()` that only wrote to the diagnostic log now records to `HealthTracker` and returns the error to the caller. A failing `git commit` is reported instead of raising through an unchecked `check=True`.
+- **gitleaks runs inside the container, on the write path.** Flaiwheel's commits are machine-generated and never human-reviewed, so secret scanning now happens in `_push_local_changes()` before the commit — not as a per-clone git hook that gets lost on re-clone. `MCP_GITLEAKS_MODE=block` (default) refuses to commit and reports the findings through the MCP result; `warn` commits and reports; `off` disables. Honours a `.gitleaks.toml` in the knowledge repo for allowlisting. **A missing or broken scanner is reported explicitly, never silently skipped.**
+- **Tests: 300 → 308** (`tests/test_watcher_push.py`: push success/failure/noop/disabled reporting, gitleaks block/warn/clean, unavailable-scanner visibility).
+
+### Previous: v3.11.0
 
 - **Telemetry now survives `docker volume rm flaiwheel-data`.** A per-project summary slice is mirrored from the Docker volume into each knowledge repo at `<docs_path>/.flaiwheel/telemetry.json`. On the next cold start, `hydrate_from_mirrors()` rebuilds the in-memory state from these files so the Tool Telemetry dashboard does not reset to zero. Hot tier wins when both exist; mirror writes are rate-limited to 60s/project to avoid one Git commit per tool call. Events stay in the volume only (too noisy for the knowledge repo). Don't want it committed? Add `.flaiwheel/` to your knowledge repo's `.gitignore` — Flaiwheel will still read/write the file locally.
 - **Reset Telemetry button on every per-project tile in the Web UI.** Zeroes summary counters across both storage tiers via the new `POST /api/telemetry/reset?project=<name>` endpoint. The 30-day impact-metrics window keeps working because events history is preserved.
@@ -530,6 +537,7 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_GIT_TOKEN` | | GitHub token for private repos |
 | `MCP_GIT_SYNC_INTERVAL` | `300` | Pull interval in seconds (0 = disabled) |
 | `MCP_GIT_AUTO_PUSH` | `true` | Auto-commit + push bugfix summaries |
+| `MCP_GITLEAKS_MODE` | `block` | Secret scan before auto-commit: `block` (refuse), `warn` (commit + report), `off` |
 | `MCP_WEBHOOK_SECRET` | | GitHub webhook secret (enables `/webhook/github` HMAC verification) |
 | `MCP_TRANSPORT` | `sse` | MCP transport: `sse` or `stdio` |
 | `MCP_SSE_PORT` | `8081` | MCP SSE endpoint port |

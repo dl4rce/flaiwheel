@@ -38,6 +38,22 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git curl && \
     rm -rf /var/lib/apt/lists/*
 
+# gitleaks — commits are created INSIDE this container by the watcher, so the
+# secret scanner must live here too. A scanner on the host never sees them.
+ARG GITLEAKS_VERSION=8.30.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) gl_arch=x64 ;; \
+      arm64) gl_arch=arm64 ;; \
+      *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/gitleaks.tar.gz \
+      "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${gl_arch}.tar.gz"; \
+    tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks; \
+    rm /tmp/gitleaks.tar.gz; \
+    gitleaks version
+
 WORKDIR /app
 
 # Copy installed Python packages from builder
@@ -69,6 +85,7 @@ ENV MCP_DOCS_PATH=/docs \
     MCP_RERANKER_ENABLED=true \
     MCP_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-12-v2 \
     MCP_CHUNK_STRATEGY=heading \
+    MCP_GITLEAKS_MODE=block \
     MCP_TRANSPORT=sse \
     MCP_SSE_PORT=8081 \
     MCP_WEB_PORT=8080

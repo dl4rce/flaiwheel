@@ -31,7 +31,9 @@ def server_env(tmp_docs, tmp_path):
 
     # Replace watcher with a mock to avoid git operations
     mock_watcher = MagicMock()
-    mock_watcher.push_pending = MagicMock()
+    mock_watcher.push_pending = MagicMock(
+        return_value={"status": "ok", "files": 1, "error": None}
+    )
     ctx.watcher = mock_watcher
 
     mcp = create_mcp_server(cfg, registry)
@@ -522,7 +524,9 @@ class TestFrontmatterAutoEmission:
             response_schema="200 OK",
         )
         path = self._written_file(server_env["tmp_docs"], "frontmatter-emit-endpoint")
-        self._assert_fm(path, expected_type="api", expected_id_contains="frontmatter-emit-endpoint")
+        # gitleaks:allow — `expected_type="api", expected_id_contains=...` trips
+        # the generic-api-key rule; these are assertion literals, not a credential.
+        self._assert_fm(path, expected_type="api", expected_id_contains="frontmatter-emit-endpoint")  # gitleaks:allow
 
     def test_best_practice_emits_frontmatter(self, server_env):
         _call_tool(server_env["mcp"], "write_best_practice",

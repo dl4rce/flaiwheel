@@ -518,10 +518,44 @@ def create_mcp_server(
         filepath.parent.mkdir(parents=True, exist_ok=True)
         filepath.write_text(content, encoding="utf-8")
         chunk_count = ctx.indexer.index_single(filename, content)
-        ctx.watcher.push_pending()
+        push = ctx.watcher.push_pending()
         return (
             f"Saved and indexed: {filename} ({chunk_count} chunks)\n"
-            f"Auto-pushed to remote: {cfg.git_auto_push and bool(cfg.git_repo_url)}"
+            f"{_render_push_result(push)}"
+        )
+
+    def _render_push_result(push: dict) -> str:
+        """Render the ACTUAL outcome of a push, never the configuration."""
+        status = push.get("status")
+        if status == "ok":
+            line = f"Auto-push: ok ({push.get('files', 0)} file(s) pushed to remote)"
+            if push.get("scan") == "warned":
+                line += (
+                    f"\nWARNING: gitleaks found {len(push.get('findings', []))} "
+                    "potential secret(s) and pushed anyway (MCP_GITLEAKS_MODE=warn)"
+                )
+            elif push.get("scan") == "unavailable":
+                line += "\nWARNING: gitleaks unavailable — changes were NOT scanned for secrets"
+            return line
+        if status == "noop":
+            return "Auto-push: nothing to push (already in sync)"
+        if status == "disabled":
+            return "Auto-push: disabled — this doc exists only locally"
+        if status == "blocked":
+            hits = "\n".join(
+                f"  - {f['file']}:{f['line']} [{f['rule']}] {f['description']}"
+                for f in push.get("findings", [])
+            )
+            return (
+                "Auto-push: BLOCKED by gitleaks — potential secrets detected, "
+                "nothing was committed or pushed.\n"
+                f"{hits}\n"
+                "Redact the values, allowlist them in .gitleaks.toml, "
+                "or set MCP_GITLEAKS_MODE=warn."
+            )
+        return (
+            "Auto-push: FAILED — this doc is NOT on the remote. "
+            f"Error: {push.get('error') or 'unknown'}"
         )
 
     def _make_slug(text: str) -> str:

@@ -10,7 +10,9 @@ Two-way sync:
   - PULL: fetch remote changes, reindex if new commits
   - PUSH: detect local changes (e.g. bugfix summaries), commit + push
 """
+import json
 import subprocess
+import tempfile
 import time
 import threading
 from datetime import datetime
@@ -79,21 +81,30 @@ class GitWatcher:
 
     # ── Push (outgoing changes) ──────────────────────
 
-    def push_pending(self):
+    def push_pending(self) -> dict:
         """Immediately push local changes if auto-push is enabled.
-        Called after write operations (e.g. write_bugfix_summary)."""
-        if not self.config.git_auto_push or not self.config.git_repo_url:
-            return
-        try:
-            self._push_local_changes()
-        except Exception as e:
-            diag(f"Warning: Auto-push failed: {e}")
+        Called after write operations (e.g. write_bugfix_summary).
 
-    def _push_local_changes(self):
+        Returns a structured result describing the actual outcome:
+        ``{"status": "ok"|"noop"|"disabled"|"failed", "files": int,
+        "error": str|None}``. Never derive success from configuration —
+        callers must render ``status``.
+        """
+        if not self.config.git_auto_push or not self.config.git_repo_url:
+            return {"status": "disabled", "files": 0, "error": None}
+        try:
+            return self._push_local_changes()
+        except Exception as e:
+            if self.health:
+                self.health.record_push(ok=False, error=str(e))
+            diag(f"Warning: Auto-push failed: {e}")
+            return {"status": "failed", "files": 0, "error": str(e)}
+
+    def _push_local_changes(self) -> dict:
         """Detect uncommitted changes, commit + push them."""
         git_dir = self._find_git_dir()
         if not git_dir:
-            return
+            return {"status": "noop", "files": 0, "error": None}
 
         status = subprocess.run(
             ["git", "-C", str(git_dir), "status", "--porcelain"],
@@ -101,7 +112,7 @@ class GitWatcher:
         )
         changed_lines = status.stdout.strip()
         if not changed_lines:
-            return
+            return {"status": "noop", "files": 0, "error": None}
 
         docs_path = Path(self.config.docs_path)
         try:
@@ -119,7 +130,7 @@ class GitWatcher:
             files.append(fpath)
 
         if not files:
-            return
+            return {"status": "noop", "files": 0, "error": None}
 
         for f in files:
             subprocess.run(
@@ -127,24 +138,152 @@ class GitWatcher:
                 capture_output=True, timeout=10,
             )
 
+        scan = self._scan_staged_for_secrets(git_dir)
+        if scan["status"] == "blocked":
+            err = (
+                f"gitleaks blocked the commit: {len(scan['findings'])} potential "
+                f"secret(s) in {', '.join(sorted({f['file'] for f in scan['findings']}))}. "
+                "Redact them, or allowlist in .gitleaks.toml, "
+                "or set MCP_GITLEAKS_MODE=warn."
+            )
+            if self.health:
+                self.health.record_push(ok=False, error=err)
+            diag(f"Warning: {err}")
+            return {
+                "status": "blocked", "files": len(files),
+                "error": err, "findings": scan["findings"],
+            }
+
         msg = self._build_commit_message(files)
-        subprocess.run(
+        commit_result = subprocess.run(
             ["git", "-C", str(git_dir), "commit", "-m", msg],
-            capture_output=True, check=True, timeout=10,
+            capture_output=True, text=True, timeout=10,
         )
+        if commit_result.returncode != 0:
+            err = (commit_result.stderr or commit_result.stdout).strip()
+            if self.health:
+                self.health.record_push(ok=False, error=err)
+            diag(f"Warning: git commit failed: {err}")
+            return {"status": "failed", "files": len(files), "error": err}
 
         push_result = subprocess.run(
             ["git", "-C", str(git_dir), "push"],
             capture_output=True, text=True, timeout=30,
         )
         if push_result.returncode != 0:
+            err = push_result.stderr.strip()
             if self.health:
-                self.health.record_push(ok=False, error=push_result.stderr)
-            diag(f"Warning: git push failed: {push_result.stderr}")
-        else:
-            if self.health:
-                self.health.record_push(ok=True)
-            diag(f"Pushed {len(files)} file(s) to remote")
+                self.health.record_push(ok=False, error=err)
+            diag(f"Warning: git push failed: {err}")
+            return {"status": "failed", "files": len(files), "error": err}
+
+        if self.health:
+            self.health.record_push(ok=True)
+        diag(f"Pushed {len(files)} file(s) to remote")
+        return {
+            "status": "ok", "files": len(files), "error": None,
+            "scan": scan["status"], "findings": scan["findings"],
+        }
+
+    # ── Secret scanning ──────────────────────────────
+
+    def _run_gitleaks_on_staged(self, git_dir: Path) -> list[dict]:
+        """Materialise the staged blobs to a temp dir and run ``gitleaks dir``.
+
+        Deliberately NOT ``gitleaks git --staged``: that mode reports
+        "0 commits scanned" and finds nothing on freshly-staged files, which
+        would turn this gate into a permanent silent pass — the exact class of
+        bug this whole change exists to remove. Materialising the staged
+        content and scanning it as a directory is deterministic.
+
+        Raises ``FileNotFoundError`` when gitleaks is not installed.
+        """
+        names = subprocess.run(
+            ["git", "-C", str(git_dir), "diff", "--cached",
+             "--name-only", "--diff-filter=ACM", "-z"],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        staged = [n for n in names.stdout.split("\0") if n]
+        if not staged:
+            return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            for rel in staged:
+                blob = subprocess.run(
+                    ["git", "-C", str(git_dir), "show", f":{rel}"],
+                    capture_output=True, timeout=30,
+                )
+                if blob.returncode != 0:
+                    continue
+                dest = tmp_path / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(blob.stdout)
+
+            cmd = ["gitleaks", "dir", str(tmp_path), "--no-banner", "--redact",
+                   "--report-format", "json", "--report-path", "-"]
+            cfg_file = git_dir / ".gitleaks.toml"
+            if cfg_file.exists():
+                cmd += ["--config", str(cfg_file)]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                return []
+            try:
+                raw = json.loads(result.stdout or "[]")
+            except json.JSONDecodeError:
+                raise RuntimeError(
+                    result.stderr.strip() or "unparsable gitleaks output"
+                )
+            # Report repo-relative paths, not the scratch directory
+            for f in raw:
+                try:
+                    f["File"] = str(Path(f.get("File", "")).relative_to(tmp_path))
+                except ValueError:
+                    pass
+            return raw
+
+    def _scan_staged_for_secrets(self, git_dir: Path) -> dict:
+        """Scan the staged changes with gitleaks before committing.
+
+        Commits here are machine-generated and never human-reviewed, so this
+        is the only gate on the write path. Honours a ``.gitleaks.toml`` in
+        the knowledge repo for allowlisting.
+
+        Returns ``{"status": "clean"|"blocked"|"warned"|"off"|"unavailable",
+        "findings": [...]}``. An unavailable scanner is reported, never
+        silently skipped.
+        """
+        mode = self.config.gitleaks_mode
+        if mode == "off":
+            return {"status": "off", "findings": []}
+
+        try:
+            raw = self._run_gitleaks_on_staged(git_dir)
+        except FileNotFoundError:
+            diag("Warning: gitleaks not installed — staged changes were NOT scanned")
+            return {"status": "unavailable", "findings": [],
+                    "error": "gitleaks binary not found"}
+        except Exception as e:
+            diag(f"Warning: gitleaks scan failed: {e}")
+            return {"status": "unavailable", "findings": [], "error": str(e)}
+
+        findings = [
+            {
+                "file": f.get("File", ""),
+                "line": f.get("StartLine"),
+                "rule": f.get("RuleID", ""),
+                "description": f.get("Description", ""),
+            }
+            for f in raw
+        ]
+        if not findings:
+            return {"status": "clean", "findings": []}
+
+        if mode == "warn":
+            diag(f"Warning: gitleaks found {len(findings)} potential secret(s), committing anyway (mode=warn)")
+            return {"status": "warned", "findings": findings}
+        return {"status": "blocked", "findings": findings}
 
     def _build_commit_message(self, files: list[str]) -> str:
         prefix = self.config.git_commit_prefix
