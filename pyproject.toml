@@ -1,13 +1,16 @@
 [project]
 name = "flaiwheel"
-version = "3.12.0"
+version = "3.12.1"
 description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
 readme = "README.md"
 license = {text = "BUSL-1.1"}
 requires-python = ">=3.11"
 
 dependencies = [
-    "mcp[cli]>=1.0.0",
+    # mcp 2.0 removed mcp.server.fastmcp (FastMCP -> mcpserver). Migrating is a
+    # separate piece of work; until then the major must be bounded, or a fresh
+    # resolve silently picks 2.x and every import of server.py fails.
+    "mcp[cli]>=1.0.0,<2.0.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic-settings>=2.0.0",

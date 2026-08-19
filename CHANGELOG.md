@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.12.1] — 2026-08-19
+
+### Fixed
+- **Pinned `mcp[cli]` to `<2.0.0`.** The dependency was declared as `mcp[cli]>=1.0.0` with no upper bound. `mcp` 2.0.0 (released 2026-07-28) removed `mcp.server.fastmcp` entirely — `FastMCP` is replaced by a new `mcp.server.mcpserver` API — so `from mcp.server.fastmcp import FastMCP, Context` at `server.py:18` raises `ModuleNotFoundError` and every import of the server fails. Any environment that resolved dependencies fresh after that date (CI, a Docker rebuild, a new contributor's checkout) got a completely broken install, while existing environments with a stale lock kept working. Now bounded to the 1.x line, which resolves to 1.29.0.
+
+### Notes
+- Migrating to the `mcp` 2.x `mcpserver` API is separate, deliberate work — not something to absorb accidentally through an unbounded version range.
+- Nothing else changed; `3.12.0` and `3.12.1` are functionally identical apart from the dependency bound. Use `3.12.1`.
+
 ## [3.12.0] — 2026-08-19
 
 ### Fixed
