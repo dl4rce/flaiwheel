@@ -92,6 +92,7 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 - **A repo that indexes perfectly and pushes nothing is no longer "healthy".** `/health` gains `divergence_status`, `commits_ahead`, `commits_behind` and `last_divergence_at`, and reports `degraded` on `diverged`, `ahead` or `no-upstream`. Being `behind` is the normal state between two pulls and deliberately does *not* alarm.
 - **The agent is told directly.** `write_*` results append an explicit warning when the repo has diverged — including on "nothing to push". A warning in an endpoint nobody polls does not exist; the agent that just wrote the document is the one that needs to know it never left the machine.
 - **Tests: 316 → 335**, against real temp repos including a force-pushed rewritten upstream — the real-world trigger, where a secret purge or a squash silently desynchronises every clone.
+- **This closes the 2026-08-19 incident completely.** The one item that looked outstanding — "watcher path scoping" — was retracted as a misdiagnosis after checking the running container. Its only evidence was the log line `knowledge: update flaiwheel/telemetry.json`, read as one project's file being committed into all 11 repos. The real path is `.flaiwheel/telemetry.json`, *with a leading dot*: the signature of the porcelain off-by-one already fixed in v3.12.2. Every project owns an identically-named telemetry file, so all 11 watchers logged the same mangled string at once — uniformity caused by shared *code*, mistaken for shared *state*.
 
 ### Previous: v3.12.3
 

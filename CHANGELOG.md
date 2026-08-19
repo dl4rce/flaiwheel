@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [3.13.0] — 2026-08-19 — Observability
 
-Closes the last and largest gap from the 2026-08-19 incident: Flaiwheel could not tell whether its knowledge repository was still connected to its remote.
+**Closes the 2026-08-19 incident entirely.** The last and largest gap: Flaiwheel could not tell whether its knowledge repository was still connected to its remote.
 
 Everything shipped in 3.12.x reports on *pushes that were attempted*. The failure that hid 325 documents inside a Docker volume for 2.5 months attempted nothing at all — the clone had drifted from its remote, so there was never anything to commit, so no push could fail, so no metric could go red. "Nothing to push (already in sync)" and genuinely being in sync were rendered identically. This release makes the local↔remote relationship itself a first-class, monitored fact.
 
@@ -22,7 +22,7 @@ Everything shipped in 3.12.x reports on *pushes that were attempted*. The failur
 
 ### Notes
 - 19 new tests (**335 total**), exercising real temp repositories: a force-pushed rewritten upstream (the real-world trigger — a secret purge or a squash silently desynchronises every clone), a repo with no upstream, `behind` treated as healthy, and `unknown` not clearing a prior verdict.
-- Remaining from the incident: watcher path scoping.
+- **The incident is now fully remediated.** Items A, B, C, D and E shipped across v3.12.0 → v3.13.0. Item F — "watcher path scoping" — was **retracted as a misdiagnosis**, verified against the running container: `/docs` is not a git repo, every project owns its `.git`, so `_find_git_dir()` cannot escape upward past its own project, and no commit in any repo contains another project's path. The evidence that produced item F was the log line `knowledge: update flaiwheel/telemetry.json`, read as one project's file appearing in all 11 repos. The real file is `.flaiwheel/telemetry.json` — **with a leading dot**. That missing dot is the exact signature of the porcelain off-by-one fixed in v3.12.2, which truncated the first character of the first worktree-modified filename. Every project owns an identically-named `.flaiwheel/telemetry.json` rewritten on each sync tick, so all 11 watchers emitted the same mangled string simultaneously — uniformity caused by shared *code*, misread as shared *state*. A log line is evidence of a symptom, not of a cause.
 
 ## [3.12.3] — 2026-08-19
 
