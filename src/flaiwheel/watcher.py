@@ -110,8 +110,7 @@ class GitWatcher:
             ["git", "-C", str(git_dir), "status", "--porcelain"],
             capture_output=True, text=True, timeout=10,
         )
-        changed_lines = status.stdout.strip()
-        if not changed_lines:
+        if not status.stdout.strip():
             return {"status": "noop", "files": 0, "error": None}
 
         docs_path = Path(self.config.docs_path)
@@ -121,10 +120,18 @@ class GitWatcher:
             rel_prefix = ""
 
         files = []
-        for line in changed_lines.splitlines():
+        # NB: iterate the RAW stdout. Porcelain lines are 'XY <path>', where X or
+        # Y may be a space (' M' = modified in worktree). Stripping the whole
+        # output first eats the leading space of the FIRST line only, so line[3:]
+        # then truncates that filename's first character.
+        for line in status.stdout.splitlines():
             if not line.strip():
                 continue
-            fpath = line[3:].strip().strip('"')
+            fpath = line[3:].strip()
+            # Renames/copies are reported as 'old -> new'; stage the new path.
+            if line[:2].strip().startswith(("R", "C")) and " -> " in fpath:
+                fpath = fpath.split(" -> ", 1)[1]
+            fpath = fpath.strip('"')
             if rel_prefix and not fpath.startswith(rel_prefix + "/") and fpath != rel_prefix:
                 continue
             files.append(fpath)

@@ -80,6 +80,48 @@ def test_push_noop_when_nothing_changed(repo):
     assert w.push_pending()["status"] == "noop"
 
 
+def test_push_stages_dotfile_modified_in_worktree(repo):
+    """Regression: `status.stdout.strip()` ate the leading status space of the
+    FIRST porcelain line, so line[3:] truncated that filename's first char.
+    A modified `.flaiwheel/telemetry.json` became `flaiwheel/telemetry.json`
+    and `git add` failed with 'pathspec did not match any files'."""
+    dotdir = repo / ".flaiwheel"
+    dotdir.mkdir()
+    (dotdir / "telemetry.json").write_text('{"a": 1}\n')
+    _run(repo, "add", ".flaiwheel/telemetry.json")
+    _run(repo, "commit", "-m", "add telemetry")
+    _run(repo, "push", "origin", "main")
+
+    # Modify in worktree -> porcelain reports " M .flaiwheel/telemetry.json"
+    (dotdir / "telemetry.json").write_text('{"a": 2}\n')
+
+    w = _make_watcher(repo, gitleaks_mode="off")
+    result = w.push_pending()
+
+    assert result["status"] == "ok", result
+    assert result["files"] == 1
+    committed = subprocess.run(
+        ["git", "-C", str(repo), "show", "--name-only", "--format=", "HEAD"],
+        capture_output=True, text=True, timeout=10,
+    ).stdout
+    assert ".flaiwheel/telemetry.json" in committed
+
+
+def test_push_stages_renamed_file(repo):
+    """Renames are reported as 'old -> new'; the new path must be staged."""
+    _run(repo, "mv", "note.md", "renamed.md")
+
+    w = _make_watcher(repo, gitleaks_mode="off")
+    result = w.push_pending()
+
+    assert result["status"] == "ok", result
+    committed = subprocess.run(
+        ["git", "-C", str(repo), "show", "--name-only", "--format=", "HEAD"],
+        capture_output=True, text=True, timeout=10,
+    ).stdout
+    assert "renamed.md" in committed
+
+
 def test_push_ok_reports_files(repo):
     health = HealthTracker()
     w = _make_watcher(repo, health=health, gitleaks_mode="off")

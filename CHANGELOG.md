@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.12.2] — 2026-08-19
+
+### Fixed
+- **Auto-commit silently dropped the first changed file when it was modified in the worktree.** `_push_local_changes()` called `status.stdout.strip()` before splitting into lines. Porcelain lines are `XY <path>` where `X` or `Y` may be a space — a file modified in the worktree but not staged is reported as `" M path"`. Stripping the whole output removes the leading space of the **first line only**, so the subsequent `line[3:]` truncated that filename's first character: `.flaiwheel/telemetry.json` became `flaiwheel/telemetry.json` and `git add` failed with `pathspec did not match any files`. The commit then aborted with "no changes added to commit". Now iterates the raw stdout.
+- **Renamed and copied files were never staged.** Porcelain reports these as `old -> new`; the whole string was passed to `git add`. The new path is now extracted for `R`/`C` status codes.
+
+### Notes
+- Both bugs are older than v3.12.0 and were **invisible until v3.12.0 made push failures visible** — they were found within minutes of deploying it, on the very first real push. This is the intended payoff of that release.
+- 2 new regression tests (310 total), each verified to fail against the previous code.
+
 ## [3.12.1] — 2026-08-19
 
 ### Fixed

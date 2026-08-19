@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.12.1"
+_FW_VERSION="3.12.2"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
