@@ -93,14 +93,15 @@ replaced.
 What this does and does not give you:
 
 - ✅ **Confidentiality** — the link is encrypted (verified: TLSv1.3).
-- ✅ **Server identity** — provided each client pins the CA once via
-  `NODE_EXTRA_CA_CERTS=...`. This is trust-on-first-use, so the protection
-  holds from the first connection onward. The installer exports the CA to
-  `${HOME}/.flaiwheel/ca.pem` (`FLAIWHEEL_CLIENT_CA_PATH`) and writes that path
-  into the client configs it generates, so clients on the Flaiwheel host are
-  configured automatically. A client on another machine needs the CA copied to
-  it — the container cannot reach another machine's trust store, which is the
-  same boundary that forces `mkcert` to run a per-machine step.
+- ✅ **Server identity** — provided each client trusts the generated CA. Direct
+  Cursor/Electron and VS Code SSE connections use the operating-system trust
+  store; an `env` object in a direct remote-server entry does not establish
+  trust. On macOS, importing the verified CA into the user's login keychain with
+  `security add-trusted-cert -r trustRoot` was verified end to end against the
+  live endpoint. Stdio adapters such as `mcp-remote` launch a child process and
+  can use `NODE_EXTRA_CA_CERTS` instead. A client on another machine needs its
+  own copy and trust installation because the container cannot modify that
+  machine's trust store.
 - ⚠️ **No third-party attestation.** Nothing outside your deployment vouches
   for the certificate. That is the trade-off for a private address, and it is
   why the CA must stay in a persistent volume — regenerating it invalidates

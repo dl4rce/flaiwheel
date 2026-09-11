@@ -607,9 +607,9 @@ Then point your client at that hostname:
 
 Automatic TLS is available, but it is **not the default recommendation yet**.
 Flaiwheel generates and persists a private CA and a server certificate. Each
-client computer must trust that CA. For direct Cursor/Electron SSE connections,
-putting `NODE_EXTRA_CA_CERTS` inside the remote server entry may be insufficient;
-the CA may need to be installed in the macOS, Windows, or Linux trust store.
+client computer must trust that CA. Direct Cursor/Electron SSE connections use
+the operating-system trust store; an `env` object in a direct remote-server
+entry does not establish certificate trust.
 
 New installation, with TLS off by default (an update preserves its current mode):
 
@@ -642,6 +642,58 @@ client operating system, restart the client, and use an HTTPS endpoint such as:
 { "mcpServers": { "flaiwheel": { "type": "sse",
   "url": "https://192.168.178.230:8081/sse" } } }
 ```
+
+##### macOS: verified direct Cursor/Electron setup
+
+The following procedure was verified against the live `v3.15.3` deployment on
+2026-09-11. It uses the current user's login keychain and does not require
+`NODE_EXTRA_CA_CERTS` for the direct SSE entry.
+
+1. Copy the CA from the Flaiwheel server to the Mac and verify its SHA-256
+   against the server copy:
+
+```bash
+mkdir -p "$HOME/.flaiwheel"
+scp user@flaiwheel-host:/path/to/exported/ca.pem "$HOME/.flaiwheel/ca.pem"
+chmod 644 "$HOME/.flaiwheel/ca.pem"
+shasum -a 256 "$HOME/.flaiwheel/ca.pem"
+```
+
+1. Add the verified CA to the login keychain as a trusted root:
+
+```bash
+security add-trusted-cert \
+  -r trustRoot \
+  -k "$HOME/Library/Keychains/login.keychain-db" \
+  "$HOME/.flaiwheel/ca.pem"
+```
+
+1. Configure the direct SSE endpoint with `https://` and the hostname or IP
+   covered by the certificate. Do not add an `env` block:
+
+```json
+{
+  "mcpServers": {
+    "flaiwheel": {
+      "type": "sse",
+      "url": "https://flaiwheel.example.com:8081/sse"
+    }
+  }
+}
+```
+
+1. Fully quit and restart Cursor after installing the CA or changing
+   `.cursor/mcp.json`.
+
+1. Verify system trust without `-k`, `--cacert`, or an environment override:
+
+```bash
+curl -i --max-time 5 https://flaiwheel.example.com:8081/sse
+```
+
+Expected: `HTTP/1.1 200 OK`, `content-type: text/event-stream`, and an
+`event: endpoint` payload. `curl` exits after the timeout because an SSE stream
+remains open; receiving the `200` and event proves the TLS and SSE connection.
 
 Do not use `NODE_TLS_REJECT_UNAUTHORIZED=0`; it disables certificate
 verification.
