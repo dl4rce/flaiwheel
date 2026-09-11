@@ -7,6 +7,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.15.3] — 2026-09-11 — Plain HTTP remains the default
+
+### Changed
+
+- The standard installer keeps the MCP endpoint on `http://host:8081/sse`. Automatic TLS remains opt-in.
+- An explicit `FLAIWHEEL_TLS_AUTO=0` now removes an inherited `MCP_SSE_TLS_AUTO=true`, bypasses the current-version fast path, and recreates the container with HTTP while preserving its volumes and other `MCP_*` settings.
+- Leaving `FLAIWHEEL_TLS_AUTO` unset during an update preserves the deployed TLS mode. `FLAIWHEEL_TLS_AUTO=1` enables it. Values other than `0` or `1` are rejected.
+- Direct Cursor and VS Code SSE configurations no longer include `NODE_EXTRA_CA_CERTS`. These entries do not launch a child process; TLS is handled by Electron and may require the generated CA in the operating-system trust store. `NODE_EXTRA_CA_CERTS` remains in the `mcp-remote` child-process configuration where it applies.
+- The installer summary reports the operating-system trust-store requirement when automatic TLS is enabled.
+
+### Configuration
+
+```bash
+# Default and recommended: HTTP
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
+
+# Explicitly return an existing TLS installation to HTTP
+FLAIWHEEL_TLS_AUTO=0 bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
+
+# Optional TLS; client CA trust is required
+FLAIWHEEL_TLS_AUTO=1 bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
+```
+
+---
+
 ## [3.15.2] — 2026-09-11 — TLS clients actually connect
 
 **Enabling automatic TLS produced clients that could not connect.** `v3.15.0` added certificate issuance, but every client configuration the installer wrote still pointed at `http://localhost:8081/sse` with no trust anchor. Against an HTTPS listener that fails at the transport layer, and even with a corrected URL the self-signed certificate is rejected until the CA is trusted. The installer reported "MCP registered" in both cases.

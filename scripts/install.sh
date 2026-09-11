@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.15.2"
+_FW_VERSION="3.15.3"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -733,13 +733,19 @@ SSE_BIND="${FLAIWHEEL_SSE_BIND:-0.0.0.0}"
 AGGRESSIVE_CLEANUP="${FLAIWHEEL_AGGRESSIVE_CLEANUP:-0}"
 
 # ── Automatic TLS for the MCP SSE endpoint — default OFF ────────────────────
-# A LAN address cannot be certified by a public CA, so obtaining a certificate
-# for a private IP is not possible in the normal way. With this set, Flaiwheel
-# issues its own private CA + server certificate into the /data volume and
-# prints the one line each client needs. Opt-in because it changes the
-# endpoint's scheme from http:// to https://: flipping that unasked during an
-# update would break every client that has not yet trusted the CA.
+# On a new install, unset and 0 both mean plain HTTP. During an update, an
+# *unset* value preserves the running container's mode; an explicit 0 disables
+# TLS and an explicit 1 enables it. This distinction gives an operator a direct
+# recovery path back to http:// without dropping any other MCP_* setting.
+TLS_AUTO_EXPLICIT=false
+if [ "${FLAIWHEEL_TLS_AUTO+x}" = "x" ]; then
+    TLS_AUTO_EXPLICIT=true
+fi
 TLS_AUTO="${FLAIWHEEL_TLS_AUTO:-0}"
+case "$TLS_AUTO" in
+    0|1) ;;
+    *) die "FLAIWHEEL_TLS_AUTO must be 0 or 1 (got: ${TLS_AUTO})" ;;
+esac
 
 # ── Port helpers ───────────────────────────────────────────────────────────
 # Probe the REAL listening socket rather than grepping the Docker container
@@ -910,6 +916,18 @@ echo ""
 FAST_PATH=false
 RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-' | head -1 || true)
 
+# When the switch is unset, preserve the running transport mode not only in the
+# recreated container but also in every URL and client config generated later.
+# Without this, the old MCP_SSE_TLS_AUTO=true was carried into Docker while
+# CLIENT_SSE_URL was still calculated as http://.
+if [ "$TLS_AUTO_EXPLICIT" = false ] && [ -n "$RUNNING_FW" ]; then
+    _RUNNING_TLS_AUTO=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$RUNNING_FW" 2>/dev/null \
+        | grep '^MCP_SSE_TLS_AUTO=' | cut -d= -f2- || true)
+    case "${_RUNNING_TLS_AUTO,,}" in
+        1|true|yes|on) TLS_AUTO=1 ;;
+    esac
+fi
+
 # Probe the running container's ACTUAL published Web UI port instead of
 # assuming 8080 — a shared host may have remapped it.
 RUNNING_WEB_PORT="$WEB_PORT"
@@ -926,7 +944,11 @@ if [ -n "$RUNNING_FW" ] && curl -sf "http://127.0.0.1:${RUNNING_WEB_PORT}/health
     RUNNING_VERSION=$(curl -sf "http://127.0.0.1:${RUNNING_WEB_PORT}/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','0.0.0'))" 2>/dev/null || echo "0.0.0")
     LATEST_VERSION="$_FW_VERSION"
 
-    if [ "$RUNNING_VERSION" = "$LATEST_VERSION" ]; then
+    # An explicit TLS switch is a configuration change, even when the image is
+    # already current. It must recreate the container rather than taking the
+    # fast path, otherwise FLAIWHEEL_TLS_AUTO=0 cannot recover an HTTPS-only
+    # deployment back to the default HTTP endpoint.
+    if [ "$RUNNING_VERSION" = "$LATEST_VERSION" ] && [ "$TLS_AUTO_EXPLICIT" = false ]; then
         FAST_PATH=true
         echo -e "${GREEN}${BOLD}[✓] Flaiwheel v${RUNNING_VERSION} already running (${RUNNING_FW}). Fast-connecting this project...${NC}"
         echo ""
@@ -1024,6 +1046,11 @@ if [ "$FAST_PATH" = false ]; then
         # upgrade (2026-09-11 finding). Explicit values are re-applied below.
         OLD_MCP_ENV=$(echo "$OLD_ENV" | grep -E '^MCP_' || true)
         OLD_MCP_ENV=$(echo "$OLD_MCP_ENV" | grep -vE '^MCP_(GIT_REPO_URL|GIT_AUTO_PUSH|WEBHOOK_SECRET|GIT_TOKEN)=' || true)
+        # An explicit installer switch must override the inherited container
+        # value in either direction. Unset still preserves the deployed mode.
+        if [ "$TLS_AUTO_EXPLICIT" = true ]; then
+            OLD_MCP_ENV=$(echo "$OLD_MCP_ENV" | grep -vE '^MCP_SSE_TLS_AUTO=' || true)
+        fi
 
         OLD_VOLUME=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
         if [ -n "$OLD_VOLUME" ]; then
@@ -1103,30 +1130,20 @@ CLIENT_SSE_URL="${_SSE_SCHEME}://localhost:8081/sse"
 # client process can open, so it is exported to a host path first.
 CLIENT_CA_PATH="${FLAIWHEEL_CLIENT_CA_PATH:-${HOME:-/root}/.flaiwheel/ca.pem}"
 
-# Single-line JSON entry, for injecting into an existing config.
+# Direct HTTP/SSE entries have no child process whose environment Cursor or VS
+# Code can modify. Certificate trust therefore comes from the operating-system
+# trust store; an `env` object here does not make Electron trust a private CA.
+# NODE_EXTRA_CA_CERTS is used only for stdio adapters such as mcp-remote.
 _client_entry_json() {
-    if [ "$TLS_AUTO" = "1" ]; then
-        printf '{"type": "sse", "url": "%s", "env": {"NODE_EXTRA_CA_CERTS": "%s"}}' \
-            "$CLIENT_SSE_URL" "$CLIENT_CA_PATH"
-    else
-        printf '{"type": "sse", "url": "%s"}' "$CLIENT_SSE_URL"
-    fi
+    printf '{"type": "sse", "url": "%s"}' "$CLIENT_SSE_URL"
 }
 
 # The same entry, pretty-printed with $1 as the indent, for heredoc-written
 # configs (which cannot call json.dump).
 _client_entry_body() {
     local indent="$1"
-    if [ "$TLS_AUTO" = "1" ]; then
-        printf '%s"type": "sse",\n' "$indent"
-        printf '%s"url": "%s",\n' "$indent" "$CLIENT_SSE_URL"
-        printf '%s"env": {\n' "$indent"
-        printf '%s  "NODE_EXTRA_CA_CERTS": "%s"\n' "$indent" "$CLIENT_CA_PATH"
-        printf '%s}\n' "$indent"
-    else
-        printf '%s"type": "sse",\n' "$indent"
-        printf '%s"url": "%s"\n' "$indent" "$CLIENT_SSE_URL"
-    fi
+    printf '%s"type": "sse",\n' "$indent"
+    printf '%s"url": "%s"\n' "$indent" "$CLIENT_SSE_URL"
 }
 
 # Copy the CA out of the container so client processes on this host can read
@@ -1743,11 +1760,8 @@ _phase6_cursor_mcp() {
 MCP_JSON="${CURSOR_DIR}/mcp.json"
 
 if [ -f "$MCP_JSON" ]; then
-    if grep -q "flaiwheel" "$MCP_JSON" 2>/dev/null; then
-        ok ".cursor/mcp.json already has flaiwheel configured"
-    else
-        info "Adding flaiwheel to existing .cursor/mcp.json..."
-        python3 -c "
+    info "Refreshing flaiwheel in existing .cursor/mcp.json..."
+    python3 -c "
 import json, sys
 try:
     data = json.load(open('$MCP_JSON', encoding='utf-8'))
@@ -1758,8 +1772,7 @@ if 'mcpServers' not in data:
 data['mcpServers']['flaiwheel'] = json.loads('''$(_client_entry_json)''')
 json.dump(data, open('$MCP_JSON', 'w', encoding='utf-8'), indent=2)
 "
-        ok "Added flaiwheel to .cursor/mcp.json (existing config preserved)"
-    fi
+    ok "Refreshed flaiwheel in .cursor/mcp.json (other servers preserved)"
 else
     # Unquoted heredoc so $(_client_entry_body) is expanded; the body contains
     # no other shell expansions.
@@ -2154,11 +2167,8 @@ _phase7c_claude() {
 MCP_JSON_ROOT="${PROJECT_DIR}/.mcp.json"
 
 if [ -f "$MCP_JSON_ROOT" ]; then
-    if grep -q "flaiwheel" "$MCP_JSON_ROOT" 2>/dev/null; then
-        ok ".mcp.json already has flaiwheel configured"
-    else
-        info "Adding flaiwheel to existing .mcp.json..."
-        python3 -c "
+    info "Refreshing flaiwheel in existing .mcp.json..."
+    python3 -c "
 import json, sys
 with open('$MCP_JSON_ROOT', encoding='utf-8') as f:
     cfg = json.load(f)
@@ -2167,8 +2177,7 @@ with open('$MCP_JSON_ROOT', 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2)
     f.write('\n')
 "
-        ok "Added flaiwheel to .mcp.json (existing config preserved)"
-    fi
+    ok "Refreshed flaiwheel in .mcp.json (other servers preserved)"
 else
     cat > "$MCP_JSON_ROOT" << MCPEOF
 {
@@ -2262,7 +2271,7 @@ if 'flaiwheel' in servers:
 else:
     servers['flaiwheel'] = {
         'command': 'npx',
-        'args': ['-y', 'mcp-remote', '$CLIENT_SSE_URL']
+        'args': ['-y', 'mcp-remote', '$CLIENT_SSE_URL']$([ "$TLS_AUTO" = "1" ] && printf ",\n        'env': {'NODE_EXTRA_CA_CERTS': '%s'}" "$CLIENT_CA_PATH")
     }
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2)
@@ -2334,12 +2343,8 @@ VSCODE_MCP="${VSCODE_DIR}/mcp.json"
 VSCODE_REGISTERED=false
 
 if [ -f "$VSCODE_MCP" ]; then
-    if grep -q "flaiwheel" "$VSCODE_MCP" 2>/dev/null; then
-        ok ".vscode/mcp.json already has flaiwheel configured"
-        VSCODE_REGISTERED=true
-    else
-        info "Adding flaiwheel to existing .vscode/mcp.json..."
-        python3 -c "
+    info "Refreshing flaiwheel in existing .vscode/mcp.json..."
+    python3 -c "
 import json
 with open('$VSCODE_MCP', encoding='utf-8') as f:
     cfg = json.load(f)
@@ -2348,9 +2353,8 @@ with open('$VSCODE_MCP', 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2)
     f.write('\n')
 "
-        ok "Added flaiwheel to .vscode/mcp.json (existing config preserved)"
-        VSCODE_REGISTERED=true
-    fi
+    ok "Refreshed flaiwheel in .vscode/mcp.json (other servers preserved)"
+    VSCODE_REGISTERED=true
 else
     cat > "$VSCODE_MCP" << VSCODEEOF
 {
@@ -2828,13 +2832,11 @@ echo -e "    MCP (SSE):  ${GREEN}${SSE_URL}${NC}"
 # it happened — an unset flag is a deliberate outcome, not an omission.
 if [ "$TLS_AUTO" = "1" ]; then
     echo -e "    TLS:        ${GREEN}on${NC} — certificate issued and managed by Flaiwheel"
-    echo -e "                Client configs on ${BOLD}this host${NC} were written with the CA already"
-    echo -e "                trusted, so Cursor / Claude Code / VS Code connect as-is."
     echo -e "                CA file: ${GREEN}${CLIENT_CA_PATH}${NC}"
-    echo -e "                For a client on ${BOLD}another machine${NC}, copy the CA there and add it to"
-    echo -e "                that client's MCP config env block, then restart the client:"
-    echo -e "                  ${GREEN}docker cp ${CONTAINER_NAME}:/data/tls/ca.pem ./ca.pem${NC}"
-    echo -e "                  ${GREEN}\"NODE_EXTRA_CA_CERTS\": \"/path/to/ca.pem\"${NC}"
+    echo -e "                Direct Cursor / VS Code SSE clients may require this CA in"
+    echo -e "                the operating-system trust store before they can connect."
+    echo -e "                A client on another machine needs its own copy of the CA."
+    echo -e "                  ${GREEN}docker cp ${CONTAINER_NAME}:/data/tls/ca.pem ./flaiwheel-ca.pem${NC}"
     echo -e "                Fingerprint: ${GREEN}docker logs ${CONTAINER_NAME} 2>&1 | grep -A6 Auto-TLS${NC}"
 elif [ -n "${MCP_SSE_TLS_CERTFILE:-}" ]; then
     echo -e "    TLS:        ${GREEN}on${NC} — using your certificate (MCP_SSE_TLS_CERTFILE)"

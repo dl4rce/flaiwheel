@@ -429,7 +429,7 @@ class TestTlsStatusIsReported:
             "came out short under LC_ALL=C"
         )
 
-    def test_auto_state_reports_a_host_readable_ca_and_the_anchor(self, src: str):
+    def test_auto_state_reports_a_host_readable_ca_and_os_trust_requirement(self, src: str):
         # Anchor on the summary's own branch, not the container-setup one.
         idx = src.index('echo -e "    TLS:')
         tail = src[idx : idx + 1800]
@@ -437,7 +437,7 @@ class TestTlsStatusIsReported:
         # process, so the summary must quote the exported host path instead.
         assert "CLIENT_CA_PATH" in tail
         assert "SSE_CA_PATH" not in tail
-        assert "NODE_EXTRA_CA_CERTS" in tail
+        assert "operating-system trust store" in tail
         # And it must distinguish this host from other machines.
         assert "another machine" in tail.lower() or "other machine" in tail.lower()
 
@@ -521,16 +521,27 @@ class TestGeneratedClientConfigsMatchTls:
         cfg = self._entry_file(src, "https", tls_auto)
         assert cfg["mcpServers"]["flaiwheel"]["type"] == "sse"
 
-    def test_tls_on_uses_https_and_sets_the_trust_anchor(self, src: str):
+    def test_tls_on_uses_https_without_a_false_per_server_trust_anchor(self, src: str):
         entry = self._entry(src, "https", "1")
         assert entry["url"].startswith("https://")
-        assert entry["env"]["NODE_EXTRA_CA_CERTS"].endswith("ca.pem")
+        # A direct SSE entry starts no child process. Cursor/Electron performs
+        # TLS itself, so this env object would falsely imply that OS trust had
+        # been configured.
+        assert "env" not in entry
 
-    def test_heredoc_entry_also_carries_the_anchor_when_tls_on(self, src: str):
+    def test_heredoc_entry_also_leaves_trust_to_the_os(self, src: str):
         cfg = self._entry_file(src, "https", "1")
         entry = cfg["mcpServers"]["flaiwheel"]
         assert entry["url"].startswith("https://")
-        assert "NODE_EXTRA_CA_CERTS" in entry["env"]
+        assert "env" not in entry
+
+    def test_node_extra_ca_is_reserved_for_a_stdio_child_process(self, src: str):
+        direct = src[src.index("_client_entry_json() {") : src.index("_export_client_ca() {")]
+        assert "NODE_EXTRA_CA_CERTS" not in direct
+        desktop = src[src.index("servers['flaiwheel'] = {") :]
+        desktop = desktop[: desktop.index("with open(path", 1)]
+        assert "mcp-remote" in desktop
+        assert "NODE_EXTRA_CA_CERTS" in desktop
 
     def test_tls_off_is_unchanged_and_needs_no_anchor(self, src: str):
         entry = self._entry(src, "http", "0")
@@ -562,3 +573,67 @@ class TestGeneratedClientConfigsMatchTls:
         assert '[ "$TLS_AUTO" = "1" ] || return 0' in body
         # Copying from a container that was never created must not abort the run.
         assert "|| true" in body or "|| return" in body
+
+    def test_existing_client_entries_are_refreshed_when_scheme_changes(self, src: str):
+        # Switching TLS off must rewrite https:// back to http:// while leaving
+        # every unrelated MCP server intact.
+        assert 'Refreshing flaiwheel in existing .cursor/mcp.json' in src
+        assert 'Refreshed flaiwheel in .cursor/mcp.json (other servers preserved)' in src
+        assert 'Refreshing flaiwheel in existing .mcp.json' in src
+        assert 'Refreshed flaiwheel in .mcp.json (other servers preserved)' in src
+        assert 'Refreshing flaiwheel in existing .vscode/mcp.json' in src
+        assert 'Refreshed flaiwheel in .vscode/mcp.json (other servers preserved)' in src
+        assert 'already has flaiwheel configured' not in src
+
+
+class TestExplicitTlsModeOverride:
+    """An update must distinguish unset from an explicit TLS switch.
+
+    Unset preserves the deployed mode. ``FLAIWHEEL_TLS_AUTO=0`` removes an
+    inherited ``MCP_SSE_TLS_AUTO=true`` and recreates the current-version
+    container, restoring the default HTTP endpoint without dropping other
+    settings. ``1`` enables TLS through the existing last-value-wins override.
+    """
+
+    def test_detects_whether_the_switch_was_explicit(self, src: str):
+        assert 'if [ "${FLAIWHEEL_TLS_AUTO+x}" = "x" ]; then' in src
+        assert "TLS_AUTO_EXPLICIT=true" in src
+
+    def test_rejects_values_other_than_zero_or_one(self, src: str):
+        assert 'FLAIWHEEL_TLS_AUTO must be 0 or 1' in src
+
+    def test_explicit_switch_bypasses_current_version_fast_path(self, src: str):
+        fast_path = src[src.index('if [ -n "$RUNNING_FW" ]') :]
+        fast_path = fast_path[: fast_path.index("# ═", 10)]
+        assert '[ "$TLS_AUTO_EXPLICIT" = false ]' in fast_path
+
+    def test_explicit_switch_removes_inherited_tls_value(self, src: str):
+        update = src[src.index("OLD_MCP_ENV=") : src.index("OLD_VOLUME=", src.index("OLD_MCP_ENV="))]
+        assert '[ "$TLS_AUTO_EXPLICIT" = true ]' in update
+        assert "grep -vE '^MCP_SSE_TLS_AUTO='" in update
+
+    def test_explicit_zero_does_not_re_add_tls(self, src: str):
+        start = src[src.index("start_container() {") :]
+        start = start[: start.index("docker run -d")]
+        assert 'if [ "$TLS_AUTO" = "1" ]; then' in start
+        assert "MCP_SSE_TLS_AUTO=true" in start
+        assert "MCP_SSE_TLS_AUTO=false" not in start
+
+    def test_unset_preserves_all_existing_mcp_settings(self, src: str):
+        # The inherited environment remains intact unless an explicit switch
+        # was supplied; this includes the current TLS mode.
+        update = src[src.index("OLD_MCP_ENV=") : src.index("OLD_VOLUME=", src.index("OLD_MCP_ENV="))]
+        assert "OLD_MCP_ENV=$(echo \"$OLD_ENV\" | grep -E '^MCP_'" in update
+        assert '[ "$TLS_AUTO_EXPLICIT" = true ]' in update
+
+    def test_unset_tls_mode_also_drives_the_generated_endpoint_scheme(self, src: str):
+        # Preserving TLS in Docker while writing http:// client entries leaves
+        # the deployment unreachable. Effective mode must be learned before
+        # CLIENT_SSE_URL is calculated.
+        detect = src.index("_RUNNING_TLS_AUTO=")
+        running = src.index("RUNNING_FW=")
+        scheme = src.index('if [ "$TLS_AUTO" = "1" ] || [ -n "${MCP_SSE_TLS_CERTFILE:-}" ]; then')
+        assert running < detect < scheme
+        block = src[detect:scheme]
+        assert "MCP_SSE_TLS_AUTO=" in block
+        assert "TLS_AUTO=1" in block

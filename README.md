@@ -85,14 +85,16 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.15.2 — TLS clients actually connect
+## What’s New in v3.15.3 — Plain HTTP remains the default
 
-- **Enabling automatic TLS used to produce clients that could not connect.** The installer wrote every client config as `http://localhost:8081/sse` with no trust anchor, even against an HTTPS listener — and still reported "MCP registered". Cursor, Claude Code, VS Code / GitHub Copilot, Claude Desktop and the `claude mcp add` command now all use the URL the installer advertises, with `https://` and a `NODE_EXTRA_CA_CERTS` entry when TLS is active.
-- **The CA is exported to where a client can actually read it.** The certificate lives in a Docker volume, which is not a path a client process can open. It is copied to `${HOME}/.flaiwheel/ca.pem` before client configs are written (override with `FLAIWHEEL_CLIENT_CA_PATH`), so a config never points at a file that does not exist. Agents on the Flaiwheel host now connect with no manual step.
-- **Certificates no longer contain values that change on every container start.** The container hostname and its Docker bridge address were being added to the SANs. Both are per-container values, so a recreated container presented a certificate missing entries the previous one had; the completeness check then re-issued the leaf — and the CA with it — silently invalidating every client that had already trusted it. The SAN set now comes only from `MCP_SSE_ALLOWED_HOSTS` and loopback.
-- **Upgrading does not change your CA.** The new required names are a subset of what `v3.15.0`/`v3.15.1` issued, so existing material is reused and previously trusted clients keep working.
-- **The summary stops quoting the in-volume path** and states separately what a client on another machine must do.
-- **Tests: 455 → 467**, including assertions that every generated config parses as JSON in both TLS states and that no config writer hardcodes an endpoint.
+- The standard installer uses `http://host:8081/sse`. This is the recommended configuration until the Web UI provides TLS activation, CA download, and operating-system installation instructions.
+- Automatic TLS remains available as an opt-in feature. The generated certificate is valid, but Cursor/Electron and other clients may require the Flaiwheel CA to be installed in the operating-system trust store.
+- `FLAIWHEEL_TLS_AUTO=0` now explicitly returns an existing TLS-enabled installation to HTTP while preserving its volumes and other `MCP_*` settings.
+- Leaving `FLAIWHEEL_TLS_AUTO` unset during an update preserves the currently deployed mode.
+
+## v3.15.2 TLS caveat
+
+`v3.15.2` corrected endpoint schemes and certificate persistence, but its direct-SSE client guidance was incomplete. An `env` block containing `NODE_EXTRA_CA_CERTS` does not necessarily control TLS for a direct Cursor/Electron SSE connection. Direct clients may require the generated CA in the operating-system trust store. Use the default HTTP endpoint unless you have completed that trust step.
 
 ## What’s New in v3.15.0 — Flaiwheel issues its own TLS certificate
 
@@ -595,71 +597,54 @@ Then point your client at that hostname:
   "url": "http://flaiwheel.example.com:8081/sse" } } }
 ```
 
-> ⚠️ **This removes the `421`, it does not add encryption.** MCP traffic
-> carries document content and write operations in cleartext. **TLS is required
-> for any non-localhost deployment.** Either let Flaiwheel issue its own
-> certificate (below), or terminate TLS at a reverse proxy (Caddy/nginx), or
-> use an encrypted transport such as WireGuard or Tailscale.
-> See [SECURITY.md](SECURITY.md#transport-security-mcp-sse).
+> **Default and recommended:** use the HTTP endpoint on port `8081`. This avoids
+> client trust-store setup and is the configuration produced by the normal
+> installer command. HTTP traffic is not encrypted, so use it only on a trusted
+> LAN, localhost, an SSH tunnel, or an encrypted network such as WireGuard or
+> Tailscale.
 
-#### Automatic TLS — Flaiwheel issues its own certificate
+#### Optional automatic TLS — client trust required
 
-For a LAN address there is no certificate to obtain: no public CA will issue
-one for `192.168.178.230`. Rather than send you to `openssl`, Flaiwheel can be
-told to issue its own:
+Automatic TLS is available, but it is **not the default recommendation yet**.
+Flaiwheel generates and persists a private CA and a server certificate. Each
+client computer must trust that CA. For direct Cursor/Electron SSE connections,
+putting `NODE_EXTRA_CA_CERTS` inside the remote server entry may be insufficient;
+the CA may need to be installed in the macOS, Windows, or Linux trust store.
 
-```bash
-docker run -d --name flaiwheel -p 8080:8080 -p 8081:8081 \
-  -v flaiwheel-data:/data -v flaiwheel-docs:/docs \
-  -e MCP_SSE_ALLOWED_HOSTS=192.168.178.230,flaiwheel.lan \
-  -e MCP_SSE_TLS_AUTO=true \
-  flaiwheel:latest
-```
-
-On first start it generates a private CA and a server certificate into
-`/data/tls`, covering the configured hosts and loopback — deliberately
-**only** those. The set is derived from configuration and never from the
-running environment, which is what makes it **idempotent**: restarts and
-upgrades reuse the existing material, so a client that pinned the CA stays
-valid. (The container hostname and its Docker bridge address used to be
-included and are per-container values; a recreated container then presented a
-certificate missing entries the previous one had, so the completeness check
-re-issued the leaf *and* the CA, silently invalidating every client that had
-trusted it.)
-
-**Clients on the Flaiwheel host need no manual step.** The installer writes
-every client config with the correct scheme and a `NODE_EXTRA_CA_CERTS` entry,
-and exports the CA to `${HOME}/.flaiwheel/ca.pem` first — the in-volume path is
-not something a client process can open. Override with
-`FLAIWHEEL_CLIENT_CA_PATH`. Because loopback is always in the certificate,
-`https://localhost:8081/sse` works from the host itself.
-
-**The one step Flaiwheel cannot do for you** is reach into *another* machine's
-trust store — the container has no access to it, which is why even `mkcert`
-needs a per-machine install. Copy the CA over and add it to that client's env
-block in its own MCP config:
+Normal install or update, with TLS off:
 
 ```bash
-docker cp flaiwheel:/data/tls/ca.pem ./flaiwheel-ca.pem
+bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
 ```
+
+Explicitly return an existing TLS-enabled installation to HTTP:
+
+```bash
+FLAIWHEEL_TLS_AUTO=0 bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
+```
+
+Enable automatic TLS only when the clients have been prepared to trust its CA:
+
+```bash
+FLAIWHEEL_TLS_AUTO=1 bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
+```
+
+The generated files are stored in `/data/tls` in the persistent data volume.
+The installer exports the public CA certificate to
+`${HOME}/.flaiwheel/ca.pem`; override that path with
+`FLAIWHEEL_CLIENT_CA_PATH`. Flaiwheel reuses the generated CA across container
+restarts and upgrades.
+
+After enabling TLS, install the exported CA into the trust store used by the
+client operating system, restart the client, and use an HTTPS endpoint such as:
 
 ```json
 { "mcpServers": { "flaiwheel": { "type": "sse",
-  "url": "https://192.168.178.230:8081/sse",
-  "env": { "NODE_EXTRA_CA_CERTS": "/absolute/path/to/flaiwheel-ca.pem" } } } }
+  "url": "https://192.168.178.230:8081/sse" } } }
 ```
 
-That is genuine TLS — encryption *and* identity — with the CA pinned via
-trust-on-first-use. It is not "encryption with verification switched off":
-there is no `NODE_TLS_REJECT_UNAUTHORIZED=0` anywhere in this path, because
-that would defend against nothing at all.
-
-**Auto-TLS is opt-in, deliberately.** Enabling it flips a deployment from
-`http://` to `https://`; doing that unasked on upgrade would break every
-existing client. It also **fails closed**: if provisioning fails, startup
-aborts rather than quietly serving cleartext. If you need zero client-side
-configuration, use a certificate from a real CA instead (previous section) —
-a public hostname can be validated automatically, a private IP cannot.
+Do not use `NODE_TLS_REJECT_UNAUTHORIZED=0`; it disables certificate
+verification.
 
 #### Native TLS — your own certificate, no proxy at all
 
