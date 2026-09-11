@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.15.0"
+_FW_VERSION="3.15.1"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -87,6 +87,15 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
+
+# Sequential numbering for the conditional "What to do next" lists. Entries
+# appear only when the matching client was detected (Claude Desktop, Claude
+# Code, VS Code), so hardcoded numbers skipped values: a run with just Cursor
+# and Claude Code printed "1. ... 3. ... 5.". Call _step first, then read
+# $_STEP. It must NOT be called as $( _step ) — command substitution runs in a
+# subshell and the increment would be discarded.
+_STEP=0
+_step() { _STEP=$((_STEP + 1)); }
 
 info()  { echo -e "${BLUE}[flaiwheel]${NC} $1"; }
 ok()    { echo -e "${GREEN}[✓]${NC} $1"; }
@@ -2657,22 +2666,23 @@ if [ "$FAST_PATH" = true ]; then
     echo -e "  ${BOLD}Knowledge:${NC}     ${GREEN}https://github.com/${OWNER}/${KNOWLEDGE_REPO}${NC}"
     echo -e "  ${BOLD}Config:${NC}        ${GREEN}.cursor/mcp.json${NC} + ${GREEN}.mcp.json${NC} + ${GREEN}.vscode/mcp.json${NC} + ${GREEN}.cursor/rules/flaiwheel.mdc${NC} + ${GREEN}AGENTS.md${NC} + ${GREEN}CLAUDE.md${NC}"
     echo ""
+    _STEP=0
     echo -e "  ${BOLD}What to do next:${NC}"
-    echo -e "    1. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
+    _step; echo -e "    ${_STEP}. Restart Cursor to connect MCP (or toggle MCP off/on in Settings)"
     if [ "$CLAUDE_DESKTOP_REGISTERED" = true ]; then
-        echo -e "    2. Claude Desktop: restart Claude for Mac to connect ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. Claude Desktop: restart Claude for Mac to connect ${GREEN}✓${NC}"
     fi
     if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
-        echo -e "    3. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
-        echo -e "    3. Claude Code CLI: run once to register MCP:"
+        _step; echo -e "    ${_STEP}. Claude Code CLI: run once to register MCP:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
     if [ "$VSCODE_REGISTERED" = true ]; then
-        echo -e "    4. VS Code: open project, run ${BOLD}MCP: List Servers${NC} → start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. VS Code: open project, run ${BOLD}MCP: List Servers${NC} → start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
     fi
-    echo -e "    5. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
-    echo -e "    6. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
+    _step; echo -e "    ${_STEP}. Tell your AI agent: ${GREEN}set_project(\"${PROJECT}\")${NC}"
+    _step; echo -e "    ${_STEP}. Say ${YELLOW}\"This is the Way\"${NC} to bootstrap a messy docs repo"
     echo ""
 elif [ "$UPDATE_MODE" = true ]; then
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
@@ -2684,21 +2694,22 @@ elif [ "$UPDATE_MODE" = true ]; then
     echo -e "    Data volume:     ${GREEN}${VOLUME_NAME}${NC} (preserved)"
     echo -e "    Config files:    ${GREEN}refreshed${NC}"
     echo ""
+    _STEP=0
     echo -e "  ${BOLD}What to do next:${NC}"
-    echo -e "    1. Restart Cursor to reconnect MCP"
+    _step; echo -e "    ${_STEP}. Restart Cursor to reconnect MCP"
     if [ "$CLAUDE_DESKTOP_REGISTERED" = true ]; then
-        echo -e "    2. Claude Desktop: restart Claude for Mac to reconnect ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. Claude Desktop: restart Claude for Mac to reconnect ${GREEN}✓${NC}"
     fi
     if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
-        echo -e "    3. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
-        echo -e "    3. Claude Code CLI: re-run if needed:"
+        _step; echo -e "    ${_STEP}. Claude Code CLI: re-run if needed:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
     if [ "$VSCODE_REGISTERED" = true ]; then
-        echo -e "    4. VS Code: run ${BOLD}MCP: List Servers${NC} → restart ${GREEN}flaiwheel${NC} if needed ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. VS Code: run ${BOLD}MCP: List Servers${NC} → restart ${GREEN}flaiwheel${NC} if needed ${GREEN}✓${NC}"
     fi
-    echo -e "    5. Open the Web UI at ${GREEN}${HOST_WEB_URL}${NC} to verify"
+    _step; echo -e "    ${_STEP}. Open the Web UI at ${GREEN}${HOST_WEB_URL}${NC} to verify"
 else
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Setup Complete                       ║${NC}"
@@ -2714,23 +2725,24 @@ else
     echo -e "    Agent guide:     ${GREEN}AGENTS.md${NC}"
     echo -e "    Git hook:        ${GREEN}.git/hooks/post-commit${NC} (auto-captures commits)"
     echo ""
+    _STEP=0
     echo -e "  ${BOLD}What to do next:${NC}"
-    echo -e "    1. Restart Cursor"
-    echo -e "    2. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
+    _step; echo -e "    ${_STEP}. Restart Cursor"
+    _step; echo -e "    ${_STEP}. Go to ${BOLD}Cursor Settings → MCP${NC} and enable ${GREEN}flaiwheel${NC} if the toggle is off"
     if [ "$CLAUDE_DESKTOP_REGISTERED" = true ]; then
-        echo -e "    3. Restart ${BOLD}Claude for Mac${NC} to connect Flaiwheel ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. Restart ${BOLD}Claude for Mac${NC} to connect Flaiwheel ${GREEN}✓${NC}"
     fi
     if [ "$CLAUDE_MCP_REGISTERED" = true ]; then
-        echo -e "    4. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
-        echo -e "    4. Claude Code CLI: run once to register MCP:"
+        _step; echo -e "    ${_STEP}. Claude Code CLI: run once to register MCP:"
         echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
     fi
     if [ "$VSCODE_REGISTERED" = true ]; then
-        echo -e "    5. VS Code: open project, run ${BOLD}MCP: List Servers${NC} (Cmd+Shift+P), start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
+        _step; echo -e "    ${_STEP}. VS Code: open project, run ${BOLD}MCP: List Servers${NC} (Cmd+Shift+P), start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
     fi
-    echo -e "    6. Open the Web UI at ${GREEN}${HOST_WEB_URL}${NC} to verify"
-    echo -e "    7. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
+    _step; echo -e "    ${_STEP}. Open the Web UI at ${GREEN}${HOST_WEB_URL}${NC} to verify"
+    _step; echo -e "    ${_STEP}. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 fi
 echo ""
 if [ "${MD_COUNT:-0}" -gt 2 ]; then
@@ -2745,14 +2757,22 @@ echo -e "    Web UI:     ${GREEN}${WEB_URL}${NC}"
 [ -n "$WEB_URL_LOCAL" ] && echo -e "                (on this host: ${WEB_URL_LOCAL})"
 echo -e "    MCP (SSE):  ${GREEN}${SSE_URL}${NC}"
 [ -n "$SSE_URL_LOCAL" ] && echo -e "                (on this host: ${SSE_URL_LOCAL})"
+# Always state the TLS status, both when it is on and when it is off. Auto-TLS
+# is opt-in, so silence about it is precisely what makes people wonder whether
+# it happened — an unset flag is a deliberate outcome, not an omission.
 if [ "$TLS_AUTO" = "1" ]; then
-    echo ""
-    echo -e "  ${BOLD}TLS (issued by Flaiwheel):${NC}"
-    echo -e "    Certificate: ${GREEN}${SSE_CA_PATH}${NC} (in the ${VOLUME_NAME} volume)"
-    echo -e "    Each client machine must trust the CA ${BOLD}once${NC}. Add this to the"
-    echo -e "    server's ${BOLD}env${NC} block in its MCP config:"
-    echo -e "      ${GREEN}\"NODE_EXTRA_CA_CERTS\": \"${SSE_CA_PATH}\"${NC}"
-    echo -e "    Then restart the client. Fingerprint is in ${GREEN}docker logs ${CONTAINER_NAME}${NC}."
+    echo -e "    TLS:        ${GREEN}on${NC} — certificate issued and managed by Flaiwheel"
+    echo -e "                CA file: ${GREEN}${SSE_CA_PATH}${NC} (in the ${VOLUME_NAME} volume)"
+    echo -e "                Each client machine must trust it ${BOLD}once${NC} — add this to the"
+    echo -e "                server's ${BOLD}env${NC} block in its MCP config, then restart the client:"
+    echo -e "                  ${GREEN}\"NODE_EXTRA_CA_CERTS\": \"${SSE_CA_PATH}\"${NC}"
+    echo -e "                Fingerprint: ${GREEN}docker logs ${CONTAINER_NAME} 2>&1 | grep -A6 Auto-TLS${NC}"
+elif [ -n "${MCP_SSE_TLS_CERTFILE:-}" ]; then
+    echo -e "    TLS:        ${GREEN}on${NC} — using your certificate (MCP_SSE_TLS_CERTFILE)"
+else
+    echo -e "    TLS:        ${YELLOW}off${NC} — MCP traffic is ${BOLD}not encrypted${NC} on the network."
+    echo -e "                To let Flaiwheel issue a certificate, re-run with ${BOLD}FLAIWHEEL_TLS_AUTO=1${NC}:"
+    echo -e "                  ${GREEN}FLAIWHEEL_TLS_AUTO=1 bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)${NC}"
 fi
 echo ""
 
@@ -2776,12 +2796,26 @@ if [ -n "$_DISPLAY_PASS" ]; then
         local label="$1" value="$2" color="${3:-$GREEN}"
         local inner=46
         local plain="${label}${value}"
-        local pad=$(( inner - ${#plain} ))
+        # ${#plain} counts BYTES unless the locale is UTF-8, so "Save this —
+        # it won't be shown again!" measured 38 instead of 36 and the line came
+        # out two columns short under LC_ALL=C. Count characters explicitly so
+        # the box lines up in every locale. python3 is already required by this
+        # script (see _port_in_use).
+        local width
+        width=$(printf '%s' "$plain" | python3 -c \
+            'import sys;print(len(sys.stdin.buffer.read().decode("utf-8","replace")))' 2>/dev/null)
+        # Never let a measurement failure abort the summary under set -e; a
+        # slightly wrong pad beats no output at all.
+        [ -z "$width" ] && width=${#plain}
+        local pad=$(( inner - width ))
         [ "$pad" -lt 1 ] && pad=1
         local spaces
         spaces=$(printf '%*s' "$pad" '')
-        printf '  %s║  %s%s%s%s║%s\n' \
-            "$BOLD" "$label" "${color}${value}${NC}${BOLD}" "$spaces" "$NC"
+        # printf does NOT interpret \033 inside its %s arguments — only inside
+        # the format string — so passing the colour variables to %s printed
+        # them literally ("\033[1m║  Web UI Login"). echo -e is what the rest
+        # of this script uses, and it does interpret them.
+        echo -e "  ${BOLD}║  ${label}${color}${value}${NC}${BOLD}${spaces}${NC}║"
     }
     echo -e "  ${BOLD}╔════════════════════════════════════════════════╗${NC}"
     _box_line "Web UI Login" ""

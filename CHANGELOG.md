@@ -7,6 +7,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.15.1] — 2026-09-11 — The installer summary renders correctly again
+
+**Three defects in the closing summary, all introduced by `v3.14.3` and `v3.15.0`.** The summary is the only thing an operator reads after an install or upgrade, so a broken one makes a successful run look like a failed one.
+
+### Fixed
+
+- **The login box printed its colour codes as literal text.** `v3.14.3` rewrote the padding helper to use `printf` and passed the colour variables as `%s` arguments. `printf` expands `\033` inside its *format string* only — never inside an argument — so every line rendered as `\033[1m║  Web UI Login`. The helper now uses `echo -e`, as the rest of the script already did. The commit that introduced this was itself titled "align every line of the summary login box".
+- **The pad was counted in bytes, not characters.** `${#plain}` counts bytes outside a UTF-8 locale, so `Save this — it won't be shown again!` measured 38 instead of 36 and the line came out two columns short whenever `LC_ALL` was not UTF-8. The width is now measured explicitly in characters. Both the box and its contents were verified aligned under `LC_ALL=C`, `en_US.UTF-8` and `C.UTF-8`.
+- **Step numbers skipped values.** The "What to do next" numbers were literals, but Claude Desktop, Claude Code and VS Code entries are conditional — a run with only Cursor and Claude Code printed `1. ... 3. ... 5.`. Numbering is now a running counter reset at the start of each block.
+
+### Added
+
+- **The summary states the TLS status explicitly, on every run.** It reports `on` with the CA path and the client `NODE_EXTRA_CA_CERTS` hint, `on` with your own certificate, or `off` with the one-line command to enable Flaiwheel-issued certificates. Silence about an opt-in security feature is what leaves an operator unsure whether it took effect.
+
+### Tests
+
+**455 passing** (439 → 455). The 16 new assertions in `tests/test_installer_safety.py` cover rendered output rather than source text: the box is executed in a real shell and checked for literal escape sequences, uniform width and locale independence, across three locales, and the step lists are rendered with several client-detection combinations and checked for contiguous numbering. **11 of the 16 fail against the `v3.15.0` installer and pass here**; the remainder guard invariants that happen to hold in both.
+
+The pre-existing alignment tests had been constructing the helper with `BOLD=''` and `GREEN=''`, which made the padding output identical while hiding the `printf` defect entirely — the reason it shipped. They now use real escape sequences.
+
 ## [3.15.0] — 2026-09-11 — Flaiwheel issues its own TLS certificate
 
 **A LAN deployment can now be encrypted without the operator ever running a certificate tool.**
