@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.14.1"
+_FW_VERSION="3.14.2"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -807,7 +807,9 @@ except Exception:
     sys.exit(0)
 b = d.get(sys.argv[1]) or []
 if b:
-    print(b[0].get("HostIp", "0.0.0.0"), b[0].get("HostPort", ""))
+    # Docker reports an unpinned bind as HostIp "" (not "0.0.0.0").
+    # Emitting an empty IP would produce an invalid `-p :8080:8080`.
+    print(b[0].get("HostIp") or "0.0.0.0", b[0].get("HostPort", ""))
 ' "$2" 2>/dev/null || true
 }
 
@@ -878,6 +880,23 @@ if [ "$FAST_PATH" = false ]; then
         fi
     fi
 
+    # Learn the existing deployment's REAL host bindings BEFORE checking
+    # ports. A shared or proxy-fronted host commonly remaps them — this one runs
+    # MCP on 127.0.0.1:18081 behind nginx holding :8081. Checking the DEFAULTS
+    # here would flag that front-end as a conflict and refuse to upgrade a
+    # perfectly healthy deployment, which is not a safe update, just a stuck one.
+    if [ -n "$EXISTING_CONTAINER" ]; then
+        if [ -z "${FLAIWHEEL_WEB_PORT:-}" ]; then
+            _ob=$(_old_binding "$EXISTING_CONTAINER" "8080/tcp")
+            if [ -n "$_ob" ]; then WEB_BIND="${_ob%% *}"; WEB_PORT="${_ob##* }"; fi
+        fi
+        if [ -z "${FLAIWHEEL_SSE_PORT:-}" ]; then
+            _ob=$(_old_binding "$EXISTING_CONTAINER" "8081/tcp")
+            if [ -n "$_ob" ]; then SSE_BIND="${_ob%% *}"; SSE_PORT="${_ob##* }"; fi
+        fi
+        info "Existing bindings: Web UI ${WEB_BIND}:${WEB_PORT}, MCP SSE ${SSE_BIND}:${SSE_PORT}"
+    fi
+
     # ALWAYS verify the real sockets before we remove or create anything.
     # This is deliberately outside the branches above: the previous version
     # put this check in the `else` arm of the name match, so it was skipped for
@@ -936,16 +955,9 @@ if [ "$FAST_PATH" = false ]; then
             DOCS_VOLUME_NAME="$OLD_DOCS_VOLUME"
         fi
 
-        # Inherit the existing host ports/binds unless the operator overrode
-        # them, so an upgrade keeps the deployment's real shape.
-        if [ -z "${FLAIWHEEL_WEB_PORT:-}" ]; then
-            _ob=$(_old_binding "$EXISTING_CONTAINER" "8080/tcp")
-            if [ -n "$_ob" ]; then WEB_BIND="${_ob%% *}"; WEB_PORT="${_ob##* }"; fi
-        fi
-        if [ -z "${FLAIWHEEL_SSE_PORT:-}" ]; then
-            _ob=$(_old_binding "$EXISTING_CONTAINER" "8081/tcp")
-            if [ -n "$_ob" ]; then SSE_BIND="${_ob%% *}"; SSE_PORT="${_ob##* }"; fi
-        fi
+        # NB: host port/bind inheritance happens earlier, BEFORE the port
+        # conflict check. Doing it here was the v3.14.1 bug: the check ran
+        # against the defaults and refused to upgrade a healthy deployment.
 
         OLD_CONTAINER_NAME="$EXISTING_CONTAINER"
         echo ""

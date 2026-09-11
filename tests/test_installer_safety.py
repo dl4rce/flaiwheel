@@ -102,6 +102,28 @@ class TestConfigurablePorts:
         assert "_old_binding() {" in src
         assert '"8080/tcp"' in src and '"8081/tcp"' in src
 
+    def test_bindings_are_learned_BEFORE_the_port_check(self, src: str):
+        """v3.14.1 shipped the inheritance AFTER the check.
+
+        On a proxy-fronted host (MCP on 127.0.0.1:18081, nginx on :8081) the
+        check therefore validated the DEFAULTS, saw nginx on 8081 and refused to
+        upgrade a perfectly healthy deployment. Preserving the shape must happen
+        first, or the "safe" check becomes a stuck installer.
+        """
+        block = src.split('if [ "$FAST_PATH" = false ]; then', 1)[1]
+        inherit = block.index('_old_binding "$EXISTING_CONTAINER" "8081/tcp"')
+        check = block.index('_check_ports_free "$EXISTING_CONTAINER"')
+        assert inherit < check, (
+            "existing host bindings must be inherited before the port check, "
+            "otherwise the check judges the defaults instead of the real shape"
+        )
+
+    def test_empty_host_ip_is_normalized(self, src: str):
+        """Docker reports an unpinned bind as HostIp "", which would produce an
+        invalid `-p :8080:8080`."""
+        assert 'or "0.0.0.0"' in src
+        assert 'get("HostIp") or "0.0.0.0"' in src
+
 
 class TestVolumeMounts:
     def test_docs_volume_is_declared_and_mounted(self, src: str):

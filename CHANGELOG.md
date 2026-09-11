@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.14.2] — 2026-09-11 — The port check judges your real deployment
+
+**Fixes a regression introduced in 3.14.1, which could refuse to upgrade a perfectly healthy deployment.**
+
+`3.14.1` added a port-conflict check so the installer could never again take a shared host down. The check was correct; its **ordering** was not. It ran *before* the installer read the existing container's host bindings, so it validated the **defaults** (`0.0.0.0:8080` and `0.0.0.0:8081`) instead of the shape actually deployed.
+
+On a proxy-fronted host — the exact case `3.14.1` was written to protect — that meant: the deployment runs MCP on `127.0.0.1:18081` behind nginx holding `:8081`, the check looked for a conflict on `:8081`, found nginx, and **aborted the upgrade**. A guard meant to prevent an outage had become an inability to update at all.
+
+### Fixed
+- **Existing host bindings are now inherited *before* the conflict check**, so the check judges the real deployment. In update mode the installer reads `8080/tcp` and `8081/tcp` from `HostConfig.PortBindings` first, logs them (`Existing bindings: Web UI …, MCP SSE …`), *then* probes those ports. A container that owns a port is recognised as the container being replaced, so the normal upgrade path needs no special flags again.
+- **An empty `HostIp` is normalised to `0.0.0.0`.** Docker reports an unpinned bind as `""`, not `"0.0.0.0"`; emitting it verbatim would have produced an invalid `-p :8080:8080`.
+
+### Notes
+- **2 further tests (387 → 389)**, both failing against `3.14.1`: one asserts that binding inheritance precedes the port check, the other that an empty host IP is normalised. Verified against the real `docker inspect` output of a live proxy-fronted deployment, not a synthetic fixture.
+- Explains the `3.14.1` failure mode precisely: `[!] Host port 8081 (MCP SSE) is already in use. [!] Held by host process: nginx` — followed by a refusal to update. The check was working; the deployment shape was simply not consulted yet.
+- Nothing else in `3.14.1` changes. If you are on a default single-host install, `3.14.1` and `3.14.2` behave identically.
+
 ## [3.14.1] — 2026-09-11 — The installer stops breaking shared deployments
 
 **An upgrade must never be able to turn into an outage.** On 2026-09-11 the stock installer took a 12-project shared server down: it removed the running container, then failed to create its replacement because a host process (nginx) already owned the published port. The old container was gone, the new one never started, and every client lost the endpoint. This release fixes the four ways that could happen — and makes the destructive parts of the installer opt-in rather than unconditional.
