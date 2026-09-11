@@ -180,6 +180,64 @@ class TestDestructiveCleanupGating:
         assert 'AGGRESSIVE_CLEANUP="${FLAIWHEEL_AGGRESSIVE_CLEANUP:-0}"' in src
 
 
+class TestSummaryBoxAlignment:
+    """The closing login box must line up for ANY address or password.
+
+    It previously used hardcoded padding, which was 2 characters short of its
+    own border and only looked correct for a 127.0.0.1:8080 URL. The warning
+    line was also written separately, so it missed the dynamic padding entirely
+    and overflowed by one character.
+    """
+
+    @staticmethod
+    def _run_box(src: str, web_url: str, password: str) -> list[str]:
+        fn_start = src.index("    _box_line() {")
+        fn_end = src.index("\n    }\n", fn_start) + len("\n    }\n")
+        fn = src[fn_start:fn_end]
+
+        box_start = src.index('echo -e "  ${BOLD}╔')
+        tail = src[box_start:]
+        box_end = tail.index("\n", tail.index("╚")) + 1
+        box = tail[:box_end]
+
+        script = (
+            "BOLD=''; GREEN=''; NC=''; YELLOW=''\n"
+            f"WEB_URL={web_url!r}\n"
+            f"_DISPLAY_PASS={password!r}\n"
+            f"{fn}\n{box}"
+        )
+        out = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=True
+        ).stdout
+        ansi = __import__("re").compile(r"\x1b\[[0-9;]*m")
+        return [ansi.sub("", ln) for ln in out.splitlines() if ln.strip()]
+
+    def test_all_lines_have_equal_width(self, src: str):
+        lines = self._run_box(src, "http://192.168.178.230:8080", "s3cr3t-p@ss-w0rd")
+        assert len(lines) >= 8
+        widths = {len(ln) for ln in lines}
+        assert len(widths) == 1, f"ragged box, widths={sorted(widths)}\n" + "\n".join(
+            f"{len(ln):>3} {ln}" for ln in lines
+        )
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1:8080",
+            "http://192.168.178.230:8080",
+            "http://10.0.0.9:18080",
+        ],
+    )
+    def test_stays_aligned_for_varying_url_lengths(self, src: str, url: str):
+        lines = self._run_box(src, url, "pw")
+        assert len({len(ln) for ln in lines}) == 1, f"ragged for {url}"
+
+    def test_warning_line_uses_the_padding_helper(self, src: str):
+        """Regression: the 'Save this' line was hardcoded and overflowed."""
+        assert '_box_line "Save this' in src
+        assert "it won't be shown again!${NC}${BOLD}" not in src
+
+
 class TestUpgradeIsNotAnOutage:
     def test_image_is_built_before_the_old_container_is_removed(self, src: str):
         """If the build happens after `docker rm`, a build failure = outage."""

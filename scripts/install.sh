@@ -2712,7 +2712,7 @@ if [ -n "$_DISPLAY_PASS" ]; then
     # old fixed padding only lined up for a 127.0.0.1:8080 URL and broke the
     # moment a LAN address was printed.
     _box_line() {
-        local label="$1" value="$2"
+        local label="$1" value="$2" color="${3:-$GREEN}"
         local inner=46
         local plain="${label}${value}"
         local pad=$(( inner - ${#plain} ))
@@ -2720,7 +2720,7 @@ if [ -n "$_DISPLAY_PASS" ]; then
         local spaces
         spaces=$(printf '%*s' "$pad" '')
         printf '  %s║  %s%s%s%s║%s\n' \
-            "$BOLD" "$label" "${GREEN}${value}${NC}${BOLD}" "$spaces" "$NC"
+            "$BOLD" "$label" "${color}${value}${NC}${BOLD}" "$spaces" "$NC"
     }
     echo -e "  ${BOLD}╔════════════════════════════════════════════════╗${NC}"
     _box_line "Web UI Login" ""
@@ -2729,7 +2729,7 @@ if [ -n "$_DISPLAY_PASS" ]; then
     _box_line "Username:  " "admin"
     _box_line "Password:  " "${_DISPLAY_PASS}"
     _box_line "" ""
-    echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}          ║${NC}"
+    _box_line "Save this — it won't be shown again!" "" "$YELLOW"
     echo -e "  ${BOLD}╚════════════════════════════════════════════════╝${NC}"
 else
     echo -e "  ${YELLOW}${BOLD}Container is still starting (embedding model download in progress).${NC}"
