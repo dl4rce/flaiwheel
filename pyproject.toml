@@ -1,6 +1,6 @@
 [project]
 name = "flaiwheel"
-version = "3.13.0"
+version = "3.14.0"
 description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
 readme = "README.md"
 license = {text = "BUSL-1.1"}
@@ -18,12 +18,24 @@ dependencies = [
     # mcp 2.0 removed mcp.server.fastmcp (FastMCP -> mcpserver). Migrating is a
     # separate piece of work; until then the major must be bounded, or a fresh
     # resolve silently picks 2.x and every import of server.py fails.
-    "mcp[cli]>=1.0.0,<2.0.0",
+    #
+    # Floor raised 1.0.0 -> 1.23.0 (CVE-2025-66416 / GHSA-9h52-p55h-vw2f):
+    # before 1.23.0 the SDK disabled DNS rebinding protection by default and
+    # FastMCP had no auto-enable, so a fresh install could resolve to a build
+    # where the guard server.py now configures, documents and tests does not
+    # exist. 1.23.0 is also the first release guaranteed to accept the
+    # `host` / `transport_security` arguments we pass explicitly.
+    "mcp[cli]>=1.23.0,<2.0.0",
     # 0.x projects: minor bumps are the breaking unit, but capping at <1.0.0
     # still blocks the 1.0 rewrite, which is the failure mode that matters.
     "fastapi>=0.115.0,<1.0.0",
     "uvicorn[standard]>=0.30.0,<1.0.0",
-    "pydantic-settings>=2.0.0,<3.0.0",
+    # Floor raised 2.0.0 -> 2.7.0 for the `NoDecode` annotation (added in
+    # 2.7.0), which lets MCP_SSE_ALLOWED_HOSTS accept a comma-separated list
+    # instead of erroring on anything that is not JSON. Raised deliberately:
+    # same major, and the alternative is a startup crash on the syntax people
+    # naturally type into `docker run -e`.
+    "pydantic-settings>=2.7.0,<3.0.0",
     "pypdf>=4.0.0,<7.0.0",
     "beautifulsoup4>=4.12.0,<5.0.0",
     "python-docx>=1.0.0,<2.0.0",

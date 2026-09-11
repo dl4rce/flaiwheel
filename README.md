@@ -85,7 +85,18 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
-## What’s New in v3.13.0 — Observability
+## What’s New in v3.14.0 — Remote MCP without a reverse proxy
+
+- **Serve MCP to a LAN or remote client without adding a component.** Until now the SSE endpoint was reachable only from `localhost`: the socket bound `0.0.0.0` while the application layer answered `HTTP 421 Invalid Host header` to every other `Host`. The workaround was a proxy that rewrites `Host: localhost` — a moving part, and a boot-ordering dependency. Set `MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com` and connect directly.
+- **The root cause was not the bind address.** Flaiwheel builds `FastMCP` itself and passed neither `host` nor `transport_security`, so the SDK's loopback-only guard always applied. `FASTMCP_HOST` looks like the fix and is **silently inert** — init arguments outrank environment variables in pydantic-settings. Verified empirically before and after.
+- **The guard stays ON.** The tempting one-liner (`host='0.0.0.0'`) makes the SDK skip its auto-enable and turn DNS-rebinding protection **off** entirely. Instead, protection remains enabled with a wider allowlist — `Host` and `Origin` are still validated, and lookalike suffixes like `flaiwheel.example.com.evil.com` are still rejected.
+- **Nothing changes for existing installs.** An unconfigured Flaiwheel is loopback-only, exactly as before, and still rejects remote hosts. Loopback entries are never dropped, so container health checks, `ssh -L` forwards and existing Host-rewriting proxies keep working.
+- **Native TLS — a remote deployment needs no proxy at all.** Set `MCP_SSE_TLS_CERTFILE` + `MCP_SSE_TLS_KEYFILE` and the endpoint is served over HTTPS directly. Verified against a real TLS listener: TLSv1.3, `200` over HTTPS for the allowlisted host, `421` still enforced for `evil.example.com`, and a plain HTTP request to the same port rejected.
+- **TLS fails closed.** A half-configured or unreadable certificate **aborts startup** instead of quietly serving plaintext — an operator who asked for encryption must never silently get cleartext.
+- **Startup tells you when you are no longer loopback-only**, and `SECURITY.md` carries the deployment table so you can see which layer encrypts what.
+- **Tests: 335 → 370**, including the guard exercised through the SDK's real middleware and every fail-closed TLS path.
+
+### Previous: v3.13.0 — Observability
 
 - **Flaiwheel now knows whether its knowledge repo is still connected to its remote.** Everything before this reported on pushes that were *attempted*. The failure that hid 325 documents in a Docker volume for 2.5 months attempted nothing: the clone had drifted from its remote, so there was never anything to commit, so no push could fail, so nothing went red. `check_divergence()` compares `HEAD` against `@{u}` and classifies the result as `synced` / `ahead` / `behind` / `diverged` / `no-upstream`.
 - **The "nothing to push" path is where this matters.** That branch used to return an unconditional *"already in sync"*. It now verifies the claim. Divergence is also checked after every successful push (did the commit actually land?), after a rejected push (a rejection is the classic symptom — now named instead of leaving you to read a git error), and on every pull.
@@ -511,6 +522,81 @@ Requires Node.js. Restart Claude for Mac after editing.
 claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse
 ```
 
+### 3b. Remote / LAN deployment (serving MCP beyond localhost)
+
+By default the MCP endpoint is **loopback-only**: the transport guard accepts
+only `localhost`, `127.0.0.1` and `[::1]`, and any other client gets
+`HTTP 421 Invalid Host header`. Binding is not the problem — the allowlist is,
+and it is enforced at the application layer, so it is invisible from inside the
+container.
+
+To serve a shared or LAN instance, allowlist the hostname you connect with:
+
+```bash
+docker run -d --name flaiwheel -p 8080:8080 -p 8081:8081 \
+  -v flaiwheel-data:/data -v flaiwheel-docs:/docs \
+  -e MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com,flaiwheel.lan \
+  flaiwheel:latest
+```
+
+Both forms work: comma-separated (`host1,host2`) or JSON (`["host1"]`). Each
+host matches with **or without** a port, so the same entry covers
+`flaiwheel.example.com` and `flaiwheel.example.com:8081`. Loopback entries are
+always kept, so an SSH tunnel or an existing Host-rewriting proxy keeps working
+unchanged.
+
+Then point your client at that hostname:
+
+```json
+{ "mcpServers": { "flaiwheel": { "type": "sse",
+  "url": "http://flaiwheel.example.com:8081/sse" } } }
+```
+
+> ⚠️ **This removes the `421`, it does not add encryption.** MCP traffic
+> carries document content and write operations in cleartext. **TLS is required
+> for any non-localhost deployment.** Either enable native TLS (below), or
+> terminate it at a reverse proxy (Caddy/nginx), or use an encrypted transport
+> such as WireGuard or Tailscale.
+> See [SECURITY.md](SECURITY.md#transport-security-mcp-sse).
+
+#### Native TLS — encrypted remote MCP with no proxy at all
+
+Set a certificate and key and the endpoint is served over HTTPS directly:
+
+```bash
+docker run -d --name flaiwheel -p 8080:8080 -p 8081:8081 \
+  -v flaiwheel-data:/data -v flaiwheel-docs:/docs \
+  -v /etc/ssl/flaiwheel:/certs:ro \
+  -e MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com \
+  -e MCP_SSE_TLS_CERTFILE=/certs/fullchain.pem \
+  -e MCP_SSE_TLS_KEYFILE=/certs/privkey.pem \
+  flaiwheel:latest
+```
+
+```json
+{ "mcpServers": { "flaiwheel": { "type": "sse",
+  "url": "https://flaiwheel.example.com:8081/sse" } } }
+```
+
+Obtain the certificate from your CA (e.g. `certbot certonly --standalone -d
+flaiwheel.example.com`), or generate an internal-CA cert for a LAN hostname.
+Use `fullchain.pem`, not the bare leaf certificate, or clients will reject it
+for an incomplete chain.
+
+**TLS fails closed.** If only one of the two paths is set, or the file is
+unreadable, Flaiwheel **refuses to start** rather than quietly falling back to
+plain HTTP — an operator who asked for encryption must never silently get
+cleartext. Check the logs for `FATAL: MCP_SSE_TLS_...` if the container exits
+immediately. Note the Web UI on `MCP_WEB_PORT` is still plain HTTP; terminate
+TLS for the UI at a proxy if you expose it beyond localhost.
+
+**`FASTMCP_HOST` will not help.** It looks like the obvious knob and is
+silently ignored: `FastMCP.__init__` passes `host` and `transport_security`
+into its `Settings(...)` as explicit init arguments, and pydantic-settings
+gives init arguments precedence over environment variables. Use
+`MCP_SSE_HOST` (bind address, default `0.0.0.0`) and `MCP_SSE_ALLOWED_HOSTS`
+(allowlist) instead.
+
 ### 4. Done. Start coding.
 
 </details>
@@ -579,6 +665,12 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_WEBHOOK_SECRET` | | GitHub webhook secret (enables `/webhook/github` HMAC verification) |
 | `MCP_TRANSPORT` | `sse` | MCP transport: `sse` or `stdio` |
 | `MCP_SSE_PORT` | `8081` | MCP SSE endpoint port |
+| `MCP_SSE_HOST` | `0.0.0.0` | SSE **bind address** (an IP, not a hostname). Set `127.0.0.1` for loopback-only |
+| `MCP_SSE_ALLOWED_HOSTS` | | Extra `Host` headers accepted by the transport guard, comma-separated or JSON. Required to serve remote/LAN clients directly |
+| `MCP_SSE_ALLOWED_ORIGINS` | | Extra `Origin` headers (browser-based MCP clients only) |
+| `MCP_SSE_DNS_REBINDING_PROTECTION` | `true` | Keep on. `false` disables the `Host` **and** `Origin` guard for all clients |
+| `MCP_SSE_TLS_CERTFILE` | | PEM certificate — with the key, serves MCP over **HTTPS** natively (no proxy) |
+| `MCP_SSE_TLS_KEYFILE` | | PEM private key. TLS is all-or-nothing: set both or neither |
 | `MCP_WEB_PORT` | `8080` | Web UI port |
 
 ### Multi-Repo Support

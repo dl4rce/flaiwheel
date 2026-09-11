@@ -10,12 +10,47 @@ Central configuration – configurable via:
 """
 import json
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from typing import Literal
+from pydantic import BeforeValidator
+from pydantic_settings import BaseSettings, NoDecode
+from typing import Annotated, Any, Literal
 
 from .logutil import diag
 
 CONFIG_FILE = Path("/data/config.json")
+
+
+def _split_list(value: Any) -> list[str]:
+    """Normalise a list-ish setting from any source into ``list[str]``.
+
+    Accepts (in order of preference) a real list, a JSON array, or a
+    comma-separated string. The comma form is what people actually type
+    into ``docker run -e`` / compose ``environment:``, and without it
+    pydantic-settings raises ``SettingsError`` at startup for a perfectly
+    natural value — a confusing failure for a deployment knob.
+
+    ``MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com,flaiwheel.lan``
+    ``MCP_SSE_ALLOWED_HOSTS=["flaiwheel.example.com"]``
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(v).strip() for v in parsed if str(v).strip()]
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+# ``NoDecode`` stops pydantic-settings from JSON-parsing the raw env value
+# before our validator sees it, so both syntaxes above work.
+StrList = Annotated[list[str], NoDecode, BeforeValidator(_split_list)]
 
 
 class Config(BaseSettings):
@@ -64,6 +99,40 @@ class Config(BaseSettings):
     transport: Literal["stdio", "sse"] = "sse"
     sse_port: int = 8081
     web_port: int = 8080
+
+    # ── MCP SSE transport security (remote / LAN deployments) ──
+    # Bind address for the MCP SSE server. This is an ADDRESS, not a
+    # hostname: 0.0.0.0 keeps the historical default (required so a
+    # published Docker port is reachable); 127.0.0.1 for loopback-only.
+    sse_host: str = "0.0.0.0"
+    # Extra ``Host`` header values the transport-security guard accepts,
+    # as comma-separated or JSON. Needed to serve remote/LAN clients
+    # directly instead of behind a Host-rewriting reverse proxy.
+    # See SECURITY.md — TLS is still required for non-localhost deployments.
+    sse_allowed_hosts: StrList = []
+    # Extra ``Origin`` header values. Only browser-based MCP clients send
+    # an Origin; CLI/IDE clients do not, so the default is usually enough.
+    sse_allowed_origins: StrList = []
+    # DNS-rebinding protection stays ON by default. Disabling it removes
+    # the Host AND Origin guard entirely — only do this when every client
+    # already reaches Flaiwheel over a trusted, authenticated channel.
+    sse_dns_rebinding_protection: bool = True
+    # Native TLS for the MCP SSE endpoint. When BOTH are set the endpoint is
+    # served over HTTPS directly, so a remote deployment needs no reverse
+    # proxy at all. TLS is all-or-nothing: a partial or unreadable pair is a
+    # startup error, never a fallback to plaintext — see _resolve_tls().
+    sse_tls_certfile: str = ""
+    sse_tls_keyfile: str = ""
+
+    @property
+    def sse_tls_configured(self) -> bool:
+        """True when a complete certificate/key pair is set."""
+        return bool(self.sse_tls_certfile.strip() and self.sse_tls_keyfile.strip())
+
+    @property
+    def sse_tls_partial(self) -> bool:
+        """True when exactly one of cert/key is set — a misconfiguration."""
+        return bool(self.sse_tls_certfile.strip()) != bool(self.sse_tls_keyfile.strip())
 
     # ── Auth ─────────────────────────────────────
     auth_username: str = "admin"

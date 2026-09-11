@@ -16,6 +16,7 @@ import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.transport_security import TransportSecuritySettings
 from . import __version__
 from .bootstrap import (
     DocumentClassifier,
@@ -55,6 +56,55 @@ def _load_sessions(project_name: str) -> list[dict]:
 def _save_sessions(project_name: str, sessions: list[dict], max_sessions: int = 50):
     sessions = sessions[-max_sessions:]
     _sessions_path(project_name).write_text(json.dumps(sessions, indent=2))
+
+
+# Loopback hosts are always allowed: the container's own health checks, an
+# SSH local port forward, and a Host-rewriting reverse proxy all arrive with
+# a localhost Host, so dropping them would break the previously-working
+# deployment shapes.
+_LOCALHOST_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_LOCALHOST_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+
+
+def build_transport_security(config: Config) -> TransportSecuritySettings:
+    """Build the MCP transport-security guard for this deployment.
+
+    Flaiwheel constructs ``FastMCP`` itself, so the SDK's own auto-enable
+    never applies: ``FastMCP.__init__`` only derives a guard when
+    ``transport_security is None`` *and* the host is a loopback value, and
+    it then passes both arguments into ``Settings(...)`` explicitly — where
+    init arguments outrank environment variables, making ``FASTMCP_HOST``
+    and ``FASTMCP_TRANSPORT_SECURITY__*`` silently inert. See
+    ``bugfix-log/2026-09-11-fastmcp-host-and-fastmcp-transport-security-are-silently-ign``.
+
+    Passing an explicit guard therefore keeps DNS-rebinding protection ON
+    while widening the allowlist to this deployment's own hostnames, which
+    removes the need for a Host-rewriting proxy without removing the guard.
+
+    Each configured host is registered twice — bare (port-less ``Host``,
+    e.g. TLS on 443) and ``host:*`` (any explicit port) — because the SDK
+    matches an exact string first, then ``startswith(base + ":")``.
+    """
+    allowed_hosts = list(_LOCALHOST_HOSTS)
+    for host in config.sse_allowed_hosts:
+        host = host.strip()
+        if not host:
+            continue
+        for candidate in (host, f"{host}:*"):
+            if candidate not in allowed_hosts:
+                allowed_hosts.append(candidate)
+
+    allowed_origins = list(_LOCALHOST_ORIGINS)
+    for origin in config.sse_allowed_origins:
+        origin = origin.strip()
+        if origin and origin not in allowed_origins:
+            allowed_origins.append(origin)
+
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=config.sse_dns_rebinding_protection,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
 
 
 def create_mcp_server(
@@ -310,6 +360,11 @@ def create_mcp_server(
             "New pattern → write_best_practice() | Deployment change → write_setup_doc() | Tests written → write_test_case()\n"
             "SESSION: At END of session → save_session_summary() | At START of session → get_recent_sessions()"
         ),
+        # Passed explicitly so init arguments (not pydantic-settings env vars)
+        # define the transport guard — see build_transport_security().
+        host=config.sse_host,
+        port=config.sse_port,
+        transport_security=build_transport_security(config),
     )
 
     def _ctx(project: str | None, mcp_ctx: Context | None = None) -> tuple[ProjectContext | None, str]:

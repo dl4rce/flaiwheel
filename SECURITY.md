@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 3.9.x (latest) | ✅ |
-| < 3.9 | ❌ |
+| 3.14.x (latest) | ✅ |
+| 3.13.x | ✅ |
+| < 3.13 | ❌ |
 
 ## Reporting a Vulnerability
 
@@ -35,9 +36,69 @@ Flaiwheel runs entirely self-hosted inside a Docker container on your own infras
 - Security of the Git hosting platform (GitHub, GitLab, etc.) you use for knowledge repos
 - Findings from automated scanners without proof of exploitability
 
+## Transport Security (MCP SSE)
+
+Flaiwheel's MCP SSE endpoint speaks **plain HTTP**. It is safe only when the
+traffic never leaves the machine, so the default posture is loopback-only.
+
+**Default (safe):** the MCP transport carries DNS-rebinding protection with an
+allowlist of `127.0.0.1`, `localhost` and `[::1]`. Remote clients receive
+`HTTP 421 Invalid Host header`. This is intentional and does not depend on
+which address the server binds to.
+
+**Serving remote / LAN clients.** Add the deployment's hostnames to the
+allowlist:
+
+```bash
+-e MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com,flaiwheel.lan
+```
+
+Each entry is accepted both with and without a port. Loopback entries are
+always retained, so SSH tunnels and Host-rewriting proxies keep working.
+
+> ⚠️ **Allowlisting removes the `421` — it does not add encryption.** MCP
+> traffic carries search queries, document content, bugfix summaries and write
+> operations. On a non-localhost connection that is cleartext on the wire.
+> See `architecture/2026-03-03-mcp-transport-security-tls-for-remote-deployments.md`:
+> **TLS is required for any non-localhost deployment.** Configure it before
+> announcing the endpoint:
+
+| Deployment | Encrypted by | Allowlist needed |
+|-----------|--------------|------------------|
+| Same machine | n/a (loopback) | No |
+| **Native TLS** (`MCP_SSE_TLS_CERTFILE` + `MCP_SSE_TLS_KEYFILE`) | Flaiwheel itself | ✅ yes |
+| SSH local port forward (`ssh -L 8081:localhost:8081`) | SSH | No — arrives as `localhost` |
+| WireGuard / Tailscale | Overlay VPN | No — arrives as `localhost` |
+| Reverse proxy terminating TLS (Caddy/nginx) | Proxy | No — rewrite `Host` to `localhost` |
+| Direct LAN / DNS access | ❌ nothing | ✅ yes — **then terminate TLS** |
+
+**Native TLS.** Setting `MCP_SSE_TLS_CERTFILE` and `MCP_SSE_TLS_KEYFILE` serves
+the MCP endpoint over HTTPS directly, so a remote deployment needs **no
+reverse proxy**. Use the full chain, and keep the key readable only by the
+container. This is **fail-closed**: a partial pair or an unreadable file aborts
+startup rather than silently downgrading to plain HTTP, because an operator who
+requested encryption must never unknowingly receive cleartext. The Web UI
+(`MCP_WEB_PORT`) is *not* covered and remains plain HTTP.
+
+**Do not disable the guard casually.** `MCP_SSE_DNS_REBINDING_PROTECTION=false`
+turns off validation of **both** the `Host` and `Origin` headers for every
+client, which is what protects a browser on the same network from DNS-rebinding
+attacks against the endpoint. Flaiwheel logs a warning at startup when it is
+off. Prefer allowlisting a specific hostname.
+
+**`FASTMCP_HOST` does not work — do not rely on it.** `FastMCP.__init__` passes
+`host` and `transport_security` into its `Settings(...)` as explicit init
+arguments, and pydantic-settings gives init arguments precedence over
+environment variables. Both `FASTMCP_HOST` and
+`FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION` are therefore
+read and silently discarded. Use `MCP_SSE_HOST` and
+`MCP_SSE_ALLOWED_HOSTS` instead.
+
 ## Dependency Auditing
 
 Project dependencies are audited with `pip-audit` against the OSV database. No known vulnerabilities exist in the current release (`pip-audit .` returns clean).
+
+**`mcp` is pinned to `>=1.23.0,<2.0.0`.** Below 1.23.0 the MCP Python SDK shipped DNS-rebinding protection **disabled by default** for HTTP-based servers (CVE-2025-66416 / GHSA-9h52-p55h-vw2f): an unauthenticated localhost server could be reached by a malicious website via DNS rebinding, invoking tools on the user's behalf. 1.23.0 enables the guard automatically for loopback binds. Flaiwheel now passes `TransportSecuritySettings` explicitly, so the guard is on regardless — but the floor prevents a fresh resolve from landing on a build where the surrounding behaviour differs from what is documented and tested here.
 
 ## Disclosure Policy
 

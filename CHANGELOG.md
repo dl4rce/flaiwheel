@@ -7,6 +7,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.14.0] — 2026-09-11 — Remote MCP without a reverse proxy
+
+**A native remote/LAN MCP endpoint, without adding a component.** Until now there was no supported way to serve the SSE endpoint to a non-localhost client: the socket bound `0.0.0.0` while the application layer answered `HTTP 421 Invalid Host header` to every non-loopback `Host`. The only working remedy was a proxy that rewrites `Host: localhost` — a moving part the product should not require, and one that adds a boot-ordering dependency.
+
+The root cause was not the bind address. Flaiwheel constructs `FastMCP` itself and passed neither `host` nor `transport_security`, so the SDK's loopback-only DNS-rebinding allowlist always applied. `FASTMCP_HOST` and `FASTMCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION` look like the fix and are **silently inert**: `FastMCP.__init__` passes both values into its `Settings(...)` as explicit init arguments, and pydantic-settings gives init arguments precedence over environment variables. Verified empirically before and after the change.
+
+### Added
+- **Configurable MCP transport security.** `MCP_SSE_ALLOWED_HOSTS` adds a deployment's own hostnames to the guard's allowlist; each entry is registered **both** bare and as `host:*`, because the SDK matches an exact string first and then `startswith(base + ":")` — so one entry covers `flaiwheel.example.com` and `flaiwheel.example.com:8081`. `MCP_SSE_ALLOWED_ORIGINS` handles browser-based clients, which are the only ones that send an `Origin`. `MCP_SSE_HOST` makes the bind address configurable.
+- **`build_transport_security(config)`** — a testable, module-level builder that always passes an explicit `TransportSecuritySettings` into `FastMCP`. This is the reason the fix is safe: passing `host='0.0.0.0'` *without* `transport_security` makes the SDK skip its auto-enable entirely, i.e. DNS-rebinding protection silently switches **off**. Binding wide must not mean guarding nothing, so protection stays on with a wider allowlist instead of being disabled.
+- **Native TLS — remote MCP encrypted with no proxy at all.** `MCP_SSE_TLS_CERTFILE` + `MCP_SSE_TLS_KEYFILE` serve the SSE endpoint over HTTPS directly, which is what the transport-security ADR requires for any non-localhost deployment and what previously forced a proxy into the topology. Verified end-to-end against a real TLS listener: TLSv1.3 negotiated, an allowlisted host answered `200` over HTTPS, `evil.example.com` still got `421`, and a **plain HTTP request to the same port was rejected** — so the encryption is real and not a cosmetic flag.
+- **TLS fails closed.** If only one of the pair is set, or the path is unreadable (or a directory), Flaiwheel **refuses to start** with an explicit `FATAL:` message instead of quietly serving plaintext. An operator who asked for encryption must never silently receive cleartext — a silent downgrade is a security bug, and it would be invisible in exactly the way the telemetry divergences were.
+- **Remote/LAN deployment section in `README.md`** with the `MCP_SSE_ALLOWED_HOSTS` example, the native-TLS recipe, and the client-side URL, plus the `FASTMCP_HOST` warning that would otherwise waste someone's afternoon.
+- **`Transport Security (MCP SSE)` section in `SECURITY.md`** — the default loopback posture, the allowlist, and a table of which deployment shapes need TLS from which layer.
+
+### Changed
+- **`pydantic-settings` floor raised `>=2.0.0` → `>=2.7.0`** for the `NoDecode` annotation, which lets a list-valued setting accept a comma-separated string as well as JSON. Without it, `-e MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com` — the syntax people naturally type into `docker run` — raises `SettingsError` and **crashes startup**. Raised deliberately, within the same major, per the dependency policy in `pyproject.toml`.
+- **`mcp` floor raised `>=1.0.0` → `>=1.23.0`** (CVE-2025-66416 / GHSA-9h52-p55h-vw2f). Before 1.23.0 the SDK disabled DNS rebinding protection by default and `FastMCP` had no auto-enable, so a fresh install could legitimately resolve to a build where the guard this release configures, documents and tests **does not exist**. It is also the first release guaranteed to accept the `host` and `transport_security` arguments Flaiwheel now passes explicitly. Behaviourally inert on every current install — the resolved version was already 1.26.0/1.29.0 — but it stops a fresh resolve from silently landing somewhere this release's guarantees do not hold.
+- **The `0.0.0.0` SSE bind is preserved as the default.** `__main__` previously hardcoded it; defaulting to `127.0.0.1` would have silently broken every existing published-port deployment. Narrowing is now opt-in.
+- **Startup warns when the deployment is not loopback-only** — both when remote hosts are allowlisted (reminding that SSE is cleartext and TLS belongs at a proxy or tunnel) and when DNS-rebinding protection has been switched off.
+
+### Notes
+- **Loopback entries are never dropped.** `127.0.0.1`, `localhost` and `[::1]` stay on the allowlist, so container health checks, `ssh -L` port forwards and existing Host-rewriting proxies keep working untouched. An unconfigured install behaves exactly as before and still rejects remote hosts.
+- **35 new tests (335 → 370)** covering list parsing (comma, JSON, blanks, duplicates), guard construction, backwards compatibility, TLS resolution including every fail-closed case (cert-only, key-only, missing file, directory), and — through the SDK's real `TransportSecurityMiddleware` — that a configured host passes while lookalike suffixes such as `flaiwheel.example.com.evil.com` are still rejected with `421`, and a disallowed `Origin` with `403`.
+- **Allowlisting alone adds no encryption; native TLS is the answer.** MCP traffic carries document content and write operations, so TLS is required for any non-localhost deployment — now available **in the container** (`MCP_SSE_TLS_CERTFILE` + `MCP_SSE_TLS_KEYFILE`), so a proxy or overlay VPN is optional for both reachability *and* confidentiality. The Web UI port is not covered and remains plain HTTP.
+- The characterisation test recorded on 2026-09-11 still passes, correctly: it asserts **SDK** behaviour, which is unchanged and still worth knowing. What flips is the operational expectation — the Host-rewriting proxy is no longer required for remote clients to connect.
+- Closes the near-term roadmap item *"Remote / LAN deployment — serving MCP without a reverse proxy"*.
+
 ## [3.13.0] — 2026-08-19 — Observability
 
 **Closes the 2026-08-19 incident entirely.** The last and largest gap: Flaiwheel could not tell whether its knowledge repository was still connected to its remote.

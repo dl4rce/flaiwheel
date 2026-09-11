@@ -66,14 +66,54 @@ def _create_embedding_fn(config: Config):
     )
 
 
-def _run_mcp_sse(mcp_server, host: str, port: int):
+def _resolve_tls(config: Config) -> dict:
+    """Return uvicorn ``ssl_*`` kwargs for the MCP SSE server, or ``{}``.
+
+    TLS is deliberately all-or-nothing and **fails closed**. If an operator
+    sets a certificate but it is unreadable, or sets only one half of the
+    pair, this raises instead of serving the endpoint in cleartext. The
+    operator asked for encrypted transport; silently downgrading to plain
+    HTTP while appearing to honour their configuration is the worst
+    possible outcome — worse than refusing to start.
+    """
+    cert = config.sse_tls_certfile.strip()
+    key = config.sse_tls_keyfile.strip()
+
+    if not cert and not key:
+        return {}
+
+    if not (cert and key):
+        present, missing = (
+            ("MCP_SSE_TLS_CERTFILE", "MCP_SSE_TLS_KEYFILE") if cert
+            else ("MCP_SSE_TLS_KEYFILE", "MCP_SSE_TLS_CERTFILE")
+        )
+        raise ValueError(
+            f"{present} is set but {missing} is not. MCP SSE TLS requires "
+            "both. Refusing to serve the MCP endpoint over plain HTTP."
+        )
+
+    for var, path in (
+        ("MCP_SSE_TLS_CERTFILE", cert),
+        ("MCP_SSE_TLS_KEYFILE", key),
+    ):
+        if not Path(path).is_file():
+            raise ValueError(
+                f"{var} does not point to a readable file: {path}. Refusing "
+                "to serve the MCP endpoint over plain HTTP."
+            )
+
+    return {"ssl_certfile": cert, "ssl_keyfile": key}
+
+
+def _run_mcp_sse(mcp_server, host: str, port: int, tls: dict | None = None):
     """Run MCP server via SSE, compatible with both old and new mcp SDK versions."""
+    tls = tls or {}
     try:
         sse_app = mcp_server.sse_app()
-        uvicorn.run(sse_app, host=host, port=port, log_level="warning")
+        uvicorn.run(sse_app, host=host, port=port, log_level="warning", **tls)
     except AttributeError:
         try:
-            mcp_server.run(transport="sse", host=host, port=port)
+            mcp_server.run(transport="sse", host=host, port=port, **tls)
         except TypeError:
             mcp_server.settings.host = host
             mcp_server.settings.port = port
@@ -83,6 +123,17 @@ def _run_mcp_sse(mcp_server, host: str, port: int):
 def main():
     config = Config.load()
     config_lock = threading.Lock()
+
+    # Validate TLS before any watcher starts or any git operation runs: a
+    # misconfigured certificate must abort immediately, leaving nothing
+    # half-started behind it.
+    tls: dict = {}
+    if config.transport == "sse":
+        try:
+            tls = _resolve_tls(config)
+        except ValueError as exc:
+            diag(f"FATAL: {exc}")
+            raise SystemExit(2) from None
 
     # In stdio mode (e.g. Glama inspection), skip heavy init when volumes are empty.
     # The MCP server starts immediately and responds to capability negotiation;
@@ -128,7 +179,30 @@ def main():
         web_thread = threading.Thread(target=run_web, daemon=True)
         web_thread.start()
         diag(f"Web-UI running on http://0.0.0.0:{config.web_port}")
-        _run_mcp_sse(mcp_server, "0.0.0.0", config.sse_port)
+        if config.sse_allowed_hosts and config.sse_dns_rebinding_protection:
+            diag(
+                "MCP transport guard allows non-localhost hosts: "
+                + ", ".join(config.sse_allowed_hosts)
+            )
+            if not tls:
+                diag(
+                    "  WARNING: MCP SSE is plain HTTP. Serving it to non-localhost "
+                    "clients sends queries and document content in cleartext — set "
+                    "MCP_SSE_TLS_CERTFILE + MCP_SSE_TLS_KEYFILE, terminate TLS at a "
+                    "proxy, or use an encrypted tunnel. See SECURITY.md."
+                )
+        elif not config.sse_dns_rebinding_protection:
+            diag(
+                "WARNING: MCP DNS-rebinding protection is DISABLED "
+                "(MCP_SSE_DNS_REBINDING_PROTECTION=false) — the Host and "
+                "Origin guard is off for every client."
+            )
+        if tls:
+            diag(
+                f"MCP SSE served over HTTPS on {config.sse_host}:{config.sse_port} "
+                f"(cert: {config.sse_tls_certfile})"
+            )
+        _run_mcp_sse(mcp_server, config.sse_host, config.sse_port, tls)
     else:
         mcp_server.run(transport="stdio")
 
