@@ -11,7 +11,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The standard installer keeps the MCP endpoint on `http://host:8081/sse`. Automatic TLS remains opt-in.
+- A new installation uses `http://host:8081/sse`. An update preserves its deployed mode unless `FLAIWHEEL_TLS_AUTO=0` or `1` is set explicitly. Automatic TLS remains opt-in.
 - An explicit `FLAIWHEEL_TLS_AUTO=0` now removes an inherited `MCP_SSE_TLS_AUTO=true`, bypasses the current-version fast path, and recreates the container with HTTP while preserving its volumes and other `MCP_*` settings.
 - Leaving `FLAIWHEEL_TLS_AUTO` unset during an update preserves the deployed TLS mode. `FLAIWHEEL_TLS_AUTO=1` enables it. Values other than `0` or `1` are rejected.
 - Direct Cursor and VS Code SSE configurations no longer include `NODE_EXTRA_CA_CERTS`. These entries do not launch a child process; TLS is handled by Electron and may require the generated CA in the operating-system trust store. `NODE_EXTRA_CA_CERTS` remains in the `mcp-remote` child-process configuration where it applies.

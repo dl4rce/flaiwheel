@@ -87,7 +87,7 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ## What’s New in v3.15.3 — Plain HTTP remains the default
 
-- The standard installer uses `http://host:8081/sse`. This is the recommended configuration until the Web UI provides TLS activation, CA download, and operating-system installation instructions.
+- A new installation uses `http://host:8081/sse`. This is the recommended configuration until the Web UI provides TLS activation, CA download, and operating-system installation instructions. An update preserves its existing mode unless `FLAIWHEEL_TLS_AUTO=0` or `1` is set explicitly.
 - Automatic TLS remains available as an opt-in feature. The generated certificate is valid, but Cursor/Electron and other clients may require the Flaiwheel CA to be installed in the operating-system trust store.
 - `FLAIWHEEL_TLS_AUTO=0` now explicitly returns an existing TLS-enabled installation to HTTP while preserving its volumes and other `MCP_*` settings.
 - Leaving `FLAIWHEEL_TLS_AUTO` unset during an update preserves the currently deployed mode.
@@ -611,7 +611,7 @@ client computer must trust that CA. For direct Cursor/Electron SSE connections,
 putting `NODE_EXTRA_CA_CERTS` inside the remote server entry may be insufficient;
 the CA may need to be installed in the macOS, Windows, or Linux trust store.
 
-Normal install or update, with TLS off:
+New installation, with TLS off by default (an update preserves its current mode):
 
 ```bash
 bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
