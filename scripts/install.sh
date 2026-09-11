@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.14.3"
+_FW_VERSION="3.14.4"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -758,10 +758,35 @@ _port_owner() {
 }
 
 # Which container (if any) publishes host port $1?
+# Reads each container's EXACT PortBindings rather than parsing `docker ps`
+# output. Docker coalesces adjacent published ports into a range, so two
+# mappings render as a single token:
+#     0.0.0.0:8080-8081->8080-8081/tcp
+# A grep for ":8081->" therefore finds NOTHING even though the port is
+# published, which made the installer fail to recognise its own container and
+# refuse to upgrade the deployment it was looking at.
 _port_container() {
-    local port="$1"
-    docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
-        | grep -E ":${port}->" | awk '{print $1}' | head -1 || true
+    local port="$1" cname
+    for cname in $(docker ps --format '{{.Names}}' 2>/dev/null); do
+        if docker inspect --format '{{json .HostConfig.PortBindings}}' "$cname" 2>/dev/null \
+            | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin) or {}
+except Exception:
+    sys.exit(1)
+target = sys.argv[1]
+for binds in d.values():
+    for b in binds or []:
+        if (b or {}).get("HostPort") == target:
+            sys.exit(0)
+sys.exit(1)
+' "$port" 2>/dev/null; then
+            printf '%s' "$cname"
+            return 0
+        fi
+    done
+    return 0
 }
 
 # Primary non-loopback IPv4 — used to print a REACHABLE endpoint URL.

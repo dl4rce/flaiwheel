@@ -84,6 +84,19 @@ class TestPortConflictDetection:
         assert "fail " in body
         assert "FLAIWHEEL_WEB_PORT" in body and "FLAIWHEEL_SSE_PORT" in body
 
+    def test_owner_detection_reads_port_bindings_not_docker_ps_text(self, src: str):
+        """Regression: parsing `docker ps` text missed coalesced port ranges.
+
+        Docker renders two adjacent published ports as ONE token:
+            0.0.0.0:8080-8081->8080-8081/tcp
+        so grepping for ":8081->" finds nothing and the checker fails to
+        recognise its own container, refusing to upgrade a healthy deployment.
+        """
+        body = src[src.index("_port_container() {") :]
+        body = body[: body.index("\n}\n")]
+        assert "PortBindings" in body
+        assert 'grep -E ":${port}->"' not in body
+
 
 class TestConfigurablePorts:
     def test_ports_and_binds_are_overridable(self, src: str):

@@ -7,6 +7,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.14.4] — 2026-09-11 — The port check recognises its own container
+
+**Fixes a second defect in the `3.14.1`/`3.14.2` port check, found by running the check against the real deployment rather than a fixture.**
+
+`3.14.2` taught the checker to inherit the existing host bindings before probing, which fixed the proxy-fronted case. But the checker still identified the port's owner by grepping `docker ps` output for `":<port>->"`, and **Docker coalesces adjacent published ports into a range**, rendering two mappings as one token:
+
+```
+0.0.0.0:8080-8081->8080-8081/tcp
+```
+
+A grep for `:8081->` matches **nothing** in that string, so `_port_container 8081` returned empty. The check therefore could not recognise the port as belonging to the container it was about to replace, reported it as a foreign conflict, and refused to upgrade a healthy deployment — the same user-visible failure as `3.14.1`, by a different mechanism.
+
+This surfaced only because the check was executed against the live host; the source-level tests passed throughout, because the defect was in how Docker *renders* port mappings, not in the script's own logic.
+
+### Fixed
+- **`_port_container()` now reads each container's exact `HostConfig.PortBindings`** instead of parsing `docker ps` text, so coalesced ranges, `0.0.0.0` vs `127.0.0.1` binds and multi-mapping containers are all handled.
+
+### Notes
+**395 tests** (394 → 395). A guard test asserting the detection reads `PortBindings` rather than `docker ps` text is included, since every previous assertion passed while the behaviour was broken.
+
 ## [3.14.3] — 2026-09-11 — The summary prints the address you can actually reach
 
 The closing summary printed `http://127.0.0.1:8080` and `http://127.0.0.1:8081/sse` even on a LAN deployment bound to `0.0.0.0`. Loopback is not an address a LAN user can open, so a correctly-configured remote install looked local-only — and the Web UI login box was worse: it presented `127.0.0.1:8080` as **the** login URL.
