@@ -20,6 +20,7 @@ from .config import Config
 from .logutil import diag
 from .project import PROJECTS_FILE, ProjectRegistry
 from .server import create_mcp_server
+from .tls import TlsMaterial, ensure_automatic_tls
 from .web import create_web_app
 
 
@@ -75,34 +76,63 @@ def _resolve_tls(config: Config) -> dict:
     operator asked for encrypted transport; silently downgrading to plain
     HTTP while appearing to honour their configuration is the worst
     possible outcome — worse than refusing to start.
+
+    The same rule applies to ``MCP_SSE_TLS_AUTO``: if provisioning fails, this
+    raises rather than quietly falling back to cleartext.
     """
+    return _resolve_tls_material(config)[0]
+
+
+def _resolve_tls_material(config: Config) -> tuple[dict, "TlsMaterial | None"]:
+    """Resolve TLS, also returning generated material for startup reporting."""
     cert = config.sse_tls_certfile.strip()
     key = config.sse_tls_keyfile.strip()
 
-    if not cert and not key:
-        return {}
-
-    if not (cert and key):
-        present, missing = (
-            ("MCP_SSE_TLS_CERTFILE", "MCP_SSE_TLS_KEYFILE") if cert
-            else ("MCP_SSE_TLS_KEYFILE", "MCP_SSE_TLS_CERTFILE")
-        )
-        raise ValueError(
-            f"{present} is set but {missing} is not. MCP SSE TLS requires "
-            "both. Refusing to serve the MCP endpoint over plain HTTP."
-        )
-
-    for var, path in (
-        ("MCP_SSE_TLS_CERTFILE", cert),
-        ("MCP_SSE_TLS_KEYFILE", key),
-    ):
-        if not Path(path).is_file():
+    if cert or key:
+        if not (cert and key):
+            present, missing = (
+                ("MCP_SSE_TLS_CERTFILE", "MCP_SSE_TLS_KEYFILE") if cert
+                else ("MCP_SSE_TLS_KEYFILE", "MCP_SSE_TLS_CERTFILE")
+            )
             raise ValueError(
-                f"{var} does not point to a readable file: {path}. Refusing "
-                "to serve the MCP endpoint over plain HTTP."
+                f"{present} is set but {missing} is not. MCP SSE TLS requires "
+                "both. Refusing to serve the MCP endpoint over plain HTTP."
             )
 
-    return {"ssl_certfile": cert, "ssl_keyfile": key}
+        for var, path in (
+            ("MCP_SSE_TLS_CERTFILE", cert),
+            ("MCP_SSE_TLS_KEYFILE", key),
+        ):
+            if not Path(path).is_file():
+                raise ValueError(
+                    f"{var} does not point to a readable file: {path}. Refusing "
+                    "to serve the MCP endpoint over plain HTTP."
+                )
+
+        return {"ssl_certfile": cert, "ssl_keyfile": key}, None
+
+    if config.sse_tls_auto:
+        try:
+            material = ensure_automatic_tls(
+                config.sse_tls_dir_resolved,
+                hosts=config.sse_allowed_hosts,
+                bind_host=config.sse_host,
+            )
+        except Exception as exc:  # noqa: BLE001 - any failure must not degrade to HTTP
+            raise ValueError(
+                f"MCP_SSE_TLS_AUTO could not provision a certificate "
+                f"({type(exc).__name__}: {exc}). Refusing to serve the MCP "
+                "endpoint over plain HTTP."
+            ) from exc
+        return (
+            {
+                "ssl_certfile": str(material.server_cert),
+                "ssl_keyfile": str(material.server_key),
+            },
+            material,
+        )
+
+    return {}, None
 
 
 def _run_mcp_sse(mcp_server, host: str, port: int, tls: dict | None = None):
@@ -128,9 +158,10 @@ def main():
     # misconfigured certificate must abort immediately, leaving nothing
     # half-started behind it.
     tls: dict = {}
+    auto_tls: TlsMaterial | None = None
     if config.transport == "sse":
         try:
-            tls = _resolve_tls(config)
+            tls, auto_tls = _resolve_tls_material(config)
         except ValueError as exc:
             diag(f"FATAL: {exc}")
             raise SystemExit(2) from None
@@ -184,24 +215,44 @@ def main():
                 "MCP transport guard allows non-localhost hosts: "
                 + ", ".join(config.sse_allowed_hosts)
             )
-            if not tls:
-                diag(
-                    "  WARNING: MCP SSE is plain HTTP. Serving it to non-localhost "
-                    "clients sends queries and document content in cleartext — set "
-                    "MCP_SSE_TLS_CERTFILE + MCP_SSE_TLS_KEYFILE, terminate TLS at a "
-                    "proxy, or use an encrypted tunnel. See SECURITY.md."
-                )
         elif not config.sse_dns_rebinding_protection:
             diag(
                 "WARNING: MCP DNS-rebinding protection is DISABLED "
                 "(MCP_SSE_DNS_REBINDING_PROTECTION=false) — the Host and "
                 "Origin guard is off for every client."
             )
-        if tls:
+
+        loopback_bind = config.sse_host.strip() in ("127.0.0.1", "localhost", "::1")
+        if not tls and not loopback_bind:
             diag(
-                f"MCP SSE served over HTTPS on {config.sse_host}:{config.sse_port} "
-                f"(cert: {config.sse_tls_certfile})"
+                "  WARNING: MCP SSE is plain HTTP on a non-loopback address. "
+                "Serving it to other machines sends queries and document content "
+                "in cleartext — set MCP_SSE_TLS_AUTO=true to have Flaiwheel issue "
+                "its own certificate, set MCP_SSE_TLS_CERTFILE + "
+                "MCP_SSE_TLS_KEYFILE, terminate TLS at a proxy, or use an "
+                "encrypted tunnel. See SECURITY.md."
             )
+
+        if auto_tls is not None:
+            if auto_tls.generated:
+                diag("Auto-TLS: generated a private CA and server certificate")
+            else:
+                diag("Auto-TLS: reusing existing certificate")
+            diag(f"  certificates : {auto_tls.server_cert.parent}")
+            diag(f"  covers       : {' '.join(auto_tls.dns_names)} {' '.join(auto_tls.ip_addresses)}")
+            diag(f"  SHA-256      : {auto_tls.server_fingerprint}")
+            diag(
+                "  Each client machine must trust the CA once. For Node-based "
+                "MCP clients (Cursor, Claude Code, VS Code) add this to the "
+                "server's env block:"
+            )
+            diag(f'    "{auto_tls.client_snippet}"')
+
+        if tls:
+            served = (
+                f"{config.sse_host}:{config.sse_port}"
+            )
+            diag(f"MCP SSE served over HTTPS on {served} (cert: {tls['ssl_certfile']})")
         _run_mcp_sse(mcp_server, config.sse_host, config.sse_port, tls)
     else:
         mcp_server.run(transport="stdio")

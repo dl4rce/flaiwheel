@@ -1,6 +1,6 @@
 [project]
 name = "flaiwheel"
-version = "3.14.4"
+version = "3.15.0"
 description = "Flywheel with AI, for AI – self-improving knowledge base for AI coding agents"
 readme = "README.md"
 license = {text = "BUSL-1.1"}
@@ -40,6 +40,22 @@ dependencies = [
     "beautifulsoup4>=4.12.0,<5.0.0",
     "python-docx>=1.0.0,<2.0.0",
     "bm25s>=0.2.0,<1.0.0",
+    # Automatic TLS for the MCP SSE endpoint (flaiwheel/tls.py) needs real X.509
+    # generation: a private CA plus a server certificate with subjectAltName
+    # entries. It was already present transitively, but relying on another
+    # package to keep it around would turn a TLS provisioning failure into a
+    # startup abort.
+    #
+    # Floor 42.0.0: the first release with the UTC-aware
+    # `not_valid_before_utc` / `not_valid_after_utc` properties this module
+    # prefers (it still falls back for older builds).
+    #
+    # Cap 51.0.0, not 47.0.0: cryptography's FIRST component is its breaking
+    # unit (46 -> 47 -> 50 are each potentially incompatible), so the next
+    # breaking release is 51. Capping at 47 would have forced a downgrade of
+    # the 50.0.1 already present in the container for no benefit. Verified
+    # against both 46.x and 50.x.
+    "cryptography>=42.0.0,<51.0.0",
 ]
 
 [project.optional-dependencies]

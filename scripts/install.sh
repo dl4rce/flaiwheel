@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.14.4"
+_FW_VERSION="3.15.0"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -723,6 +723,15 @@ SSE_BIND="${FLAIWHEEL_SSE_BIND:-0.0.0.0}"
 # a cross-service outage. Dedicated/single-purpose hosts may opt in.
 AGGRESSIVE_CLEANUP="${FLAIWHEEL_AGGRESSIVE_CLEANUP:-0}"
 
+# ── Automatic TLS for the MCP SSE endpoint — default OFF ────────────────────
+# A LAN address cannot be certified by a public CA, so obtaining a certificate
+# for a private IP is not possible in the normal way. With this set, Flaiwheel
+# issues its own private CA + server certificate into the /data volume and
+# prints the one line each client needs. Opt-in because it changes the
+# endpoint's scheme from http:// to https://: flipping that unasked during an
+# update would break every client that has not yet trusted the CA.
+TLS_AUTO="${FLAIWHEEL_TLS_AUTO:-0}"
+
 # ── Port helpers ───────────────────────────────────────────────────────────
 # Probe the REAL listening socket rather than grepping the Docker container
 # list. The container-list approach is blind to any host process (nginx, a
@@ -1054,8 +1063,20 @@ else
     WEB_URL="$(_svc_url "$WEB_BIND" "$WEB_PORT" "")"
     WEB_URL_LOCAL="$(_svc_url_local "$WEB_BIND" "$WEB_PORT" "")"
 fi
-SSE_URL="$(_svc_url "$SSE_BIND" "$SSE_PORT" "/sse")"
-SSE_URL_LOCAL="$(_svc_url_local "$SSE_BIND" "$SSE_PORT" "/sse")"
+
+# The MCP endpoint speaks HTTPS once TLS is configured — either with the
+# operator's own certificate or one Flaiwheel issued itself. Reporting
+# http:// for a TLS endpoint sends people to a URL that fails differently
+# from the one they should be using. The Web UI is NOT covered by either
+# mode, so its scheme is deliberately left alone.
+if [ "$TLS_AUTO" = "1" ] || [ -n "${MCP_SSE_TLS_CERTFILE:-}" ]; then
+    _SSE_SCHEME="https"
+else
+    _SSE_SCHEME="http"
+fi
+SSE_URL="$(_svc_url "$SSE_BIND" "$SSE_PORT" "/sse" | sed "s|^http://|${_SSE_SCHEME}://|")"
+SSE_URL_LOCAL="$(_svc_url_local "$SSE_BIND" "$SSE_PORT" "/sse" | sed "s|^http://|${_SSE_SCHEME}://|")"
+SSE_CA_PATH="/data/tls/ca.pem"
 
 # ══════════════════════════════════════════════════════
 #  PHASE 3: Create knowledge repo (if it doesn't exist)
@@ -1455,6 +1476,12 @@ else
         local extra_env=""
         if [ -n "$webhook_secret" ]; then
             extra_env="-e MCP_WEBHOOK_SECRET=${webhook_secret}"
+        fi
+
+        # Adding -e for a var that carried_env already supplies is safe:
+        # Docker takes the last value, so this only ever forces TLS on.
+        if [ "$TLS_AUTO" = "1" ]; then
+            extra_env="${extra_env} -e MCP_SSE_TLS_AUTO=true"
         fi
 
         # shellcheck disable=SC2086
@@ -2718,6 +2745,15 @@ echo -e "    Web UI:     ${GREEN}${WEB_URL}${NC}"
 [ -n "$WEB_URL_LOCAL" ] && echo -e "                (on this host: ${WEB_URL_LOCAL})"
 echo -e "    MCP (SSE):  ${GREEN}${SSE_URL}${NC}"
 [ -n "$SSE_URL_LOCAL" ] && echo -e "                (on this host: ${SSE_URL_LOCAL})"
+if [ "$TLS_AUTO" = "1" ]; then
+    echo ""
+    echo -e "  ${BOLD}TLS (issued by Flaiwheel):${NC}"
+    echo -e "    Certificate: ${GREEN}${SSE_CA_PATH}${NC} (in the ${VOLUME_NAME} volume)"
+    echo -e "    Each client machine must trust the CA ${BOLD}once${NC}. Add this to the"
+    echo -e "    server's ${BOLD}env${NC} block in its MCP config:"
+    echo -e "      ${GREEN}\"NODE_EXTRA_CA_CERTS\": \"${SSE_CA_PATH}\"${NC}"
+    echo -e "    Then restart the client. Fingerprint is in ${GREEN}docker logs ${CONTAINER_NAME}${NC}."
+fi
 echo ""
 
 # Always try to show credentials — consolidate all sources here in the summary.

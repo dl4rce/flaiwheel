@@ -85,6 +85,16 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
+## What’s New in v3.15.0 — Flaiwheel issues its own TLS certificate
+
+- **A LAN deployment can now be encrypted without the operator touching a certificate tool.** No public CA will issue for `192.168.178.230`, so the only previous options were `openssl` by hand or a proxy. Set `MCP_SSE_TLS_AUTO=true` and Flaiwheel generates a private CA plus a server certificate on first start, covering the configured hosts, the hostname, loopback and the machine's LAN address.
+- **Everything on Flaiwheel's side is automatic, and repeated starts are safe.** Material is persisted in `/data/tls` and **reused** while it is valid and still covers the requested names — an upgrade does not change the fingerprint, so a client that pinned the CA stays valid. A certificate that has gone stale, stopped covering a host, or lost its matching key is re-issued, with the reason logged.
+- **One thing it genuinely cannot do: make another machine trust the CA.** The container has no access to a client's trust store — the same boundary that forces `mkcert` to run a per-machine step. So the startup log prints the fingerprint and the exact `NODE_EXTRA_CA_CERTS=...` line for the client's env block. That is the floor, and it is real TLS: encryption *and* identity, with the CA pinned by trust-on-first-use.
+- **No `NODE_TLS_REJECT_UNAUTHORIZED=0` anywhere in this path.** The easy way to "make HTTPS work" is to disable verification, which defends against nothing; it is not offered as an option here.
+- **Opt-in, because turning it on is a protocol change.** Auto-TLS flips the endpoint from `http://` to `https://`, and doing that unasked during an upgrade would break every existing client — the same class of failure as an installer that refuses to upgrade. It **fails closed** too: if provisioning fails, startup aborts rather than quietly serving cleartext.
+- **Verified with a real TLS stack, not a fixture.** A client trusting only the generated CA completes a TLSv1.3 handshake and gets a `200`; an untrusting client is rejected. Both directions asserted.
+- **Tests: 370 → 439**, covering SAN derivation, signature chain verification, idempotence, stale/mismatched material, key permissions and every fail-closed path.
+
 ## What’s New in v3.14.0 — Remote MCP without a reverse proxy
 
 - **Serve MCP to a LAN or remote client without adding a component.** Until now the SSE endpoint was reachable only from `localhost`: the socket bound `0.0.0.0` while the application layer answered `HTTP 421 Invalid Host header` to every other `Host`. The workaround was a proxy that rewrites `Host: localhost` — a moving part, and a boot-ordering dependency. Set `MCP_SSE_ALLOWED_HOSTS=flaiwheel.example.com` and connect directly.
@@ -577,12 +587,56 @@ Then point your client at that hostname:
 
 > ⚠️ **This removes the `421`, it does not add encryption.** MCP traffic
 > carries document content and write operations in cleartext. **TLS is required
-> for any non-localhost deployment.** Either enable native TLS (below), or
-> terminate it at a reverse proxy (Caddy/nginx), or use an encrypted transport
-> such as WireGuard or Tailscale.
+> for any non-localhost deployment.** Either let Flaiwheel issue its own
+> certificate (below), or terminate TLS at a reverse proxy (Caddy/nginx), or
+> use an encrypted transport such as WireGuard or Tailscale.
 > See [SECURITY.md](SECURITY.md#transport-security-mcp-sse).
 
-#### Native TLS — encrypted remote MCP with no proxy at all
+#### Automatic TLS — Flaiwheel issues its own certificate
+
+For a LAN address there is no certificate to obtain: no public CA will issue
+one for `192.168.178.230`. Rather than send you to `openssl`, Flaiwheel can be
+told to issue its own:
+
+```bash
+docker run -d --name flaiwheel -p 8080:8080 -p 8081:8081 \
+  -v flaiwheel-data:/data -v flaiwheel-docs:/docs \
+  -e MCP_SSE_ALLOWED_HOSTS=192.168.178.230,flaiwheel.lan \
+  -e MCP_SSE_TLS_AUTO=true \
+  flaiwheel:latest
+```
+
+On first start it generates a private CA and a server certificate into
+`/data/tls`, covering the configured hosts, the hostname, loopback and the
+machine's LAN address automatically. It is **idempotent**: restarts and
+upgrades reuse the existing material, so a client that pinned the CA stays
+valid. The startup log prints the fingerprint and the one line a client needs.
+
+**The one step Flaiwheel cannot do for you.** It cannot reach into another
+machine's trust store — the container has no access to it, which is why even
+`mkcert` needs a per-machine install. Each client machine must be told once.
+For Node-based clients (Cursor, Claude Code, VS Code) add it to the env block
+in the MCP config:
+
+```json
+{ "mcpServers": { "flaiwheel": { "type": "sse",
+  "url": "https://192.168.178.230:8081/sse",
+  "env": { "NODE_EXTRA_CA_CERTS": "/data/tls/ca.pem" } } } }
+```
+
+That is genuine TLS — encryption *and* identity — with the CA pinned via
+trust-on-first-use. It is not "encryption with verification switched off":
+there is no `NODE_TLS_REJECT_UNAUTHORIZED=0` anywhere in this path, because
+that would defend against nothing at all.
+
+**Auto-TLS is opt-in, deliberately.** Enabling it flips a deployment from
+`http://` to `https://`; doing that unasked on upgrade would break every
+existing client. It also **fails closed**: if provisioning fails, startup
+aborts rather than quietly serving cleartext. If you need zero client-side
+configuration, use a certificate from a real CA instead (previous section) —
+a public hostname can be validated automatically, a private IP cannot.
+
+#### Native TLS — your own certificate, no proxy at all
 
 Set a certificate and key and the endpoint is served over HTTPS directly:
 
@@ -694,6 +748,8 @@ All config via environment variables (`MCP_` prefix), Web UI (http://localhost:8
 | `MCP_SSE_DNS_REBINDING_PROTECTION` | `true` | Keep on. `false` disables the `Host` **and** `Origin` guard for all clients |
 | `MCP_SSE_TLS_CERTFILE` | | PEM certificate — with the key, serves MCP over **HTTPS** natively (no proxy) |
 | `MCP_SSE_TLS_KEYFILE` | | PEM private key. TLS is all-or-nothing: set both or neither |
+| `MCP_SSE_TLS_AUTO` | `false` | Let Flaiwheel issue its own CA + certificate when none is configured. Opt-in: it flips the endpoint to HTTPS, so existing clients must trust the new CA |
+| `MCP_SSE_TLS_DIR` | `/data/tls` | Where generated certificates live. **Must be persistent** — regenerating the CA invalidates every client that trusts it |
 | `MCP_WEB_PORT` | `8080` | Web UI port |
 
 ### Multi-Repo Support

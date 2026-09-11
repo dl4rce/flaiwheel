@@ -123,6 +123,21 @@ class Config(BaseSettings):
     # startup error, never a fallback to plaintext — see _resolve_tls().
     sse_tls_certfile: str = ""
     sse_tls_keyfile: str = ""
+    # Opt-in automatic TLS. When enabled and no certificate is configured,
+    # Flaiwheel generates a private CA + server certificate on first start and
+    # persists them (see tls_dir), so a remote deployment is encrypted without
+    # the operator ever running a certificate tool. Requires every client to
+    # trust the CA once — a single environment variable, printed at startup.
+    #
+    # Deliberately NOT the default: enabling it flips the endpoint from
+    # http:// to https:// and would break clients that have not been told to
+    # trust the new CA. An upgrade must never do that unasked.
+    sse_tls_auto: bool = False
+    # Where generated certificates live. Empty means /data/tls when /data
+    # exists (the container's persistent volume) and ./.flaiwheel/tls outside
+    # a container. It MUST be persistent: regenerating the CA on every
+    # container recreation would invalidate every client that trusts it.
+    sse_tls_dir: str = ""
 
     @property
     def sse_tls_configured(self) -> bool:
@@ -133,6 +148,16 @@ class Config(BaseSettings):
     def sse_tls_partial(self) -> bool:
         """True when exactly one of cert/key is set — a misconfiguration."""
         return bool(self.sse_tls_certfile.strip()) != bool(self.sse_tls_keyfile.strip())
+
+    @property
+    def sse_tls_dir_resolved(self) -> Path:
+        """Concrete directory for auto-generated certificates."""
+        explicit = self.sse_tls_dir.strip()
+        if explicit:
+            return Path(explicit)
+        if Path("/data").is_dir():
+            return Path("/data/tls")
+        return Path.cwd() / ".flaiwheel" / "tls"
 
     # ── Auth ─────────────────────────────────────
     auth_username: str = "admin"

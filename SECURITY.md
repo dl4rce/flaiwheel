@@ -4,9 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 3.14.x (latest) | ✅ |
-| 3.13.x | ✅ |
-| < 3.13 | ❌ |
+| 3.15.x (latest) | ✅ |
+| 3.14.x | ✅ |
+| < 3.14 | ❌ |
 
 ## Reporting a Vulnerability
 
@@ -66,6 +66,7 @@ always retained, so SSH tunnels and Host-rewriting proxies keep working.
 | Deployment | Encrypted by | Allowlist needed |
 |-----------|--------------|------------------|
 | Same machine | n/a (loopback) | No |
+| **Auto TLS** (`MCP_SSE_TLS_AUTO=true`) | Flaiwheel-issued certificate | ✅ yes |
 | **Native TLS** (`MCP_SSE_TLS_CERTFILE` + `MCP_SSE_TLS_KEYFILE`) | Flaiwheel itself | ✅ yes |
 | SSH local port forward (`ssh -L 8081:localhost:8081`) | SSH | No — arrives as `localhost` |
 | WireGuard / Tailscale | Overlay VPN | No — arrives as `localhost` |
@@ -79,6 +80,34 @@ container. This is **fail-closed**: a partial pair or an unreadable file aborts
 startup rather than silently downgrading to plain HTTP, because an operator who
 requested encryption must never unknowingly receive cleartext. The Web UI
 (`MCP_WEB_PORT`) is *not* covered and remains plain HTTP.
+
+**Auto TLS (`MCP_SSE_TLS_AUTO=true`).** A private IP cannot be certified by a
+public CA, so obtaining a certificate for a LAN deployment is not possible in
+the normal way. With this flag Flaiwheel issues its own: a private CA plus a
+server certificate, generated on first start into `MCP_SSE_TLS_DIR`
+(`/data/tls`), covering the allowlisted hosts, the hostname, loopback and the
+machine's LAN address.
+
+What this does and does not give you:
+
+- ✅ **Confidentiality** — the link is encrypted (verified: TLSv1.3).
+- ✅ **Server identity** — provided each client pins the CA once via
+  `NODE_EXTRA_CA_CERTS=/data/tls/ca.pem`. This is trust-on-first-use, so the
+  protection holds from the first connection onward.
+- ⚠️ **No third-party attestation.** Nothing outside your deployment vouches
+  for the certificate. That is the trade-off for a private address, and it is
+  why the CA must stay in a persistent volume — regenerating it invalidates
+  every client that pinned it.
+- ❌ **Never** "make it work" with `NODE_TLS_REJECT_UNAUTHORIZED=0`. That
+  disables verification for the whole client process and defeats the point of
+  the exercise; it is not a supported configuration.
+
+The key is written `0600`; the certificates are `0644` so clients can read the
+CA. Auto TLS is **opt-in** because it changes the endpoint's scheme, and it
+**fails closed**: if provisioning fails, startup aborts rather than serving
+cleartext. If you need clients to connect with **no** configuration at all, use
+a certificate from a real CA for a public hostname instead — a private address
+can never be validated automatically.
 
 **Do not disable the guard casually.** `MCP_SSE_DNS_REBINDING_PROTECTION=false`
 turns off validation of **both** the `Host` and `Origin` headers for every

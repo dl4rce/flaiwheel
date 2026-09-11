@@ -7,6 +7,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.15.0] — 2026-09-11 — Flaiwheel issues its own TLS certificate
+
+**A LAN deployment can now be encrypted without the operator ever running a certificate tool.**
+
+No public CA will issue a certificate for `192.168.178.230`, so the previous options for encrypting a private-address deployment were `openssl` by hand or a TLS-terminating proxy. Either way the operator had to *obtain* a certificate before they could encrypt anything — an unreasonable prerequisite for a self-hosted tool whose whole premise is that it runs with one command.
+
+### Added
+
+- **`MCP_SSE_TLS_AUTO=true`** — when no certificate is configured, Flaiwheel generates a private CA and a server certificate on first start. Everything on its side is automatic. Installed via `install.sh` with `FLAIWHEEL_TLS_AUTO=1`.
+- **Subject names are derived, not asked for.** The certificate covers the `MCP_SSE_ALLOWED_HOSTS` entries, the hostname, loopback, the bound address and the machine's LAN address. A name missing here is a client-side verification failure, so the list deliberately over-includes.
+- **Persistent and idempotent.** Material lives in `MCP_SSE_TLS_DIR` (`/data/tls`) and is **reused** while it is valid and still covers the requested names, so restarts and upgrades do not change the fingerprint a client pinned. Stale, mismatched or host-incomplete material is re-issued, with the reason logged.
+- **The startup log prints what a client needs**: the SHA-256 fingerprint and the exact `NODE_EXTRA_CA_CERTS=...` line for the client's `env` block.
+
+### Notes
+
+**The one step Flaiwheel cannot automate.** It cannot write to another machine's trust store — the container has no access to it, which is why even `mkcert` needs a per-machine install step. Clients must be told once. The README and `SECURITY.md` state this plainly rather than implying the setup is fully transparent.
+
+**Opt-in, and fail-closed.** Auto TLS changes the endpoint from `http://` to `https://`; enabling it by default would break every existing client on upgrade — the same class of failure as the installer regressions earlier today. If provisioning fails, startup aborts rather than quietly serving cleartext.
+
+**No verification-disabling escape hatch.** `NODE_TLS_REJECT_UNAUTHORIZED=0` is not offered, documented or endorsed anywhere in this path: it disables verification for the whole client process and defends against nothing.
+
+**`cryptography` is now a declared dependency** (`>=42,<51`). It was already present transitively, but leaving it to another package would turn a TLS provisioning failure into a startup abort. The bound is the next *breaking* release, not the next minor one: cryptography's first component is its breaking unit, and capping lower would have forced a needless downgrade of the `50.0.1` already installed in the container.
+
+### Verification
+
+**439 tests** (395 → 439). The certificate tests build real material and load it back with `cryptography` — chain signature verified, SANs read from the extension, key permissions checked, staleness and mismatched-key regeneration exercised. Beyond the unit tests, the generated material was used to start a real `uvicorn` listener: a client trusting only the generated CA completed a **TLSv1.3** handshake and received a `200`, while a client using the system trust store **rejected** it (`self-signed certificate in certificate chain`). Both directions asserted, because a certificate that no client rejects proves nothing.
+
 ## [3.14.4] — 2026-09-11 — The port check recognises its own container
 
 **Fixes a second defect in the `3.14.1`/`3.14.2` port check, found by running the check against the real deployment rather than a fixture.**
