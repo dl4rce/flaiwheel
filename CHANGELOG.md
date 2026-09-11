@@ -7,6 +7,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.14.1] — 2026-09-11 — The installer stops breaking shared deployments
+
+**An upgrade must never be able to turn into an outage.** On 2026-09-11 the stock installer took a 12-project shared server down: it removed the running container, then failed to create its replacement because a host process (nginx) already owned the published port. The old container was gone, the new one never started, and every client lost the endpoint. This release fixes the four ways that could happen — and makes the destructive parts of the installer opt-in rather than unconditional.
+
+The root cause of the port failure was not a missing check. It was a check that **could not run**: the port-conflict precheck sat in the `else` arm of the exact-container-name test, so for the normal container name — `flaiwheel-<project>` — it was skipped entirely. Even when it did run it grepped `docker ps`, which is structurally blind to anything that is not a Docker container.
+
+### Fixed
+- **The port precheck now runs on every path, including the exact-name match.** It probes the real listening socket (a `bind()` attempt) instead of grepping the container list, so a host process, a system service or a manually created container all count as conflicts. On conflict it names the holder and **refuses to continue** rather than destroying the working container first — with the `FLAIWHEEL_*_PORT` / `_BIND` overrides printed in the error.
+- **`/docs` is mounted again.** The image declares `VOLUME [/docs, /data]` and sets `MCP_DOCS_PATH=/docs`, but the installer only ever mapped `/data`. A start could therefore succeed against an **empty** knowledge directory and report success. Both volumes are now created, mounted, and preserved across upgrades — and a post-start check treats a missing `/data` or `/docs` mount as a **hard error** instead of a warning.
+- **The image is built *before* the old container is removed.** The previous order (stop → remove → build) meant a failed build left the host with no Flaiwheel running at all: a failed upgrade, not a rollback. A build failure now leaves the existing container untouched and serving.
+- **Every `MCP_*` variable is carried across an upgrade**, not just `MCP_GIT_REPO_URL`, `MCP_GIT_AUTO_PUSH` and `MCP_WEBHOOK_SECRET`. Reranker, chunk-strategy, gitleaks, branch and transport settings used to be silently dropped while the upgrade still reported success — configuration loss that looks exactly like a clean release.
+
+### Changed
+- **Host ports and bind addresses are configurable:** `FLAIWHEEL_WEB_PORT`, `FLAIWHEEL_SSE_PORT`, `FLAIWHEEL_WEB_BIND`, `FLAIWHEEL_SSE_BIND`. Defaults are unchanged (`0.0.0.0:8080` and `0.0.0.0:8081`), and an upgrade **inherits the existing container's real bindings** when no override is given — so a host that already remaps ports keeps its shape. Host-side health, registration and indexing calls follow the configured port instead of assuming `8080`.
+- **Destructive host-wide cleanup is now opt-in.** `docker image prune -af`, `docker container prune -f` and `systemctl stop docker` affect **every** project on the host, not just Flaiwheel — the last of those stops every container on the machine. They now require `FLAIWHEEL_AGGRESSIVE_CLEANUP=1`. Without it, a single-purpose host still gets build-cache pruning, and a host running anything else gets no host-wide deletion at all, with a message saying so.
+
+### Notes
+- **17 new tests (370 → 387)** in `tests/test_installer_safety.py`, asserting the structural invariants above against `scripts/install.sh`. They are regression tests in the real sense: **16 of the 17 fail against the previous installer** and pass against this one.
+- **Known limitation, documented rather than hidden:** `FLAIWHEEL_SSE_PORT` changes the container's published port only. Client configuration files that the installer generates for other tools still reference the default `8081`, because the templates that write them are quoted heredocs that do not expand variables — rewriting them was out of scope for a bugfix. If you remap the SSE port, update the client configs yourself.
+- The installer remains unsuitable for a **shared server with a fronting proxy** as a routine upgrade path; the durable procedure for that host stays a purpose-written recreate script. What changed is that the stock installer now **refuses** instead of half-preserving and taking the service down.
+- `scripts/install.sh` was backed up (SHA-256 verified) before editing, at `~/.flaiwheel-backups/20260911T175322Z/`.
+
 ## [3.14.0] — 2026-09-11 — Remote MCP without a reverse proxy
 
 **A native remote/LAN MCP endpoint, without adding a component.** Until now there was no supported way to serve the SSE endpoint to a non-localhost client: the socket bound `0.0.0.0` while the application layer answered `HTTP 421 Invalid Host header` to every non-loopback `Host`. The only working remedy was a proxy that rewrites `Host: localhost` — a moving part the product should not require, and one that adds a boot-ordering dependency.

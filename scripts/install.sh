@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.14.0"
+_FW_VERSION="3.14.1"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -702,8 +702,114 @@ fi
 
 CONTAINER_NAME="flaiwheel-${PROJECT}"
 VOLUME_NAME="flaiwheel-${PROJECT}-data"
+DOCS_VOLUME_NAME="flaiwheel-${PROJECT}-docs"
 IMAGE_NAME="flaiwheel:latest"
 FLAIWHEEL_REPO="https://github.com/dl4rce/flaiwheel.git"
+
+# ── Host ports / bind addresses (override for shared or multi-instance hosts) ──
+# The container always listens on 8080 (Web UI) and 8081 (MCP SSE) *internally*.
+# These are the HOST-side bindings. On a shared host where nginx or another
+# service already owns 8080/8081, set FLAIWHEEL_WEB_PORT / FLAIWHEEL_SSE_PORT
+# (and optionally the bind addresses) instead of fighting over the default.
+WEB_PORT="${FLAIWHEEL_WEB_PORT:-8080}"
+SSE_PORT="${FLAIWHEEL_SSE_PORT:-8081}"
+WEB_BIND="${FLAIWHEEL_WEB_BIND:-0.0.0.0}"
+SSE_BIND="${FLAIWHEEL_SSE_BIND:-0.0.0.0}"
+
+# ── Destructive host-wide Docker cleanup — default OFF ──────────────────────
+# `docker builder/image prune -af`, `docker container prune -f` and especially
+# `systemctl stop docker` affect EVERY project and container on the host, not
+# just Flaiwheel. On a shared host they can destroy unrelated images and cause
+# a cross-service outage. Dedicated/single-purpose hosts may opt in.
+AGGRESSIVE_CLEANUP="${FLAIWHEEL_AGGRESSIVE_CLEANUP:-0}"
+
+# ── Port helpers ───────────────────────────────────────────────────────────
+# Probe the REAL listening socket rather than grepping the Docker container
+# list. The container-list approach is blind to any host process (nginx, a
+# system service, a previous manual `docker run`, a non-Docker listener) that
+# already owns the port — which is exactly how the 2026-09-11 CT122 outage
+# happened. python3 is guaranteed present (it is already required below).
+_port_in_use() {
+    local port="$1"
+    python3 - "$port" <<'PY' 2>/dev/null
+import socket, sys
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind(("0.0.0.0", port))
+except OSError:
+    sys.exit(0)   # someone is already listening
+finally:
+    s.close()
+sys.exit(1)       # free
+PY
+}
+
+_port_owner() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltnpH "sport = :${port}" 2>/dev/null \
+            | sed -n 's/.*users:((\"\([^"]*\)\",pid=\([0-9]*\).*/\1 (pid \2)/p' | head -1
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null \
+            | awk 'NR==2 {print $1" (pid "$2")"}' | head -1
+    fi
+}
+
+# Which container (if any) publishes host port $1?
+_port_container() {
+    local port="$1"
+    docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+        | grep -E ":${port}->" | awk '{print $1}' | head -1 || true
+}
+
+# Refuse to touch anything if a target host port is owned by something other
+# than the container we are about to replace. Runs on EVERY path — including
+# the exact-container-name match, which is where the old check was skipped.
+_check_ports_free() {
+    local existing="${1:-}"
+    local conflicts=0 entry p label cname holder
+    for entry in "${WEB_PORT}|Web UI" "${SSE_PORT}|MCP SSE"; do
+        p="${entry%%|*}"; label="${entry##*|}"
+        _port_in_use "$p" || continue
+        cname=$(_port_container "$p")
+        if [ -n "$cname" ] && [ -n "$existing" ] && [ "$cname" = "$existing" ]; then
+            continue          # our own container — expected, not a conflict
+        fi
+        conflicts=1
+        warn "Host port ${p} (${label}) is already in use."
+        if [ -n "$cname" ]; then
+            warn "  Held by Flaiwheel container: ${cname}"
+        else
+            holder=$(_port_owner "$p")
+            warn "  Held by host process: ${holder:-unknown}"
+        fi
+    done
+    if [ "$conflicts" -eq 1 ]; then
+        fail "Refusing to continue: recreating the container would clash on the port(s) above and take the existing service down.
+  Re-run with free ports, e.g.:
+    FLAIWHEEL_WEB_PORT=18080 FLAIWHEEL_SSE_PORT=18081 bash <(curl -sSL .../install.sh)
+  On a proxy-fronted host, bind to loopback as well:
+    FLAIWHEEL_WEB_BIND=127.0.0.1 FLAIWHEEL_SSE_BIND=127.0.0.1 ..."
+    fi
+}
+
+# Read an existing container's host binding for a container port ("8080/tcp")
+# → prints "<host-ip> <host-port>" (empty if not published).
+_old_binding() {
+    docker inspect --format '{{json .HostConfig.PortBindings}}' "$1" 2>/dev/null \
+        | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin) or {}
+except Exception:
+    sys.exit(0)
+b = d.get(sys.argv[1]) or []
+if b:
+    print(b[0].get("HostIp", "0.0.0.0"), b[0].get("HostPort", ""))
+' "$2" 2>/dev/null || true
+}
 
 info "Project:        ${BOLD}${OWNER}/${PROJECT}${NC}"
 info "Knowledge repo: ${BOLD}${OWNER}/${KNOWLEDGE_REPO}${NC}"
@@ -719,8 +825,20 @@ echo ""
 FAST_PATH=false
 RUNNING_FW=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^flaiwheel-' | head -1 || true)
 
-if [ -n "$RUNNING_FW" ] && curl -sf http://localhost:8080/health &>/dev/null; then
-    RUNNING_VERSION=$(curl -sf http://localhost:8080/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','0.0.0'))" 2>/dev/null || echo "0.0.0")
+# Probe the running container's ACTUAL published Web UI port instead of
+# assuming 8080 — a shared host may have remapped it.
+RUNNING_WEB_PORT="$WEB_PORT"
+if [ -n "$RUNNING_FW" ]; then
+    _probe_binding=$(_old_binding "$RUNNING_FW" "8080/tcp")
+    if [ -n "$_probe_binding" ]; then
+        _probe_ip="${_probe_binding%% *}"; _probe_port="${_probe_binding##* }"
+        [ "$_probe_ip" = "0.0.0.0" ] && _probe_ip="127.0.0.1"
+        RUNNING_WEB_PORT="$_probe_port"
+    fi
+fi
+
+if [ -n "$RUNNING_FW" ] && curl -sf "http://127.0.0.1:${RUNNING_WEB_PORT}/health" &>/dev/null; then
+    RUNNING_VERSION=$(curl -sf "http://127.0.0.1:${RUNNING_WEB_PORT}/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','0.0.0'))" 2>/dev/null || echo "0.0.0")
     LATEST_VERSION="$_FW_VERSION"
 
     if [ "$RUNNING_VERSION" = "$LATEST_VERSION" ]; then
@@ -741,24 +859,31 @@ fi
 UPDATE_MODE=false
 
 if [ "$FAST_PATH" = false ]; then
-    # First: check for exact container name match
-    # Second: check if ANY flaiwheel container is using ports 8080/8081
+    # Detect an existing install by container name, else by whichever
+    # flaiwheel container currently owns our target ports.
     EXISTING_CONTAINER=""
 
     if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         EXISTING_CONTAINER="$CONTAINER_NAME"
     else
-        PORT_CONTAINER=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
-            | grep -E '(8080|8081)' \
-            | grep -E '^flaiwheel-' \
-            | awk '{print $1}' \
-            | head -1 || true)
+        PORT_CONTAINER=""
+        for _tp in "$WEB_PORT" "$SSE_PORT"; do
+            PORT_CONTAINER=$(_port_container "$_tp")
+            [ -n "$PORT_CONTAINER" ] && break
+        done
         if [ -n "$PORT_CONTAINER" ]; then
             EXISTING_CONTAINER="$PORT_CONTAINER"
-            warn "Found existing flaiwheel container '${PORT_CONTAINER}' on ports 8080/8081"
+            warn "Found existing flaiwheel container '${PORT_CONTAINER}' on host ports ${WEB_PORT}/${SSE_PORT}"
             warn "This may have been created under a different project name"
         fi
     fi
+
+    # ALWAYS verify the real sockets before we remove or create anything.
+    # This is deliberately outside the branches above: the previous version
+    # put this check in the `else` arm of the name match, so it was skipped for
+    # the normal container name and a host process (nginx) holding the port went
+    # undetected until `docker run` failed with the old container already gone.
+    _check_ports_free "$EXISTING_CONTAINER"
 
     if [ -n "$EXISTING_CONTAINER" ]; then
         echo ""
@@ -791,14 +916,52 @@ if [ "$FAST_PATH" = false ]; then
         OLD_AUTO_PUSH=$(echo "$OLD_ENV" | grep "^MCP_GIT_AUTO_PUSH=" | cut -d= -f2- || true)
         OLD_WEBHOOK_SECRET=$(echo "$OLD_ENV" | grep "^MCP_WEBHOOK_SECRET=" | cut -d= -f2- || true)
 
+        # Carry over EVERY other MCP_* variable, not just the three above.
+        # Silently dropping reranker / chunk-strategy / gitleaks / branch /
+        # transport settings changes behaviour while still looking like a clean
+        # upgrade (2026-09-11 finding). Explicit values are re-applied below.
+        OLD_MCP_ENV=$(echo "$OLD_ENV" | grep -E '^MCP_' || true)
+        OLD_MCP_ENV=$(echo "$OLD_MCP_ENV" | grep -vE '^MCP_(GIT_REPO_URL|GIT_AUTO_PUSH|WEBHOOK_SECRET|GIT_TOKEN)=' || true)
+
         OLD_VOLUME=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
         if [ -n "$OLD_VOLUME" ]; then
             VOLUME_NAME="$OLD_VOLUME"
         fi
 
+        # Preserve the /docs volume too — the image declares VOLUME [/docs, /data]
+        # and sets MCP_DOCS_PATH=/docs. Omitting it starts against an EMPTY
+        # knowledge directory with no error (2026-09-11 finding).
+        OLD_DOCS_VOLUME=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/docs"}}{{.Name}}{{end}}{{end}}' "$EXISTING_CONTAINER" 2>/dev/null || true)
+        if [ -n "$OLD_DOCS_VOLUME" ]; then
+            DOCS_VOLUME_NAME="$OLD_DOCS_VOLUME"
+        fi
+
+        # Inherit the existing host ports/binds unless the operator overrode
+        # them, so an upgrade keeps the deployment's real shape.
+        if [ -z "${FLAIWHEEL_WEB_PORT:-}" ]; then
+            _ob=$(_old_binding "$EXISTING_CONTAINER" "8080/tcp")
+            if [ -n "$_ob" ]; then WEB_BIND="${_ob%% *}"; WEB_PORT="${_ob##* }"; fi
+        fi
+        if [ -z "${FLAIWHEEL_SSE_PORT:-}" ]; then
+            _ob=$(_old_binding "$EXISTING_CONTAINER" "8081/tcp")
+            if [ -n "$_ob" ]; then SSE_BIND="${_ob%% *}"; SSE_PORT="${_ob##* }"; fi
+        fi
+
         OLD_CONTAINER_NAME="$EXISTING_CONTAINER"
         echo ""
     fi
+fi
+
+# ══════════════════════════════════════════════════════
+#  Host-side URL for the container's Web UI
+#  (honours loopback binds and remapped ports)
+# ══════════════════════════════════════════════════════
+if [ "$FAST_PATH" = true ]; then
+    HOST_WEB_URL="http://127.0.0.1:${RUNNING_WEB_PORT}"
+elif [ -z "$WEB_BIND" ] || [ "$WEB_BIND" = "0.0.0.0" ]; then
+    HOST_WEB_URL="http://127.0.0.1:${WEB_PORT}"
+else
+    HOST_WEB_URL="http://${WEB_BIND}:${WEB_PORT}"
 fi
 
 # ══════════════════════════════════════════════════════
@@ -1025,7 +1188,7 @@ if [ "$FAST_PATH" = true ]; then
     if [ -n "$REG_PASS" ]; then
         # Check first — avoid noisy 409 conflict errors in the output
         _EXISTING=$(curl -sf -u "admin:${REG_PASS}" \
-            http://localhost:8080/api/projects 2>/dev/null || true)
+            ${HOST_WEB_URL}/api/projects 2>/dev/null || true)
         if echo "$_EXISTING" | python3 -c \
             "import sys,json; ps=json.load(sys.stdin).get('projects',[]); exit(0 if any(p['name']=='${PROJECT}' for p in ps) else 1)" \
             2>/dev/null; then
@@ -1035,7 +1198,7 @@ if [ "$FAST_PATH" = true ]; then
             REG_RESULT=$(curl -sf -X POST -u "admin:${REG_PASS}" \
                 -H "Content-Type: application/json" \
                 -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
-                http://localhost:8080/api/projects 2>/dev/null || true)
+                ${HOST_WEB_URL}/api/projects 2>/dev/null || true)
             if echo "$REG_RESULT" | grep -q '"success"'; then
                 ok "Project '${PROJECT}' registered with running Flaiwheel (${RUNNING_FW})"
             else
@@ -1055,7 +1218,7 @@ if [ "$FAST_PATH" = true ]; then
     if [ -n "$ADMIN_PASS" ]; then
         ok "Flaiwheel is ready"
         info "Indexing Flaiwheel reference docs..."
-        curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null || true
+        curl -sf -X POST -u "admin:${ADMIN_PASS}" ${HOST_WEB_URL}/api/index-flaiwheel-docs &>/dev/null || true
         ok "Flaiwheel docs indexed"
     fi
 
@@ -1065,16 +1228,29 @@ else
     build_image() {
         info "Building Flaiwheel Docker image..."
 
-        # Pre-build cleanup: free as much disk as possible.
-        # 1. Prune ALL unused build cache, images, and containers
-        # 2. Wipe containerd ingest dir (stale blobs invisible to docker prune)
-        info "Cleaning up Docker caches before build..."
-        docker builder prune -af >/dev/null 2>&1 || true
-        docker image prune -af >/dev/null 2>&1 || true
-        docker container prune -f >/dev/null 2>&1 || true
+        # Pre-build cleanup: free disk space before building.
+        # These operations are HOST-WIDE. `docker image prune -af` deletes every
+        # unused image on the host and `docker container prune -f` every stopped
+        # container — on a shared host that destroys unrelated projects' images.
+        # `systemctl stop docker` stops EVERY container on the host. They are
+        # therefore opt-in (FLAIWHEEL_AGGRESSIVE_CLEANUP=1) or limited to hosts
+        # that run nothing but Flaiwheel.
+        _other_containers=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -vcE '^flaiwheel-' || true)
+        if [ "${AGGRESSIVE_CLEANUP}" = "1" ]; then
+            info "Cleaning up Docker caches (aggressive mode enabled)..."
+            docker builder prune -af >/dev/null 2>&1 || true
+            docker image prune -af >/dev/null 2>&1 || true
+            docker container prune -f >/dev/null 2>&1 || true
+        elif [ "${_other_containers:-0}" -eq 0 ]; then
+            info "Cleaning up Flaiwheel build cache (single-purpose host)..."
+            docker builder prune -f >/dev/null 2>&1 || true
+        else
+            info "Skipping host-wide Docker cleanup (${_other_containers} non-Flaiwheel container(s) present)."
+            info "  Set FLAIWHEEL_AGGRESSIVE_CLEANUP=1 to force it, or clean up manually if disk is tight."
+        fi
 
         _INGEST_DIR="/var/lib/containerd/io.containerd.content.v1.content/ingest"
-        if [ -d "$_INGEST_DIR" ] && [ "$(ls -A "$_INGEST_DIR" 2>/dev/null | wc -l)" -gt 0 ]; then
+        if [ "${AGGRESSIVE_CLEANUP}" = "1" ] && [ -d "$_INGEST_DIR" ] && [ "$(ls -A "$_INGEST_DIR" 2>/dev/null | wc -l)" -gt 0 ]; then
             if [ "$(id -u)" -eq 0 ]; then _SUDO=""; else _SUDO="sudo"; fi
             ${_SUDO} systemctl stop docker 2>/dev/null || true
             ${_SUDO} rm -rf "${_INGEST_DIR:?}"/*
@@ -1173,21 +1349,34 @@ else
         local auto_push="${2:-true}"
         local webhook_secret="${3:-}"
 
+        # Re-apply every preserved MCP_* setting from the previous container,
+        # then the explicit values below override where they apply.
+        local carried_env=""
+        if [ -n "${OLD_MCP_ENV:-}" ]; then
+            while IFS= read -r _line; do
+                [ -z "$_line" ] && continue
+                carried_env="${carried_env} -e ${_line}"
+            done <<< "$OLD_MCP_ENV"
+        fi
+
         local extra_env=""
         if [ -n "$webhook_secret" ]; then
             extra_env="-e MCP_WEBHOOK_SECRET=${webhook_secret}"
         fi
 
+        # shellcheck disable=SC2086
         docker run -d \
             --name "$CONTAINER_NAME" \
-            -p 8080:8080 \
-            -p 8081:8081 \
+            -p "${WEB_BIND}:${WEB_PORT}:8080" \
+            -p "${SSE_BIND}:${SSE_PORT}:8081" \
             -e MCP_GIT_REPO_URL="$repo_url" \
             -e MCP_GIT_TOKEN="$GH_TOKEN" \
             -e MCP_GIT_AUTO_PUSH="$auto_push" \
             -e MCP_EMBEDDING_MODEL="${EMBEDDING_MODEL:-all-MiniLM-L12-v2}" \
+            $carried_env \
             $extra_env \
             -v "${VOLUME_NAME}:/data" \
+            -v "${DOCS_VOLUME_NAME}:/docs" \
             --restart unless-stopped \
             "$IMAGE_NAME"
     }
@@ -1206,15 +1395,17 @@ else
             _SKIP_BUILD=false
         fi
 
+        # Build BEFORE touching the running container. The previous order
+        # (stop → rm → build) meant a failed build left the host with no
+        # Flaiwheel running at all: a failed upgrade, not a rollback.
+        if [ "$_SKIP_BUILD" = false ]; then
+            build_image
+        fi
+
         info "Stopping container ${OLD_CONTAINER_NAME}..."
         docker stop "$OLD_CONTAINER_NAME" 2>/dev/null || true
         docker rm "$OLD_CONTAINER_NAME" 2>/dev/null || true
         ok "Old container removed (data volume ${VOLUME_NAME} preserved)"
-
-        if [ "$_SKIP_BUILD" = false ]; then
-            docker rmi "$IMAGE_NAME" 2>/dev/null || true
-            build_image
-        fi
 
         info "Recreating container as ${CONTAINER_NAME}..."
         start_container \
@@ -1241,7 +1432,7 @@ else
     info "Waiting for Flaiwheel to be ready (first start downloads the embedding model)..."
     HEALTHY=false
     for i in $(seq 1 150); do   # 150 × 2s = 300s = 5 min
-        if curl -sf http://localhost:8080/health &>/dev/null; then
+        if curl -sf ${HOST_WEB_URL}/health &>/dev/null; then
             HEALTHY=true
             break
         fi
@@ -1256,6 +1447,22 @@ else
         warn "Check logs: docker logs ${CONTAINER_NAME}"
         warn "Re-run the installer once it's up to finish registration."
     fi
+
+    # ── Verify BOTH declared volumes are actually mounted ────────────────────
+    # The image declares VOLUME [/docs, /data] and sets MCP_DOCS_PATH=/docs.
+    # If /docs is not mounted the container starts happily against an EMPTY
+    # knowledge directory and reports success — which is how a shared-server
+    # recreate silently lost the knowledge mount on 2026-09-11. Treat it as a
+    # hard error instead of proceeding.
+    _MOUNTS=$(docker inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' "$CONTAINER_NAME" 2>/dev/null || true)
+    for _dest in /data /docs; do
+        if ! printf '%s' "$_MOUNTS" | grep -q "$_dest"; then
+            fail "Container ${CONTAINER_NAME} has no ${_dest} volume mounted (mounts: ${_MOUNTS:-none}).
+  Flaiwheel would start against an empty or ephemeral ${_dest} directory.
+  Expected: -v ${VOLUME_NAME}:/data -v ${DOCS_VOLUME_NAME}:/docs"
+        fi
+    done
+    ok "Volumes verified: /data and /docs both mounted"
 
     # Extract credentials — password is written to /data/.admin_password early in startup,
     # before the model download, so this usually succeeds even if health check timed out.
@@ -1277,7 +1484,7 @@ else
             # the installer always leaves the container in a consistent state.
             info "Ensuring project '${PROJECT}' is registered..."
             _PROJ_CHECK=$(curl -sf -u "admin:${ADMIN_PASS}" \
-                http://localhost:8080/api/projects 2>/dev/null || true)
+                ${HOST_WEB_URL}/api/projects 2>/dev/null || true)
             if echo "$_PROJ_CHECK" | python3 -c \
                 "import sys,json; ps=json.load(sys.stdin).get('projects',[]); exit(0 if any(p['name']=='${PROJECT}' for p in ps) else 1)" \
                 2>/dev/null; then
@@ -1286,7 +1493,7 @@ else
                 _REG=$(curl -sf -X POST -u "admin:${ADMIN_PASS}" \
                     -H "Content-Type: application/json" \
                     -d "{\"name\": \"${PROJECT}\", \"git_repo_url\": \"${KNOWLEDGE_REPO_URL}\", \"git_branch\": \"main\", \"git_token\": \"${GH_TOKEN}\", \"git_auto_push\": true}" \
-                    http://localhost:8080/api/projects 2>/dev/null || true)
+                    ${HOST_WEB_URL}/api/projects 2>/dev/null || true)
                 if echo "$_REG" | grep -q '"success"'; then
                     ok "Project '${PROJECT}' re-registered (was missing from registry)"
                 else
@@ -1295,7 +1502,7 @@ else
             fi
 
             info "Indexing Flaiwheel reference docs..."
-            if curl -sf -X POST -u "admin:${ADMIN_PASS}" http://localhost:8080/api/index-flaiwheel-docs &>/dev/null; then
+            if curl -sf -X POST -u "admin:${ADMIN_PASS}" ${HOST_WEB_URL}/api/index-flaiwheel-docs &>/dev/null; then
                 ok "Flaiwheel docs indexed"
             else
                 warn "Index request failed (docs may still be syncing)"
@@ -2265,7 +2472,7 @@ cat > "$HOOK_CONF" << HOOKCONFEOF
 # Flaiwheel hook config — DO NOT COMMIT (gitignored via .cursor/)
 # Auto-generated by install.sh
 # No credentials stored: Flaiwheel grants localhost requests without a password.
-FLAIWHEEL_URL=http://localhost:8080
+FLAIWHEEL_URL=${HOST_WEB_URL}
 FLAIWHEEL_PROJECT=${PROJECT}
 HOOKCONFEOF
 chmod 600 "$HOOK_CONF"
@@ -2371,7 +2578,7 @@ elif [ "$UPDATE_MODE" = true ]; then
     if [ "$VSCODE_REGISTERED" = true ]; then
         echo -e "    4. VS Code: run ${BOLD}MCP: List Servers${NC} → restart ${GREEN}flaiwheel${NC} if needed ${GREEN}✓${NC}"
     fi
-    echo -e "    5. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    5. Open the Web UI at ${GREEN}${HOST_WEB_URL}${NC} to verify"
 else
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║         Setup Complete                       ║${NC}"
@@ -2402,7 +2609,7 @@ else
     if [ "$VSCODE_REGISTERED" = true ]; then
         echo -e "    5. VS Code: open project, run ${BOLD}MCP: List Servers${NC} (Cmd+Shift+P), start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
     fi
-    echo -e "    6. Open the Web UI at ${GREEN}http://localhost:8080${NC} to verify"
+    echo -e "    6. Open the Web UI at ${GREEN}${HOST_WEB_URL}${NC} to verify"
     echo -e "    7. See the full README: ${GREEN}https://github.com/dl4rce/flaiwheel#readme${NC}"
 fi
 echo ""
@@ -2414,8 +2621,8 @@ fi
 
 _run_coldstart
 echo -e "  ${BOLD}Endpoints:${NC}"
-echo -e "    Web UI:     ${GREEN}http://localhost:8080${NC}"
-echo -e "    MCP (SSE):  ${GREEN}http://localhost:8081/sse${NC}"
+echo -e "    Web UI:     ${GREEN}${HOST_WEB_URL}${NC}"
+echo -e "    MCP (SSE):  ${GREEN}http://127.0.0.1:${SSE_PORT}/sse${NC}"
 echo ""
 
 # Always try to show credentials — consolidate all sources here in the summary.
@@ -2434,7 +2641,7 @@ if [ -n "$_DISPLAY_PASS" ]; then
     echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
     echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"
-    echo -e "  ${BOLD}║  URL:       ${GREEN}http://localhost:8080${NC}${BOLD}         ║${NC}"
+    echo -e "  ${BOLD}║  URL:       ${GREEN}${HOST_WEB_URL}${NC}${BOLD}         ║${NC}"
     echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
     echo -e "  ${BOLD}║  Password:  ${GREEN}${_DISPLAY_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
     echo -e "  ${BOLD}║                                            ║${NC}"

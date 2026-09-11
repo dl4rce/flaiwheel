@@ -428,11 +428,34 @@ bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts
 ```
 
 The installer detects the existing container, asks for confirmation, then:
-- Rebuilds the Docker image with the latest code
-- Recreates the container (preserves your data volume + config)
+- Verifies the target host ports are actually free **before** touching anything (and refuses if a non-Flaiwheel process owns them)
+- Rebuilds the Docker image with the latest code **before** stopping the old container, so a failed build is not an outage
+- Recreates the container, preserving both volumes (`/data` **and** `/docs`), the host port bindings, and all `MCP_*` settings
 - Refreshes all agent configs and guides
 
 Your knowledge base, index, and credentials are preserved — only the code is updated.
+
+### Shared hosts, custom ports, and proxies
+
+If `8080`/`8081` are already taken (e.g. by a fronting proxy), point the installer at free ports instead of fighting over the defaults:
+
+```bash
+FLAIWHEEL_WEB_PORT=18080 FLAIWHEEL_SSE_PORT=18081 \
+FLAIWHEEL_WEB_BIND=127.0.0.1 FLAIWHEEL_SSE_BIND=127.0.0.1 \
+  bash <(curl -sSL https://raw.githubusercontent.com/dl4rce/flaiwheel/main/scripts/install.sh)
+```
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FLAIWHEEL_WEB_PORT` | `8080` | Host port for the Web UI |
+| `FLAIWHEEL_SSE_PORT` | `8081` | Host port for the MCP SSE endpoint |
+| `FLAIWHEEL_WEB_BIND` | `0.0.0.0` | Host bind address for the Web UI |
+| `FLAIWHEEL_SSE_BIND` | `0.0.0.0` | Host bind address for MCP SSE |
+| `FLAIWHEEL_AGGRESSIVE_CLEANUP` | `0` | Allow host-wide Docker pruning (`docker image prune -af`, `docker container prune -f`, `systemctl stop docker`) |
+
+On a **shared** host, leave `FLAIWHEEL_AGGRESSIVE_CLEANUP` unset. Those commands affect every project and container on the machine — `systemctl stop docker` stops *all* containers — so they are off by default and only run when you explicitly opt in.
+
+> **Which ports does the installer change?** `FLAIWHEEL_SSE_PORT` changes the container's published port only. Client config files generated for other tools still reference the default `8081`, so update those yourself if you remap it.
 
 ---
 
