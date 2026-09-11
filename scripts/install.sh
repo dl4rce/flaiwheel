@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.14.2"
+_FW_VERSION="3.14.3"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -764,6 +764,46 @@ _port_container() {
         | grep -E ":${port}->" | awk '{print $1}' | head -1 || true
 }
 
+# Primary non-loopback IPv4 — used to print a REACHABLE endpoint URL.
+# Printing 127.0.0.1 for a deployment bound to 0.0.0.0 understates it: a LAN
+# user cannot open that address, and a remote install looks local-only.
+_lan_ip() {
+    local ip=""
+    if command -v ip >/dev/null 2>&1; then
+        ip=$(ip -4 route get 1.1.1.1 2>/dev/null \
+              | sed -n 's/.* src \([0-9][0-9.]*\).*/\1/p' | head -1 || true)
+    fi
+    if [ -z "$ip" ] && command -v hostname >/dev/null 2>&1; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+    fi
+    if [ -z "$ip" ] && command -v ipconfig >/dev/null 2>&1; then
+        ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+    fi
+    case "$ip" in
+        127.*|"") printf '' ;;
+        *)        printf '%s' "$ip" ;;
+    esac
+}
+
+# Build the URL a human should actually use for a bound service.
+#   _svc_url <bind> <port> <path>
+_svc_url() {
+    local bind="$1" port="$2" path="$3"
+    if [ -z "$bind" ] || [ "$bind" = "0.0.0.0" ]; then
+        printf 'http://%s:%s%s' "${LAN_IP:-127.0.0.1}" "$port" "$path"
+    else
+        printf 'http://%s:%s%s' "$bind" "$port" "$path"
+    fi
+}
+
+# Loopback alternative, only when the primary URL is not already loopback.
+_svc_url_local() {
+    local bind="$1" port="$2" path="$3"
+    if { [ -z "$bind" ] || [ "$bind" = "0.0.0.0" ]; } && [ -n "$LAN_IP" ]; then
+        printf 'http://127.0.0.1:%s%s' "$port" "$path"
+    fi
+}
+
 # Refuse to touch anything if a target host port is owned by something other
 # than the container we are about to replace. Runs on EVERY path — including
 # the exact-container-name match, which is where the old check was skipped.
@@ -975,6 +1015,22 @@ elif [ -z "$WEB_BIND" ] || [ "$WEB_BIND" = "0.0.0.0" ]; then
 else
     HOST_WEB_URL="http://${WEB_BIND}:${WEB_PORT}"
 fi
+
+# ── Human-facing endpoint URLs ──────────────────────────────────────────────
+# HOST_WEB_URL above stays loopback on purpose: it is what the installer itself
+# curls, and those calls run on this host. What we PRINT is different — when a
+# service is bound to 0.0.0.0 it is reachable on the LAN, so printing
+# 127.0.0.1 tells a LAN user to open an address that does not work for them.
+LAN_IP="$(_lan_ip)"
+if [ "$FAST_PATH" = true ]; then
+    WEB_URL="http://${LAN_IP:-127.0.0.1}:${RUNNING_WEB_PORT}"
+    WEB_URL_LOCAL=""
+else
+    WEB_URL="$(_svc_url "$WEB_BIND" "$WEB_PORT" "")"
+    WEB_URL_LOCAL="$(_svc_url_local "$WEB_BIND" "$WEB_PORT" "")"
+fi
+SSE_URL="$(_svc_url "$SSE_BIND" "$SSE_PORT" "/sse")"
+SSE_URL_LOCAL="$(_svc_url_local "$SSE_BIND" "$SSE_PORT" "/sse")"
 
 # ══════════════════════════════════════════════════════
 #  PHASE 3: Create knowledge repo (if it doesn't exist)
@@ -2633,8 +2689,10 @@ fi
 
 _run_coldstart
 echo -e "  ${BOLD}Endpoints:${NC}"
-echo -e "    Web UI:     ${GREEN}${HOST_WEB_URL}${NC}"
-echo -e "    MCP (SSE):  ${GREEN}http://127.0.0.1:${SSE_PORT}/sse${NC}"
+echo -e "    Web UI:     ${GREEN}${WEB_URL}${NC}"
+[ -n "$WEB_URL_LOCAL" ] && echo -e "                (on this host: ${WEB_URL_LOCAL})"
+echo -e "    MCP (SSE):  ${GREEN}${SSE_URL}${NC}"
+[ -n "$SSE_URL_LOCAL" ] && echo -e "                (on this host: ${SSE_URL_LOCAL})"
 echo ""
 
 # Always try to show credentials — consolidate all sources here in the summary.
@@ -2650,15 +2708,29 @@ if [ -z "$_DISPLAY_PASS" ]; then
 fi
 
 if [ -n "$_DISPLAY_PASS" ]; then
-    echo -e "  ${BOLD}╔════════════════════════════════════════════╗${NC}"
-    echo -e "  ${BOLD}║  Web UI Login                              ║${NC}"
-    echo -e "  ${BOLD}║                                            ║${NC}"
-    echo -e "  ${BOLD}║  URL:       ${GREEN}${HOST_WEB_URL}${NC}${BOLD}         ║${NC}"
-    echo -e "  ${BOLD}║  Username:  ${GREEN}admin${NC}${BOLD}                           ║${NC}"
-    echo -e "  ${BOLD}║  Password:  ${GREEN}${_DISPLAY_PASS}${BOLD}${NC}${BOLD}              ║${NC}"
-    echo -e "  ${BOLD}║                                            ║${NC}"
-    echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}     ║${NC}"
-    echo -e "  ${BOLD}╚════════════════════════════════════════════╝${NC}"
+    # Box padding is computed from the plain text, not hardcoded spaces: the
+    # old fixed padding only lined up for a 127.0.0.1:8080 URL and broke the
+    # moment a LAN address was printed.
+    _box_line() {
+        local label="$1" value="$2"
+        local inner=46
+        local plain="${label}${value}"
+        local pad=$(( inner - ${#plain} ))
+        [ "$pad" -lt 1 ] && pad=1
+        local spaces
+        spaces=$(printf '%*s' "$pad" '')
+        printf '  %s║  %s%s%s%s║%s\n' \
+            "$BOLD" "$label" "${GREEN}${value}${NC}${BOLD}" "$spaces" "$NC"
+    }
+    echo -e "  ${BOLD}╔════════════════════════════════════════════════╗${NC}"
+    _box_line "Web UI Login" ""
+    _box_line "" ""
+    _box_line "URL:       " "${WEB_URL}"
+    _box_line "Username:  " "admin"
+    _box_line "Password:  " "${_DISPLAY_PASS}"
+    _box_line "" ""
+    echo -e "  ${BOLD}║  ${YELLOW}Save this — it won't be shown again!${NC}${BOLD}          ║${NC}"
+    echo -e "  ${BOLD}╚════════════════════════════════════════════════╝${NC}"
 else
     echo -e "  ${YELLOW}${BOLD}Container is still starting (embedding model download in progress).${NC}"
     echo -e "  Watch progress:  ${GREEN}docker logs -f ${CONTAINER_NAME}${NC}"

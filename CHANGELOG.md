@@ -7,6 +7,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v3.14.3 — the summary prints the address you can actually reach
+
+The closing summary printed `http://127.0.0.1:8080` and `http://127.0.0.1:8081/sse` even on a LAN deployment bound to `0.0.0.0`. Loopback is not an address a LAN user can open, so a correctly-configured remote install looked local-only — and the Web UI login box was worse: it presented `127.0.0.1:8080` as **the** login URL.
+
+### Fixed
+- **Endpoints are shown as the reachable address.** When a service is bound to `0.0.0.0`, the summary now prints the host's LAN IP (`http://192.168.178.230:8080`) and notes the loopback equivalent beneath it. A loopback-bound deployment still prints `127.0.0.1`, which is then the truth.
+- **The Web UI login box shows the same reachable URL** and now pads its border from the label/value lengths instead of hardcoded spaces, so it stays aligned for any address rather than only for a `127.0.0.1:8080` one.
+
+Internal health probes, project registration and doc indexing still use loopback — only what is *printed* changes.
+
+### Notes
+No test count change (389). The installer's own URL construction was verified for all four combinations of bind (`0.0.0.0` / `127.0.0.1`) and LAN-IP detection.
+
 ## [3.14.2] — 2026-09-11 — The port check judges your real deployment
 
 **Fixes a regression introduced in 3.14.1, which could refuse to upgrade a perfectly healthy deployment.**
