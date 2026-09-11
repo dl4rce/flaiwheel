@@ -29,7 +29,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 fi
 
 # ── Version (keep in sync with src/flaiwheel/__init__.py) ───────────────────
-_FW_VERSION="3.15.1"
+_FW_VERSION="3.15.2"
 # raw.githubusercontent.com can serve a stale `install.sh` on branch `main` while
 # other files (e.g. pyproject.toml) update sooner. Resolve the canonical release
 # version from main so Docker rebuild / "already running" checks match PyPI + tags.
@@ -1087,6 +1087,69 @@ SSE_URL="$(_svc_url "$SSE_BIND" "$SSE_PORT" "/sse" | sed "s|^http://|${_SSE_SCHE
 SSE_URL_LOCAL="$(_svc_url_local "$SSE_BIND" "$SSE_PORT" "/sse" | sed "s|^http://|${_SSE_SCHEME}://|")"
 SSE_CA_PATH="/data/tls/ca.pem"
 
+# ── Client-facing endpoint and trust anchor ────────────────────────────────
+# Client configs written below must agree with what the endpoint actually
+# serves: with TLS on, an http:// URL fails at the transport layer, and a
+# missing trust anchor fails verification. Both were previously hardcoded to
+# http://localhost:8081/sse, so enabling TLS produced configs that could not
+# connect while still reporting "MCP registered".
+#
+# Loopback is used because these configs are for agents on THIS host, and
+# loopback is always accepted by both the certificate SANs and the transport
+# guard. A client on another machine needs the LAN/DNS name and the CA copied
+# to it — stated in the summary rather than guessed at here.
+CLIENT_SSE_URL="${_SSE_SCHEME}://localhost:8081/sse"
+# The CA inside the container lives in a Docker volume, which is not a path a
+# client process can open, so it is exported to a host path first.
+CLIENT_CA_PATH="${FLAIWHEEL_CLIENT_CA_PATH:-${HOME:-/root}/.flaiwheel/ca.pem}"
+
+# Single-line JSON entry, for injecting into an existing config.
+_client_entry_json() {
+    if [ "$TLS_AUTO" = "1" ]; then
+        printf '{"type": "sse", "url": "%s", "env": {"NODE_EXTRA_CA_CERTS": "%s"}}' \
+            "$CLIENT_SSE_URL" "$CLIENT_CA_PATH"
+    else
+        printf '{"type": "sse", "url": "%s"}' "$CLIENT_SSE_URL"
+    fi
+}
+
+# The same entry, pretty-printed with $1 as the indent, for heredoc-written
+# configs (which cannot call json.dump).
+_client_entry_body() {
+    local indent="$1"
+    if [ "$TLS_AUTO" = "1" ]; then
+        printf '%s"type": "sse",\n' "$indent"
+        printf '%s"url": "%s",\n' "$indent" "$CLIENT_SSE_URL"
+        printf '%s"env": {\n' "$indent"
+        printf '%s  "NODE_EXTRA_CA_CERTS": "%s"\n' "$indent" "$CLIENT_CA_PATH"
+        printf '%s}\n' "$indent"
+    else
+        printf '%s"type": "sse",\n' "$indent"
+        printf '%s"url": "%s"\n' "$indent" "$CLIENT_SSE_URL"
+    fi
+}
+
+# Copy the CA out of the container so client processes on this host can read
+# it. Retried because the certificate does not exist until the server has
+# finished starting.
+_export_client_ca() {
+    [ "$TLS_AUTO" = "1" ] || return 0
+    mkdir -p "$(dirname "$CLIENT_CA_PATH")" 2>/dev/null || true
+    local attempt=0
+    while [ "$attempt" -lt 15 ]; do
+        if docker cp "${CONTAINER_NAME}:/data/tls/ca.pem" "$CLIENT_CA_PATH" >/dev/null 2>&1; then
+            chmod 644 "$CLIENT_CA_PATH" 2>/dev/null || true
+            ok "Exported the Flaiwheel CA to ${CLIENT_CA_PATH}"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+    warn "Could not export the CA — copy it manually for client trust:"
+    warn "  docker cp ${CONTAINER_NAME}:/data/tls/ca.pem ${CLIENT_CA_PATH}"
+    return 0
+}
+
 # ══════════════════════════════════════════════════════
 #  PHASE 3: Create knowledge repo (if it doesn't exist)
 # ══════════════════════════════════════════════════════
@@ -1692,18 +1755,19 @@ except Exception:
     data = {}
 if 'mcpServers' not in data:
     data['mcpServers'] = {}
-data['mcpServers']['flaiwheel'] = {'type': 'sse', 'url': 'http://localhost:8081/sse'}
+data['mcpServers']['flaiwheel'] = json.loads('''$(_client_entry_json)''')
 json.dump(data, open('$MCP_JSON', 'w', encoding='utf-8'), indent=2)
 "
         ok "Added flaiwheel to .cursor/mcp.json (existing config preserved)"
     fi
 else
-    cat > "$MCP_JSON" << 'EOF'
+    # Unquoted heredoc so $(_client_entry_body) is expanded; the body contains
+    # no other shell expansions.
+    cat > "$MCP_JSON" << EOF
 {
   "mcpServers": {
     "flaiwheel": {
-      "type": "sse",
-      "url": "http://localhost:8081/sse"
+$(_client_entry_body "      ")
     }
   }
 }
@@ -1727,7 +1791,7 @@ globs: *
 
 # Flaiwheel – Project Knowledge Base (MCP) — YOUR FIRST STOP
 
-This project has a **semantic knowledge base** powered by Flaiwheel (MCP endpoint: http://localhost:8081/sse).
+This project has a **semantic knowledge base** powered by Flaiwheel (MCP endpoint: $CLIENT_SSE_URL).
 
 ## Knowledge Repo Location
 
@@ -1922,7 +1986,7 @@ FLAIWHEEL_AGENTS_BLOCK=$(cat << BLOCKEOF
 ## Flaiwheel — Project Knowledge Base (MCP) — YOUR FIRST STOP
 
 This project has a **semantic knowledge base** powered by Flaiwheel.
-MCP endpoint: \`http://localhost:8081/sse\`
+MCP endpoint: \`$CLIENT_SSE_URL\`
 
 ### Knowledge Repo
 
@@ -2098,7 +2162,7 @@ if [ -f "$MCP_JSON_ROOT" ]; then
 import json, sys
 with open('$MCP_JSON_ROOT', encoding='utf-8') as f:
     cfg = json.load(f)
-cfg.setdefault('mcpServers', {})['flaiwheel'] = {'type': 'sse', 'url': 'http://localhost:8081/sse'}
+cfg.setdefault('mcpServers', {})['flaiwheel'] = json.loads('''$(_client_entry_json)''')
 with open('$MCP_JSON_ROOT', 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2)
     f.write('\n')
@@ -2110,8 +2174,7 @@ else
 {
   "mcpServers": {
     "flaiwheel": {
-      "type": "sse",
-      "url": "http://localhost:8081/sse"
+$(_client_entry_body "      ")
     }
   }
 }
@@ -2132,7 +2195,7 @@ FLAIWHEEL_CLAUDE_BLOCK=$(cat << CLAUDEEOF
 
    > "Flaiwheel MCP is not connected. Please run this command in your terminal, then restart Claude Code:
    >
-   > \`claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse\`"
+   > \`claude mcp add --transport sse --scope project flaiwheel $CLIENT_SSE_URL\`"
 
 3. Do **not** proceed until Flaiwheel is connected — it is the primary knowledge source for this project.
 
@@ -2146,8 +2209,8 @@ FLAIWHEEL_CLAUDE_BLOCK=$(cat << CLAUDEEOF
 
 ### Flaiwheel MCP
 
-- **Endpoint:** \`http://localhost:8081/sse\` (configured in \`.mcp.json\`)
-- **Register once:** \`claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse\`
+- **Endpoint:** \`$CLIENT_SSE_URL\` (configured in \`.mcp.json\`)
+- **Register once:** \`claude mcp add --transport sse --scope project flaiwheel $CLIENT_SSE_URL\`
 - **Verify:** type \`/mcp\` — \`flaiwheel\` should appear with 30 tools
 - **Rule:** Search Flaiwheel BEFORE reading source code. Always.
 - **Rule:** After every bugfix, call \`write_bugfix_summary()\`. No exceptions.
@@ -2199,7 +2262,7 @@ if 'flaiwheel' in servers:
 else:
     servers['flaiwheel'] = {
         'command': 'npx',
-        'args': ['-y', 'mcp-remote', 'http://localhost:8081/sse']
+        'args': ['-y', 'mcp-remote', '$CLIENT_SSE_URL']
     }
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2)
@@ -2215,7 +2278,7 @@ else:
     else
         warn "Claude Desktop found but npx is not installed — cannot configure mcp-proxy"
         warn "  Install Node.js, then add to claude_desktop_config.json manually:"
-        warn '  "flaiwheel": {"command":"npx","args":["-y","mcp-remote","http://localhost:8081/sse"]}'
+        warn '  "flaiwheel": {"command":"npx","args":["-y","mcp-remote","'"${CLIENT_SSE_URL}"'"]}'
     fi
 fi
 
@@ -2226,7 +2289,7 @@ if command -v claude >/dev/null 2>&1; then
     info "Claude Code CLI detected — registering Flaiwheel MCP automatically..."
     # With set -e, a non-zero exit inside $(...) aborts this phase before we can
     # branch on stderr — use if-cmd so errexit ignores the failed substitution.
-    if CLAUDE_REGISTER_OUT=$(claude mcp add --transport sse --scope project flaiwheel "http://localhost:8081/sse" 2>&1); then
+    if CLAUDE_REGISTER_OUT=$(claude mcp add --transport sse --scope project flaiwheel "$CLIENT_SSE_URL" 2>&1); then
         CLAUDE_REGISTER_RC=0
     else
         CLAUDE_REGISTER_RC=$?
@@ -2253,7 +2316,7 @@ if [ "$CLAUDE_CLI_MISSING" = true ]; then
     echo -e "  ${YELLOW}${BOLD}└─────────────────────────────────────────────────────┘${NC}"
     echo -e "  Run this command ${BOLD}once${NC} in your terminal to connect Claude Code:"
     echo ""
-    echo -e "  ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+    echo -e "  ${GREEN}claude mcp add --transport sse --scope project flaiwheel $CLIENT_SSE_URL${NC}"
     echo ""
     echo -e "  Then type ${BOLD}/mcp${NC} inside Claude Code to verify the connection."
     echo -e "  ${BOLD}Cursor${NC} users: no action needed — .cursor/mcp.json handles it."
@@ -2280,7 +2343,7 @@ if [ -f "$VSCODE_MCP" ]; then
 import json
 with open('$VSCODE_MCP', encoding='utf-8') as f:
     cfg = json.load(f)
-cfg.setdefault('servers', {})['flaiwheel'] = {'type': 'sse', 'url': 'http://localhost:8081/sse'}
+cfg.setdefault('servers', {})['flaiwheel'] = json.loads('''$(_client_entry_json)''')
 with open('$VSCODE_MCP', 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2)
     f.write('\n')
@@ -2293,8 +2356,7 @@ else
 {
   "servers": {
     "flaiwheel": {
-      "type": "sse",
-      "url": "http://localhost:8081/sse"
+$(_client_entry_body "      ")
     }
   }
 }
@@ -2637,6 +2699,10 @@ fi
 #  Launch Phases 6-10 in parallel
 # ══════════════════════════════════════════════════════
 
+# Export the CA before the client configs are written: they embed its path, and
+# a config pointing at a file that does not exist is worse than no config.
+_export_client_ca
+
 _phase6_cursor_mcp  & _PIDS+=($!) _PJOBS+=("cursor-mcp")
 _phase7_cursor_rule & _PIDS+=($!) _PJOBS+=("cursor-rule")
 _phase7b_agents_md  & _PIDS+=($!) _PJOBS+=("agents-md")
@@ -2676,7 +2742,7 @@ if [ "$FAST_PATH" = true ]; then
         _step; echo -e "    ${_STEP}. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
         _step; echo -e "    ${_STEP}. Claude Code CLI: run once to register MCP:"
-        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel $CLIENT_SSE_URL${NC}"
     fi
     if [ "$VSCODE_REGISTERED" = true ]; then
         _step; echo -e "    ${_STEP}. VS Code: open project, run ${BOLD}MCP: List Servers${NC} → start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
@@ -2704,7 +2770,7 @@ elif [ "$UPDATE_MODE" = true ]; then
         _step; echo -e "    ${_STEP}. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
         _step; echo -e "    ${_STEP}. Claude Code CLI: re-run if needed:"
-        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel $CLIENT_SSE_URL${NC}"
     fi
     if [ "$VSCODE_REGISTERED" = true ]; then
         _step; echo -e "    ${_STEP}. VS Code: run ${BOLD}MCP: List Servers${NC} → restart ${GREEN}flaiwheel${NC} if needed ${GREEN}✓${NC}"
@@ -2736,7 +2802,7 @@ else
         _step; echo -e "    ${_STEP}. Claude Code CLI: MCP already registered ${GREEN}✓${NC}"
     else
         _step; echo -e "    ${_STEP}. Claude Code CLI: run once to register MCP:"
-        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel http://localhost:8081/sse${NC}"
+        echo -e "       ${GREEN}claude mcp add --transport sse --scope project flaiwheel $CLIENT_SSE_URL${NC}"
     fi
     if [ "$VSCODE_REGISTERED" = true ]; then
         _step; echo -e "    ${_STEP}. VS Code: open project, run ${BOLD}MCP: List Servers${NC} (Cmd+Shift+P), start ${GREEN}flaiwheel${NC} ${GREEN}✓${NC}"
@@ -2762,10 +2828,13 @@ echo -e "    MCP (SSE):  ${GREEN}${SSE_URL}${NC}"
 # it happened — an unset flag is a deliberate outcome, not an omission.
 if [ "$TLS_AUTO" = "1" ]; then
     echo -e "    TLS:        ${GREEN}on${NC} — certificate issued and managed by Flaiwheel"
-    echo -e "                CA file: ${GREEN}${SSE_CA_PATH}${NC} (in the ${VOLUME_NAME} volume)"
-    echo -e "                Each client machine must trust it ${BOLD}once${NC} — add this to the"
-    echo -e "                server's ${BOLD}env${NC} block in its MCP config, then restart the client:"
-    echo -e "                  ${GREEN}\"NODE_EXTRA_CA_CERTS\": \"${SSE_CA_PATH}\"${NC}"
+    echo -e "                Client configs on ${BOLD}this host${NC} were written with the CA already"
+    echo -e "                trusted, so Cursor / Claude Code / VS Code connect as-is."
+    echo -e "                CA file: ${GREEN}${CLIENT_CA_PATH}${NC}"
+    echo -e "                For a client on ${BOLD}another machine${NC}, copy the CA there and add it to"
+    echo -e "                that client's MCP config env block, then restart the client:"
+    echo -e "                  ${GREEN}docker cp ${CONTAINER_NAME}:/data/tls/ca.pem ./ca.pem${NC}"
+    echo -e "                  ${GREEN}\"NODE_EXTRA_CA_CERTS\": \"/path/to/ca.pem\"${NC}"
     echo -e "                Fingerprint: ${GREEN}docker logs ${CONTAINER_NAME} 2>&1 | grep -A6 Auto-TLS${NC}"
 elif [ -n "${MCP_SSE_TLS_CERTFILE:-}" ]; then
     echo -e "    TLS:        ${GREEN}on${NC} — using your certificate (MCP_SSE_TLS_CERTFILE)"

@@ -7,6 +7,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.15.2] — 2026-09-11 — TLS clients actually connect
+
+**Enabling automatic TLS produced clients that could not connect.** `v3.15.0` added certificate issuance, but every client configuration the installer wrote still pointed at `http://localhost:8081/sse` with no trust anchor. Against an HTTPS listener that fails at the transport layer, and even with a corrected URL the self-signed certificate is rejected until the CA is trusted. The installer reported "MCP registered" in both cases.
+
+### Fixed
+
+- **Client configurations now follow the endpoint's scheme.** Cursor (`.cursor/mcp.json`), Claude Code (`.mcp.json`), VS Code / GitHub Copilot (`.vscode/mcp.json`), Claude Desktop (`mcp-remote`), and the `claude mcp add` command all use the same URL the installer advertises. When TLS is active they are written with `https://` and a `NODE_EXTRA_CA_CERTS` entry pointing at the CA.
+- **The CA is exported where clients can read it.** The certificate lives in a Docker volume, which is not a path a client process can open. It is now copied to `${HOME}/.flaiwheel/ca.pem` before client configs are written, so a config never references a file that does not exist. Override the location with `FLAIWHEEL_CLIENT_CA_PATH`.
+- **Certificates no longer contain values that change on every container start.** Automatic TLS previously added the container hostname and its Docker bridge address to the certificate. Both are per-container values, so a recreated container presented a certificate missing entries the previous one had; the completeness check then re-issued the leaf — and the CA with it — invalidating every client that had already trusted it. Certificates are now derived only from `MCP_SSE_ALLOWED_HOSTS` and loopback, which are stable configuration.
+- The closing summary quotes the exported CA path rather than the in-volume path, and states separately what a client on **another machine** must do.
+
+### Notes
+
+- Loopback is always certifiable, so agents on the Flaiwheel host connect with no extra configuration. A client on a different machine needs the CA copied to it and the `NODE_EXTRA_CA_CERTS` entry added to its own MCP config.
+- Existing certificates are reused, not replaced: the required names are a subset of what earlier versions issued, so upgrading does not change the CA and previously trusted clients keep working.
+
+---
+
 ## [3.15.1] — 2026-09-11 — The installer summary renders correctly again
 
 **Three defects in the closing summary, all introduced by `v3.14.3` and `v3.15.0`.** The summary is the only thing an operator reads after an install or upgrade, so a broken one makes a successful run look like a failed one.

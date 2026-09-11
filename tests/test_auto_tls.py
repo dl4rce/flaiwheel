@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import socket
 import stat
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,7 @@ from flaiwheel.tls import (
     collect_names,
     ensure_automatic_tls,
     fingerprint_of,
+    primary_ip,
 )
 
 
@@ -71,7 +73,7 @@ class TestClassifyHost:
 
 
 class TestCollectNames:
-    def test_always_covers_loopback_and_hostname(self):
+    def test_always_covers_loopback(self):
         dns, ips = collect_names([])
         assert "localhost" in dns
         assert "127.0.0.1" in ips
@@ -93,6 +95,30 @@ class TestCollectNames:
         dns, ips = collect_names(["localhost", "localhost", "127.0.0.1"])
         assert dns.count("localhost") == 1
         assert ips.count("127.0.0.1") == 1
+
+    def test_is_purely_config_derived(self):
+        """Regression: environment-derived names made re-issuance probable.
+
+        socket.gethostname() and the primary LAN address are per-container
+        values under Docker (a random container id and the ephemeral bridge
+        IP). Including them meant a recreated container presented a certificate
+        missing entries the previous one had, so the completeness check
+        re-issued the leaf -- and the CA with it -- invalidating every client
+        that had trusted it.
+        """
+        dns, ips = collect_names(["flaiwheel.example.com"], bind_host="0.0.0.0")
+        assert socket.gethostname() not in dns
+        assert socket.gethostname().split(".", 1)[0] not in dns
+        assert primary_ip() not in ips
+        # Nothing outside the configured set and loopback may appear.
+        assert set(dns) <= {"flaiwheel.example.com", "localhost"}
+        assert set(ips) <= {"127.0.0.1", "::1"}
+
+    def test_repeated_calls_return_identical_sets(self):
+        """The SAN set must be deterministic for a given configuration."""
+        first = collect_names(["a.example.com", "10.0.0.5"], bind_host="0.0.0.0")
+        second = collect_names(["a.example.com", "10.0.0.5"], bind_host="0.0.0.0")
+        assert first == second
 
 
 class TestGeneration:

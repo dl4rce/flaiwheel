@@ -165,6 +165,14 @@ def primary_ip() -> str | None:
     Uses a UDP ``connect`` to a documentation-range address: this performs
     no I/O and needs no network, it only asks the kernel which source
     address it *would* use.
+
+    NOTE: deliberately **not** used when building certificates. The kernel's
+    choice of source address is a property of the current network namespace,
+    so inside Docker it resolves to the container's ephemeral bridge address
+    (``172.17.0.x``) — a value that changes on every recreation. A SAN that
+    changes forces re-issuance, and re-issuance produces a new CA, which
+    invalidates every client that trusted the previous one. Kept here only
+    because it is genuinely useful for diagnostics.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -182,17 +190,28 @@ def collect_names(
 ) -> tuple[list[str], list[str]]:
     """Work out the DNS names and IP addresses a certificate must cover.
 
-    Everything is included that a client could plausibly type: the configured
-    allowed hosts, the machine's hostname, loopback, the address actually
-    bound to, and the primary LAN address. A name missing here is a
-    certificate-verification failure for that client, so it is better to
-    over-include than to be tidy.
+    The set is derived **only from configuration** — the ``MCP_SSE_ALLOWED_HOSTS``
+    entries and the bind address — plus loopback. Nothing is read from the
+    running environment.
+
+    That restriction is deliberate and it is what makes re-issuance safe.
+    Earlier versions also added ``socket.gethostname()`` and the primary LAN
+    address. Inside Docker those are per-container values (a random hostname
+    and the ephemeral bridge IP), so a recreated container presented a
+    certificate missing entries that the previous one had. The name-completeness
+    check then saw a gap, re-issued the leaf, and re-issued the **CA** with it —
+    invalidating every client that had already trusted it. Regenerating is the
+    one failure this module exists to avoid.
+
+    Dropping them costs nothing in practice: a client can only connect to a
+    host the transport guard already accepts, and that allowlist is exactly
+    what this function certifies. The two can no longer disagree.
     """
     dns: list[str] = []
     ips: list[str] = []
 
     def add_dns(name: str) -> None:
-        if name and name not in dns and not name.endswith(".localdomain"):
+        if name and name not in dns:
             dns.append(name)
 
     def add_ip(addr: str) -> None:
@@ -213,18 +232,11 @@ def collect_names(
         if addr:
             add_ip(addr)
 
-    hostname = socket.gethostname()
-    add_dns(hostname)
-    if "." in hostname:
-        add_dns(hostname.split(".", 1)[0])
-
+    # Loopback is always present: health checks and `ssh -L` forwards arrive
+    # as localhost, and they must keep working without extra configuration.
     add_dns("localhost")
     add_ip("127.0.0.1")
     add_ip("::1")
-
-    lan = primary_ip()
-    if lan:
-        add_ip(lan)
 
     return dns, ips
 

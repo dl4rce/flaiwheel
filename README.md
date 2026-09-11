@@ -85,9 +85,18 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
+## What’s New in v3.15.2 — TLS clients actually connect
+
+- **Enabling automatic TLS used to produce clients that could not connect.** The installer wrote every client config as `http://localhost:8081/sse` with no trust anchor, even against an HTTPS listener — and still reported "MCP registered". Cursor, Claude Code, VS Code / GitHub Copilot, Claude Desktop and the `claude mcp add` command now all use the URL the installer advertises, with `https://` and a `NODE_EXTRA_CA_CERTS` entry when TLS is active.
+- **The CA is exported to where a client can actually read it.** The certificate lives in a Docker volume, which is not a path a client process can open. It is copied to `${HOME}/.flaiwheel/ca.pem` before client configs are written (override with `FLAIWHEEL_CLIENT_CA_PATH`), so a config never points at a file that does not exist. Agents on the Flaiwheel host now connect with no manual step.
+- **Certificates no longer contain values that change on every container start.** The container hostname and its Docker bridge address were being added to the SANs. Both are per-container values, so a recreated container presented a certificate missing entries the previous one had; the completeness check then re-issued the leaf — and the CA with it — silently invalidating every client that had already trusted it. The SAN set now comes only from `MCP_SSE_ALLOWED_HOSTS` and loopback.
+- **Upgrading does not change your CA.** The new required names are a subset of what `v3.15.0`/`v3.15.1` issued, so existing material is reused and previously trusted clients keep working.
+- **The summary stops quoting the in-volume path** and states separately what a client on another machine must do.
+- **Tests: 455 → 467**, including assertions that every generated config parses as JSON in both TLS states and that no config writer hardcodes an endpoint.
+
 ## What’s New in v3.15.0 — Flaiwheel issues its own TLS certificate
 
-- **A LAN deployment can now be encrypted without the operator touching a certificate tool.** No public CA will issue for `192.168.178.230`, so the only previous options were `openssl` by hand or a proxy. Set `MCP_SSE_TLS_AUTO=true` and Flaiwheel generates a private CA plus a server certificate on first start, covering the configured hosts, the hostname, loopback and the machine's LAN address.
+- **A LAN deployment can now be encrypted without the operator touching a certificate tool.** No public CA will issue for `192.168.178.230`, so the only previous options were `openssl` by hand or a proxy. Set `MCP_SSE_TLS_AUTO=true` and Flaiwheel generates a private CA plus a server certificate on first start, covering the configured hosts and loopback.
 - **Everything on Flaiwheel's side is automatic, and repeated starts are safe.** Material is persisted in `/data/tls` and **reused** while it is valid and still covers the requested names — an upgrade does not change the fingerprint, so a client that pinned the CA stays valid. A certificate that has gone stale, stopped covering a host, or lost its matching key is re-issued, with the reason logged.
 - **One thing it genuinely cannot do: make another machine trust the CA.** The container has no access to a client's trust store — the same boundary that forces `mkcert` to run a per-machine step. So the startup log prints the fingerprint and the exact `NODE_EXTRA_CA_CERTS=...` line for the client's env block. That is the floor, and it is real TLS: encryption *and* identity, with the CA pinned by trust-on-first-use.
 - **No `NODE_TLS_REJECT_UNAUTHORIZED=0` anywhere in this path.** The easy way to "make HTTPS work" is to disable verification, which defends against nothing; it is not offered as an option here.
@@ -462,6 +471,7 @@ FLAIWHEEL_WEB_BIND=127.0.0.1 FLAIWHEEL_SSE_BIND=127.0.0.1 \
 | `FLAIWHEEL_WEB_BIND` | `0.0.0.0` | Host bind address for the Web UI |
 | `FLAIWHEEL_SSE_BIND` | `0.0.0.0` | Host bind address for MCP SSE |
 | `FLAIWHEEL_AGGRESSIVE_CLEANUP` | `0` | Allow host-wide Docker pruning (`docker image prune -af`, `docker container prune -f`, `systemctl stop docker`) |
+| `FLAIWHEEL_CLIENT_CA_PATH` | `$HOME/.flaiwheel/ca.pem` | Where the installer exports the TLS CA so clients on this host can trust it |
 
 On a **shared** host, leave `FLAIWHEEL_AGGRESSIVE_CLEANUP` unset. Those commands affect every project and container on the machine — `systemctl stop docker` stops *all* containers — so they are off by default and only run when you explicitly opt in.
 
@@ -607,21 +617,36 @@ docker run -d --name flaiwheel -p 8080:8080 -p 8081:8081 \
 ```
 
 On first start it generates a private CA and a server certificate into
-`/data/tls`, covering the configured hosts, the hostname, loopback and the
-machine's LAN address automatically. It is **idempotent**: restarts and
+`/data/tls`, covering the configured hosts and loopback — deliberately
+**only** those. The set is derived from configuration and never from the
+running environment, which is what makes it **idempotent**: restarts and
 upgrades reuse the existing material, so a client that pinned the CA stays
-valid. The startup log prints the fingerprint and the one line a client needs.
+valid. (The container hostname and its Docker bridge address used to be
+included and are per-container values; a recreated container then presented a
+certificate missing entries the previous one had, so the completeness check
+re-issued the leaf *and* the CA, silently invalidating every client that had
+trusted it.)
 
-**The one step Flaiwheel cannot do for you.** It cannot reach into another
-machine's trust store — the container has no access to it, which is why even
-`mkcert` needs a per-machine install. Each client machine must be told once.
-For Node-based clients (Cursor, Claude Code, VS Code) add it to the env block
-in the MCP config:
+**Clients on the Flaiwheel host need no manual step.** The installer writes
+every client config with the correct scheme and a `NODE_EXTRA_CA_CERTS` entry,
+and exports the CA to `${HOME}/.flaiwheel/ca.pem` first — the in-volume path is
+not something a client process can open. Override with
+`FLAIWHEEL_CLIENT_CA_PATH`. Because loopback is always in the certificate,
+`https://localhost:8081/sse` works from the host itself.
+
+**The one step Flaiwheel cannot do for you** is reach into *another* machine's
+trust store — the container has no access to it, which is why even `mkcert`
+needs a per-machine install. Copy the CA over and add it to that client's env
+block in its own MCP config:
+
+```bash
+docker cp flaiwheel:/data/tls/ca.pem ./flaiwheel-ca.pem
+```
 
 ```json
 { "mcpServers": { "flaiwheel": { "type": "sse",
   "url": "https://192.168.178.230:8081/sse",
-  "env": { "NODE_EXTRA_CA_CERTS": "/data/tls/ca.pem" } } } }
+  "env": { "NODE_EXTRA_CA_CERTS": "/absolute/path/to/flaiwheel-ca.pem" } } } }
 ```
 
 That is genuine TLS — encryption *and* identity — with the CA pinned via

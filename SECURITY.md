@@ -85,15 +85,22 @@ requested encryption must never unknowingly receive cleartext. The Web UI
 public CA, so obtaining a certificate for a LAN deployment is not possible in
 the normal way. With this flag Flaiwheel issues its own: a private CA plus a
 server certificate, generated on first start into `MCP_SSE_TLS_DIR`
-(`/data/tls`), covering the allowlisted hosts, the hostname, loopback and the
-machine's LAN address.
+(`/data/tls`), covering the allowlisted hosts and loopback — deliberately only
+those. The name set comes from configuration, never from the running
+environment, so it is stable across restarts and the CA is not silently
+replaced.
 
 What this does and does not give you:
 
 - ✅ **Confidentiality** — the link is encrypted (verified: TLSv1.3).
 - ✅ **Server identity** — provided each client pins the CA once via
-  `NODE_EXTRA_CA_CERTS=/data/tls/ca.pem`. This is trust-on-first-use, so the
-  protection holds from the first connection onward.
+  `NODE_EXTRA_CA_CERTS=...`. This is trust-on-first-use, so the protection
+  holds from the first connection onward. The installer exports the CA to
+  `${HOME}/.flaiwheel/ca.pem` (`FLAIWHEEL_CLIENT_CA_PATH`) and writes that path
+  into the client configs it generates, so clients on the Flaiwheel host are
+  configured automatically. A client on another machine needs the CA copied to
+  it — the container cannot reach another machine's trust store, which is the
+  same boundary that forces `mkcert` to run a per-machine step.
 - ⚠️ **No third-party attestation.** Nothing outside your deployment vouches
   for the certificate. That is the trade-off for a private address, and it is
   why the CA must stay in a persistent volume — regenerating it invalidates

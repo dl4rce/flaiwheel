@@ -19,6 +19,7 @@ Background (2026-09-11, CT122):
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
@@ -428,12 +429,17 @@ class TestTlsStatusIsReported:
             "came out short under LC_ALL=C"
         )
 
-    def test_auto_state_reports_the_ca_and_client_hint(self, src: str):
+    def test_auto_state_reports_a_host_readable_ca_and_the_anchor(self, src: str):
         # Anchor on the summary's own branch, not the container-setup one.
         idx = src.index('echo -e "    TLS:')
-        tail = src[idx : idx + 1400]
-        assert "SSE_CA_PATH" in tail
+        tail = src[idx : idx + 1800]
+        # The in-volume path (/data/tls/ca.pem) is not readable by a client
+        # process, so the summary must quote the exported host path instead.
+        assert "CLIENT_CA_PATH" in tail
+        assert "SSE_CA_PATH" not in tail
         assert "NODE_EXTRA_CA_CERTS" in tail
+        # And it must distinguish this host from other machines.
+        assert "another machine" in tail.lower() or "other machine" in tail.lower()
 
 
 class TestUpgradeIsNotAnOutage:
@@ -448,3 +454,111 @@ class TestUpgradeIsNotAnOutage:
         assert "OLD_MCP_ENV=" in src
         assert "carried_env" in src
         assert "^MCP_(GIT_REPO_URL|GIT_AUTO_PUSH|WEBHOOK_SECRET|GIT_TOKEN)=" in src
+
+
+class TestGeneratedClientConfigsMatchTls:
+    """Client configs must describe the endpoint that is actually served.
+
+    Every generated config previously hardcoded ``http://localhost:8081/sse``
+    with no trust anchor. Enabling TLS therefore produced configs that could not
+    connect — an http:// URL against an https listener, and an untrusted
+    self-signed certificate — while the installer still reported success. The
+    summary advertised ``https://`` and the clients were told ``http://``.
+    """
+
+    @staticmethod
+    def _entry(src: str, scheme: str, tls_auto: str) -> dict:
+        """Build the client entry the way the installer does, and parse it."""
+        def fn(name: str) -> str:
+            start = src.index(f"{name}() {{")
+            end = src.index("\n}\n", start) + len("\n}\n")
+            return src[start:end]
+
+        script = (
+            "GREEN=''; NC=''\n"
+            f"_SSE_SCHEME={scheme!r}\n"
+            f"TLS_AUTO={tls_auto!r}\n"
+            "CLIENT_CA_PATH='/home/u/.flaiwheel/ca.pem'\n"
+            'CLIENT_SSE_URL="${_SSE_SCHEME}://localhost:8081/sse"\n'
+            f"{fn('_client_entry_json')}\n"
+            "_client_entry_json\n"
+        )
+        out = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        return json.loads(out)
+
+    @staticmethod
+    def _entry_file(src: str, scheme: str, tls_auto: str) -> dict:
+        """Assemble a full config file via the heredoc path, then parse it."""
+        start = src.index("_client_entry_body() {")
+        end = src.index("\n}\n", start) + len("\n}\n")
+        body = src[start:end]
+        script = (
+            "GREEN=''; NC=''\n"
+            f"_SSE_SCHEME={scheme!r}\n"
+            f"TLS_AUTO={tls_auto!r}\n"
+            "CLIENT_CA_PATH='/home/u/.flaiwheel/ca.pem'\n"
+            'CLIENT_SSE_URL="${_SSE_SCHEME}://localhost:8081/sse"\n'
+            f"{body}\n"
+            'cat << EOF\n'
+            '{\n  "mcpServers": {\n    "flaiwheel": {\n'
+            '$(_client_entry_body "      ")\n'
+            '    }\n  }\n}\nEOF\n'
+        )
+        out = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=True
+        ).stdout
+        return json.loads(out)
+
+    @pytest.mark.parametrize("tls_auto", ["0", "1"])
+    def test_single_line_entry_is_valid_json(self, src: str, tls_auto: str):
+        entry = self._entry(src, "https", tls_auto)
+        assert entry["type"] == "sse"
+
+    @pytest.mark.parametrize("tls_auto", ["0", "1"])
+    def test_heredoc_entry_is_valid_json(self, src: str, tls_auto: str):
+        cfg = self._entry_file(src, "https", tls_auto)
+        assert cfg["mcpServers"]["flaiwheel"]["type"] == "sse"
+
+    def test_tls_on_uses_https_and_sets_the_trust_anchor(self, src: str):
+        entry = self._entry(src, "https", "1")
+        assert entry["url"].startswith("https://")
+        assert entry["env"]["NODE_EXTRA_CA_CERTS"].endswith("ca.pem")
+
+    def test_heredoc_entry_also_carries_the_anchor_when_tls_on(self, src: str):
+        cfg = self._entry_file(src, "https", "1")
+        entry = cfg["mcpServers"]["flaiwheel"]
+        assert entry["url"].startswith("https://")
+        assert "NODE_EXTRA_CA_CERTS" in entry["env"]
+
+    def test_tls_off_is_unchanged_and_needs_no_anchor(self, src: str):
+        entry = self._entry(src, "http", "0")
+        assert entry["url"] == "http://localhost:8081/sse"
+        assert "env" not in entry
+
+    def test_no_config_writer_hardcodes_the_url(self, src: str):
+        """Only the CLIENT_SSE_URL definition (and its comment) may contain it."""
+        offenders = [
+            (i + 1, ln.strip())
+            for i, ln in enumerate(src.splitlines())
+            if "http://localhost:8081/sse" in ln
+            and not ln.strip().startswith("#")
+            and "CLIENT_SSE_URL=" not in ln
+        ]
+        assert not offenders, f"hardcoded endpoint remains: {offenders}"
+
+    def test_ca_is_exported_before_client_configs_are_written(self, src: str):
+        export = src.index("_export_client_ca\n")
+        first_writer = src.index("_phase6_cursor_mcp  &")
+        assert export < first_writer, (
+            "a config pointing at a CA file that does not exist yet is worse "
+            "than no config"
+        )
+
+    def test_ca_export_is_gated_on_tls(self, src: str):
+        body = src[src.index("_export_client_ca() {") :]
+        body = body[: body.index("\n}\n")]
+        assert '[ "$TLS_AUTO" = "1" ] || return 0' in body
+        # Copying from a container that was never created must not abort the run.
+        assert "|| true" in body or "|| return" in body
