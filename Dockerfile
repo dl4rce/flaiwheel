@@ -16,18 +16,34 @@ RUN apt-get update && \
 
 WORKDIR /app
 
+COPY security-constraints.txt ./
+
 # Install CPU-only PyTorch FIRST — prevents sentence-transformers from pulling
 # the full CUDA/cuDNN stack (~7GB of nvidia libs, useless without a GPU).
 # This alone shrinks the image from ~8GB to ~1GB.
 RUN uv pip install --system --no-cache --prefix=/install \
-    torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    torch torchvision --no-deps --index-url https://download.pytorch.org/whl/cpu
 
 COPY pyproject.toml README.md ./
 COPY src/ src/
 
 # uv installs in parallel using all available cores.
 # torch is already satisfied from CPU index above — won't be re-downloaded.
-RUN uv pip install --system --no-cache --prefix=/install '.[full]'
+RUN uv pip install --system --no-cache --prefix=/install \
+    --constraint security-constraints.txt '.[full]' setuptools wheel pillow filelock
+
+# Build the scanner from its release source with patched transitive modules.
+# Upstream release binaries can retain an older Go standard library.
+FROM golang:1.27.3 AS scanner
+ARG GITLEAKS_VERSION=8.30.1
+WORKDIR /scanner
+RUN git clone --depth 1 --branch "v${GITLEAKS_VERSION}" \
+    https://github.com/gitleaks/gitleaks.git . \
+    && go get github.com/klauspost/compress@v1.18.7 \
+        golang.org/x/crypto@v0.55.0 golang.org/x/text@v0.41.0 \
+    && CGO_ENABLED=0 go build -trimpath \
+        -ldflags="-s -w -X github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
+        -o /gitleaks .
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────
 # Only the installed packages are copied — no build tools, no compiler.
@@ -35,29 +51,23 @@ RUN uv pip install --system --no-cache --prefix=/install '.[full]'
 FROM python:3.12-slim
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends git curl && \
     rm -rf /var/lib/apt/lists/*
 
 # gitleaks — commits are created INSIDE this container by the watcher, so the
 # secret scanner must live here too. A scanner on the host never sees them.
-ARG GITLEAKS_VERSION=8.30.0
-RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; \
-    case "$arch" in \
-      amd64) gl_arch=x64 ;; \
-      arm64) gl_arch=arm64 ;; \
-      *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL -o /tmp/gitleaks.tar.gz \
-      "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${gl_arch}.tar.gz"; \
-    tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks; \
-    rm /tmp/gitleaks.tar.gz; \
-    gitleaks version
+COPY --from=scanner /gitleaks /usr/local/bin/gitleaks
+RUN gitleaks version
 
 WORKDIR /app
 
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
+RUN python -m pip check \
+    && python -m pip uninstall -y pip
+# Runtime installs, when needed, use uv; pip's bundled dependency copies are removed.
 
 # Copy application source and scripts
 COPY src/ src/

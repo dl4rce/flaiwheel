@@ -85,6 +85,24 @@ Flaiwheel is a self-contained Docker service that operates on three levels:
 
 ---
 
+## What’s New in v3.16.0 — Dependency security refresh
+
+- Docker builds apply available Debian security updates, including the native Brotli decoder fix for CVE-2026-111497.
+- Security constraints require patched Pillow, filelock and Python packaging tools, and prevent vulnerable optional Python Brotli bindings from entering the image.
+- Gitleaks 8.30.1 is rebuilt with patched Go dependencies. CPU-only PyTorch remains in use.
+- The runtime uses `uv` for maintenance installs instead of pip and its bundled libraries.
+- Rebuild and replace the container to receive dependency updates; preserve both data volumes and existing deployment settings. MCP client configuration is unchanged.
+
+For a manual build with fresh dependency layers:
+
+```bash
+docker build --pull --no-cache --build-arg FLAIWHEEL_VERSION=3.16.0 -t flaiwheel:3.16.0 .
+```
+
+`security-constraints.txt` applies to the image build. For a source installation,
+pass `-c security-constraints.txt` to `pip install`. Constraints do not install
+optional packages by themselves.
+
 ## What’s New in v3.15.3 — Plain HTTP remains the default
 
 - A new installation uses `http://host:8081/sse`. This is the recommended configuration until the Web UI provides TLS activation, CA download, and operating-system installation instructions. An update preserves its existing mode unless `FLAIWHEEL_TLS_AUTO=0` or `1` is set explicitly.

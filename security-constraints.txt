@@ -1,0 +1,11 @@
+# Security floors for transitive image dependencies; constraints do not install extras.
+# CVE-2026-111497: Python bindings bundle their own Brotli decoder.
+brotlicffi>=1.2.1.0
+Brotli>=1.2.1
+# Keep build/runtime tooling and vendored helpers on patched releases.
+setuptools>=84.2.1,<85
+wheel>=0.46.2,<1
+jaraco.context>=6.1.0,<7
+# Security fixes require these major upgrades; validate against the full suite.
+pillow>=13.0.0,<14
+filelock>=4.2.1,<5

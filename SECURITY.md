@@ -131,6 +131,26 @@ environment variables. Both `FASTMCP_HOST` and
 read and silently discarded. Use `MCP_SSE_HOST` and
 `MCP_SSE_ALLOWED_HOSTS` instead.
 
+## Image dependency security policy
+
+Image builds use `security-constraints.txt` for patched dependency floors and
+apply available Debian package updates. Optional Brotli bindings are constrained
+but not installed unless required. The native Debian Brotli library uses the
+vendor's security backport; a lower upstream version number does not by itself
+mean the package is vulnerable.
+
+Gitleaks is compiled from release source using a patched Go toolchain and module
+versions. The runtime contains `uv` rather than pip's vendored dependency tree.
+For maintenance installs use `uv pip install --system`, with the security
+constraints supplied when installing application dependencies.
+
+The v3.16.0 arm64 candidate scan found no fixable HIGH/CRITICAL vulnerabilities.
+It still reported 53 Debian package occurrences and four Chroma advisories
+without vendor fixes. This is not a vulnerability-free image claim. Keep the
+service restricted to trusted clients and review new vendor fixes before the
+next rebuild. The production deployment must be rebuilt/replaced separately;
+source updates do not patch an already running container.
+
 ## Dependency Auditing
 
 Project dependencies are audited with `pip-audit` against the OSV database. No known vulnerabilities exist in the current release (`pip-audit .` returns clean).

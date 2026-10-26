@@ -7,6 +7,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.16.0] — 2026-10-26 — Dependency security refresh
+
+### Security
+
+- Refresh Docker base packages and apply available Debian security updates during the runtime build, including the native Brotli decoder fix for CVE-2026-111497.
+- Add `security-constraints.txt` to reject vulnerable optional Python Brotli bindings (`brotlicffi<1.2.1.0`, `Brotli<1.2.1`) without installing unused compression extras.
+- Require patched Pillow, filelock and Python packaging tools in the image. Resolve non-PyTorch dependencies from PyPI instead of the CPU wheel index, which carried stale packaging tools.
+- Build gitleaks 8.30.1 from release source with Go 1.27.3 and patched compression and cryptography modules instead of using the upstream binary's stale dependencies.
+- Remove pip and its vulnerable vendored libraries from the runtime image; `uv pip install --system` remains available for explicit maintenance installs.
+
+### Upgrading
+
+- Rebuild the image with fresh base layers and dependency resolution. Existing containers do not receive dependency fixes until replaced with the rebuilt image; preserve `/data`, `/docs` and deployment settings.
+- No MCP client configuration changes are required.
+
 ## [3.15.3] — 2026-09-11 — Plain HTTP remains the default
 
 ### Changed
